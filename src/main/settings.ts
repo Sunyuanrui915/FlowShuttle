@@ -15,7 +15,7 @@ const defaultAiConfig: AiConfig = {
   apiKeyPreview: ""
 };
 const defaultConfig: AppConfig = {
-  theme: "system",
+  theme: "light",
   dataDirectory: null,
   language: "zh-CN",
   ai: defaultAiConfig

@@ -2689,16 +2689,6 @@ function TodayPage({
             <StatCard label={t("statsCompletedToday")} value={dailyView.stats.completedToday} suffix={t("unitCount")} icon={Check} tone="green" />
           </div>
 
-          {isClosed && (
-            <div className="closed-banner">
-              <Check size={18} />
-              <div>
-                <strong>{t("dailyJournalClosedTitle")}</strong>
-                <span>{t("dailyJournalClosedBody")}</span>
-              </div>
-            </div>
-          )}
-
           <section className="today-projects-panel">
             <header className="today-section-header">
               <div>
