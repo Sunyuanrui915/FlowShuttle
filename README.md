@@ -1,6 +1,6 @@
 # 流梭 Flow Shuttle
 
-English | 简体中文
+[简体中文](#简体中文) | [English](#english)
 
 ## 简体中文
 
@@ -47,7 +47,7 @@ English | 简体中文
 - Node.js 20 或更新版本。
 - npm 10 或更新版本。
 
-可用命令：
+常用开发命令：
 
 ```bash
 npm install
@@ -55,6 +55,12 @@ npm run dev
 npm run typecheck
 npm run build
 npm run dist
+```
+
+开发辅助命令：
+
+```bash
+# 仅开发调试使用，用于生成本地测试数据。
 npm run create:test-data
 ```
 
@@ -125,7 +131,7 @@ Recommended environment:
 - Node.js 20 or newer.
 - npm 10 or newer.
 
-Available commands:
+Common development commands:
 
 ```bash
 npm install
@@ -133,6 +139,12 @@ npm run dev
 npm run typecheck
 npm run build
 npm run dist
+```
+
+Development helper commands:
+
+```bash
+# Development/debugging only. Generates local test data.
 npm run create:test-data
 ```
 
