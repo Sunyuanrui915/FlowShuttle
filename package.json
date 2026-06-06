@@ -1,0 +1,53 @@
+{
+  "name": "flowshuttle",
+  "version": "0.1.0",
+  "description": "Local-first personal work progress journal",
+  "main": "out/main/index.js",
+  "author": "Flow Shuttle",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run typecheck && electron-vite build",
+    "dist": "npm run build && electron-builder --dir",
+    "create:test-data": "electron scripts/create-test-data.cjs",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@toast-ui/editor": "^3.2.2",
+    "better-sqlite3": "^12.9.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  },
+  "build": {
+    "appId": "local.work-progress-journal",
+    "productName": "Flow Shuttle",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "win": {
+      "target": "dir",
+      "signAndEditExecutable": false
+    }
+  }
+}
