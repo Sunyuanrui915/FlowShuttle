@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from "electron";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -70,6 +71,7 @@ import type {
 
 const appDisplayName = "Flow Shuttle";
 const userDataDirectoryName = "Flow Shuttle";
+const appIconRelativePath = join("assets", "icons", "flow-shuttle-icon.ico");
 const dailyAutoReportHour = 23;
 const dailyAutoReportMinute = 0;
 let dailyAutoReportTimer: ReturnType<typeof setTimeout> | null = null;
@@ -150,7 +152,13 @@ function notifySettingsChanged(): void {
   }
 }
 
+function resolveWindowIconPath(): string | undefined {
+  const candidates = [join(app.getAppPath(), appIconRelativePath), join(process.cwd(), appIconRelativePath)];
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
 function createWindow(): void {
+  const windowIconPath = resolveWindowIconPath();
   const mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -160,6 +168,7 @@ function createWindow(): void {
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#151922" : "#f6f8fb",
     autoHideMenuBar: true,
     show: false,
+    ...(windowIconPath ? { icon: windowIconPath } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,

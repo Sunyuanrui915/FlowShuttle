@@ -44,12 +44,16 @@
     },
     "files": [
       "out/**/*",
+      "assets/icons/**/*",
       "node_modules/**/*"
     ],
+    "icon": "assets/icons/flow-shuttle-icon.ico",
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*"
     ],
+    "afterPack": "scripts/apply-win-icon.cjs",
     "win": {
+      "icon": "assets/icons/flow-shuttle-icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -66,7 +70,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Flow Shuttle"
+      "shortcutName": "Flow Shuttle",
+      "installerIcon": "assets/icons/flow-shuttle-icon.ico",
+      "uninstallerIcon": "assets/icons/flow-shuttle-icon.ico"
     },
     "publish": [
       {
