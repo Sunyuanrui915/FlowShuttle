@@ -47,6 +47,12 @@
       "assets/icons/**/*",
       "node_modules/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "assets/icons/flow-shuttle-icon.ico",
+        "to": "assets/icons/flow-shuttle-icon.ico"
+      }
+    ],
     "icon": "assets/icons/flow-shuttle-icon.ico",
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*"
@@ -67,6 +73,7 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
+      "include": "scripts/installer-shortcuts.nsh",
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
