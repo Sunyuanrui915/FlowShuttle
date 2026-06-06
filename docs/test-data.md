@@ -11,12 +11,12 @@ npm run create:test-data
 默认输出目录：
 
 ```text
-dev-data/work-progress-journal-test-data/
+dev-data/flow-shuttle-test-data/
 ```
 
 目录中会生成：
 
-- `work-progress-journal.sqlite`
+- `flow-shuttle.sqlite`
 - `README.md`
 
 如果目录中已经存在测试数据库，脚本会拒绝覆盖。需要重新生成时可显式执行：
@@ -25,7 +25,7 @@ dev-data/work-progress-journal-test-data/
 npm run create:test-data -- --force
 ```
 
-`--force` 只会替换 `dev-data/work-progress-journal-test-data/` 中的测试数据库文件，不会触碰 Electron `userData` 或你的真实数据目录。
+`--force` 只会替换 `dev-data/flow-shuttle-test-data/` 中的测试数据库文件，不会触碰 Electron `userData` 或你的真实数据目录。
 
 ## 在应用中使用测试数据
 
@@ -33,7 +33,7 @@ npm run create:test-data -- --force
 2. 打开流梭。
 3. 进入 Settings。
 4. 点击“使用已有数据目录”。如果你使用的是当前支持切换已有数据库的“更改数据目录”入口，也可以选择同一个目录并确认切换。
-5. 选择 `dev-data/work-progress-journal-test-data/`。
+5. 选择 `dev-data/flow-shuttle-test-data/`。
 6. 应用会读取该目录中的测试项目、工作项、日报、周报、月报和热力图数据。
 7. 测试完成后，再通过 Settings 切回你的真实数据目录。
 

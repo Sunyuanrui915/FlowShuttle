@@ -429,11 +429,6 @@ export function getCurrentDataDirectory(): string {
   return resolveDataDirectory().dataDirectory;
 }
 
-function isWorkspaceTestDataDirectory(targetDirectory: string, targetDatabasePath: string): boolean {
-  const expectedDirectory = resolve(process.cwd(), "dev-data", "work-progress-journal-test-data");
-  return pathsEqual(targetDirectory, expectedDirectory) && existsSync(targetDatabasePath);
-}
-
 function attachmentsDirectory(dataDirectory = getCurrentDataDirectory()): string {
   return resolve(dataDirectory, "attachments");
 }
@@ -3871,8 +3866,7 @@ export async function migrateDatabaseToDirectory(
 
   const workspaceRoot = resolve(process.cwd());
   const appPath = resolve(app.getAppPath());
-  const allowedTestDataDirectory = isWorkspaceTestDataDirectory(targetDirectory, targetDatabasePath);
-  if (!allowedTestDataDirectory && (isInsideDirectory(targetDirectory, workspaceRoot) || isInsideDirectory(targetDirectory, appPath))) {
+  if (isInsideDirectory(targetDirectory, workspaceRoot) || isInsideDirectory(targetDirectory, appPath)) {
     throw new Error("不能把数据库目录设置在源码目录或开发工作区内。");
   }
 
@@ -3965,8 +3959,7 @@ export async function useExistingDatabaseDirectory(selectedDirectory: string): P
 
   const workspaceRoot = resolve(process.cwd());
   const appPath = resolve(app.getAppPath());
-  const allowedTestDataDirectory = isWorkspaceTestDataDirectory(targetDirectory, targetDatabasePath);
-  if (!allowedTestDataDirectory && (isInsideDirectory(targetDirectory, workspaceRoot) || isInsideDirectory(targetDirectory, appPath))) {
+  if (isInsideDirectory(targetDirectory, workspaceRoot) || isInsideDirectory(targetDirectory, appPath)) {
     throw new Error("不能把数据库目录设置在源码目录或开发工作区内。");
   }
 

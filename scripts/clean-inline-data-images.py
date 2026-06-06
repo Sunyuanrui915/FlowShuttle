@@ -74,7 +74,7 @@ def clean_inline_data_images(value):
 def create_backup(database_path, backup_dir):
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = backup_dir / f"work-progress-journal.before-data-image-cleanup-{stamp}.sqlite"
+    backup_path = backup_dir / f"flow-shuttle.before-data-image-cleanup-{stamp}.sqlite"
     shutil.copy2(database_path, backup_path)
     if backup_path.stat().st_size != database_path.stat().st_size:
         raise RuntimeError("Backup size mismatch; cleanup aborted.")

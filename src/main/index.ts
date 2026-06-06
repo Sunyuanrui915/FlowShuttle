@@ -69,13 +69,13 @@ import type {
 } from "../shared/types";
 
 const appDisplayName = "Flow Shuttle";
-const legacyUserDataDirectoryName = "Work Progress Journal";
+const userDataDirectoryName = "Flow Shuttle";
 const dailyAutoReportHour = 23;
 const dailyAutoReportMinute = 0;
 let dailyAutoReportTimer: ReturnType<typeof setTimeout> | null = null;
 
 app.setName(appDisplayName);
-app.setPath("userData", join(app.getPath("appData"), legacyUserDataDirectoryName));
+app.setPath("userData", join(app.getPath("appData"), userDataDirectoryName));
 
 function titleForLanguage(language: LanguagePreference): string {
   return language === "en" ? "Flow Shuttle" : "流梭";

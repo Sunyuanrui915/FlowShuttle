@@ -5,9 +5,9 @@ const path = require("node:path");
 
 const rootDir = path.resolve(__dirname, "..");
 const devDataRoot = path.join(rootDir, "dev-data");
-const dataDir = path.join(devDataRoot, "work-progress-journal-test-data");
-const dbPath = path.join(dataDir, "work-progress-journal.sqlite");
-const tempDbPath = path.join(dataDir, "work-progress-journal.sqlite.tmp");
+const dataDir = path.join(devDataRoot, "flow-shuttle-test-data");
+const dbPath = path.join(dataDir, "flow-shuttle.sqlite");
+const tempDbPath = path.join(dataDir, "flow-shuttle.sqlite.tmp");
 const force = process.argv.includes("--force");
 const statsOnly = process.argv.includes("--stats");
 
@@ -707,7 +707,7 @@ function main() {
     [
       "# 流梭 Flow Shuttle 测试数据目录",
       "",
-      "这个目录用于本地开发和回归验证。它包含一个完整的 `work-progress-journal.sqlite`，可以通过应用 Settings 中的“使用已有数据目录”读取。",
+      "这个目录用于本地开发和回归验证。它包含一个完整的 `flow-shuttle.sqlite`，可以通过应用 Settings 中的“使用已有数据目录”读取。",
       "",
       "使用方式：",
       "1. 打开流梭。",

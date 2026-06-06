@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import type { AiConfig, AiProvider, AppConfig, EffectiveTheme, LanguagePreference, SettingsInfo, ThemePreference } from "../shared/types";
 
 const configFileName = "app-config.json";
-const databaseFileName = "work-progress-journal.sqlite";
+const databaseFileName = "flow-shuttle.sqlite";
 const defaultAiConfig: AiConfig = {
   enabled: false,
   provider: "openai-compatible",
