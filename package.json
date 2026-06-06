@@ -9,7 +9,9 @@
     "dev": "electron-vite dev",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "npm run typecheck && electron-vite build",
-    "dist": "npm run build && electron-builder --dir",
+    "dist:dir": "npm run build && electron-builder --dir",
+    "dist:win": "npm run build && electron-builder --win nsis",
+    "dist": "npm run dist:win",
     "create:test-data": "electron scripts/create-test-data.cjs",
     "postinstall": "electron-builder install-app-deps"
   },
@@ -35,6 +37,7 @@
   "build": {
     "appId": "app.flowshuttle",
     "productName": "Flow Shuttle",
+    "artifactName": "FlowShuttle-${version}-setup.${ext}",
     "directories": {
       "output": "release"
     },
@@ -46,8 +49,23 @@
       "node_modules/better-sqlite3/**/*"
     ],
     "win": {
-      "target": "dir",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Flow Shuttle"
     }
   }
 }

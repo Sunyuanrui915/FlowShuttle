@@ -36,11 +36,15 @@
 
 当前仓库仍处于公开前整理阶段，暂不提供公开下载。
 
-`v0.1.0` 发布后，普通用户请从 GitHub Releases 下载对应系统的安装包。开发者可以从源码运行项目。
+当前安装包仍处于私有测试阶段，不提供公开下载链接。
+
+`v0.1.0` 发布后，普通用户请优先从 GitHub Releases 下载对应系统的安装包。如果只是日常使用流梭，不需要从源码运行项目。
 
 ### 本地开发
 
 当前项目使用 Electron、React、TypeScript 和 SQLite。
+
+本地开发只面向需要调试、验证问题或参与贡献的开发者。源码运行命令用于开发环境，不是普通用户的安装方式。
 
 建议环境：
 
@@ -120,11 +124,15 @@ After the repository is public, regular users can download installers from GitHu
 
 This repository is still being prepared before public release, so public downloads are not available yet.
 
-After `v0.1.0` is released, regular users should download the installer for their system from GitHub Releases. Developers can run the project from source.
+The current installer is still in private testing and does not provide a public download link.
+
+After `v0.1.0` is released, regular users should prefer downloading the installer for their system from GitHub Releases. If you only use Flow Shuttle day to day, you do not need to run the project from source.
 
 ### Local Development
 
 Flow Shuttle currently uses Electron, React, TypeScript, and SQLite.
+
+Local development is intended for developers who need to debug, verify issues, or contribute. Source commands are for development environments, not the regular user installation path.
 
 Recommended environment:
 
