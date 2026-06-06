@@ -47,6 +47,7 @@ import {
 import { clearAiApiKey, draftDailyChange, getAiSettings, refineAiReport, saveAiSettings, testAiConnection } from "./ai";
 import { getLocalDateKey } from "./date";
 import { applyThemeFromConfig, getThemePreference, loadConfig, setLanguagePreference, setThemePreference } from "./settings";
+import { initializeAutoUpdater } from "./updater";
 import type {
   AiRefineReportInput,
   AiDraftDailyChangeInput,
@@ -354,6 +355,7 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   scheduleDailyAutoReport();
+  initializeAutoUpdater();
 
   nativeTheme.on("updated", () => {
     if (getThemePreference() === "system") {

@@ -40,6 +40,8 @@
 
 `v0.1.0` 发布后，普通用户请优先从 GitHub Releases 下载对应系统的安装包。如果只是日常使用流梭，不需要从源码运行项目。
 
+`v0.1.0` 将预留自动更新框架；真实自动更新会在公开 Release 后通过后续版本验证。
+
 ### 本地开发
 
 当前项目使用 Electron、React、TypeScript 和 SQLite。
@@ -127,6 +129,8 @@ This repository is still being prepared before public release, so public downloa
 The current installer is still in private testing and does not provide a public download link.
 
 After `v0.1.0` is released, regular users should prefer downloading the installer for their system from GitHub Releases. If you only use Flow Shuttle day to day, you do not need to run the project from source.
+
+`v0.1.0` will reserve the auto-update foundation. Real auto-update behavior will be verified through later versions after public Releases are available.
 
 ### Local Development
 

@@ -18,6 +18,7 @@
   "dependencies": {
     "@toast-ui/editor": "^3.2.2",
     "better-sqlite3": "^12.9.0",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
@@ -66,6 +67,14 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Flow Shuttle"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Sunyuanrui915",
+        "repo": "FlowShuttle",
+        "releaseType": "release"
+      }
+    ]
   }
 }
