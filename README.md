@@ -1,159 +1,172 @@
-# 流梭 Flow Shuttle
+<div align="center">
+  <img src="./assets/icons/flow-shuttle-icon-1024.png" alt="Flow Shuttle" width="96" />
 
-[简体中文](#简体中文) | [English](#english)
+  <h1>流梭 Flow Shuttle</h1>
+
+  <p>
+    本地优先的个人工作进展日志工具。<br />
+    A local-first personal work progress journal.
+  </p>
+
+  <p>
+    <a href="#简体中文">简体中文</a> | <a href="#english">English</a>
+  </p>
+
+  <p>
+    <a href="./ROADMAP.md">Roadmap</a> ·
+    <a href="./CHANGELOG.md">Changelog</a> ·
+    <a href="./LICENSE">License</a> ·
+    <a href="https://github.com/Sunyuanrui915/FlowShuttle/releases">Releases</a>
+  </p>
+</div>
 
 ## 简体中文
 
-### 流梭 Flow Shuttle 是什么
+### 流梭是什么
 
-流梭是一个本地优先的个人工作进展日志工具。它用项目、工作项和每日记录，把零散的工作进展沉淀成可回顾、可导出的工作轨迹。
+流梭 Flow Shuttle 是一款本地优先的桌面端个人工作进展日志工具。它用项目、工作项、每日记录、报告和热力图，把分散的工作过程整理成可回顾、可导出的连续记录。
 
-### 它解决什么问题
+### 为什么做它
 
-- 工作进展散落在聊天、文档和脑子里。
-- 写日报、周报、月报时总要重新回忆。
-- 项目推进过程缺少连续记录。
-- 普通待办工具更关注任务完成，不适合沉淀真实工作过程。
+很多知识工作并不是简单的待办完成。进展常常散落在聊天、文档、脑海和临时笔记里；等到写日报、周报或复盘时，才发现上下文已经断开。
+
+流梭希望解决的是这个问题：每天轻量记录一点，把项目推进过程接成线。
 
 ### 核心功能
 
 - 项目与工作项管理。
-- Today 每日记录。
-- 日报 / 周报 / 月报生成。
+- Today 每日工作页，集中记录当天推进。
+- 今日记录编辑页，支持上一工作日参考和 Markdown 写作。
+- 日报、周报、月报生成与 Markdown 导出。
+- 项目进展时间线。
 - 工作活跃度热力图。
-- 项目时间线。
-- Markdown 导出。
-- 本地 SQLite 存储。
-- 本地优先，不强制登录，不上传工作内容。
+- 可选 AI 报告提炼。
+- 本地 SQLite 存储，不强制登录，不主动上传工作内容。
 
-### 当前状态
+### 截图预览
 
-流梭 Flow Shuttle 当前正在准备 `v0.1.0` 版本。核心功能和 UI 已基本稳定，当前仓库先保持私有，用于补齐 README、LICENSE、Roadmap、Release 准备和开源前安全检查。
+![Today 页面](./docs/assets/screenshots/v0.1.0/today.png)
 
-公开后，普通用户可从 GitHub Releases 下载安装包；开发者可从源码运行和参与贡献。
+![项目详情与时间线](./docs/assets/screenshots/v0.1.0/project-detail.png)
+
+![报告档案库](./docs/assets/screenshots/v0.1.0/reports.png)
+
+![工作活跃度热力图](./docs/assets/screenshots/v0.1.0/heatmap.png)
+
+![设置与本地数据](./docs/assets/screenshots/v0.1.0/settings.png)
 
 ### 安装与使用
 
-当前仓库仍处于公开前整理阶段，暂不提供公开下载。
+当前 Flow Shuttle 正在准备 `v0.1.0` 版本。公开后，普通用户可从 GitHub Releases 下载 Windows 安装包。
 
-当前安装包仍处于私有测试阶段，不提供公开下载链接。
-
-`v0.1.0` 发布后，普通用户请优先从 GitHub Releases 下载对应系统的安装包。如果只是日常使用流梭，不需要从源码运行项目。
-
-`v0.1.0` 将预留自动更新框架；真实自动更新会在公开 Release 后通过后续版本验证。
+在正式公开 Release 之前，仓库和安装包仍处于整理与测试阶段。日常使用不需要从源码运行项目。
 
 ### 本地开发
 
-当前项目使用 Electron、React、TypeScript 和 SQLite。
+Flow Shuttle 使用 Electron、React、TypeScript 和 SQLite。
 
-本地开发只面向需要调试、验证问题或参与贡献的开发者。源码运行命令用于开发环境，不是普通用户的安装方式。
-
-建议环境：
+推荐环境：
 
 - Node.js 20 或更新版本。
 - npm 10 或更新版本。
 
-常用开发命令：
+常用命令：
 
 ```bash
 npm install
 npm run dev
 npm run typecheck
 npm run build
-npm run dist
+npm run dist:win
 ```
 
 开发辅助命令：
 
 ```bash
-# 仅开发调试使用，用于生成本地测试数据。
+# 仅用于本地开发和调试，会生成测试数据。
 npm run create:test-data
 ```
 
 ### 隐私与数据
 
-流梭默认把数据保存在本地数据目录中，应用不强制登录，也不会主动上传用户工作内容。用户可以在应用设置中查看和迁移当前数据目录。
+Flow Shuttle 默认把数据保存在本地数据目录中。应用不强制登录，也不会主动上传你的工作内容。
+
+你可以在 Settings / 设置页面中查看当前数据目录、数据库文件和配置文件，也可以手动迁移数据目录。手动搬运不是云同步，不会自动合并两台电脑的数据。
+
+如果启用 AI 报告提炼，报告内容会发送给你自己配置的 AI 服务。未配置 AI 时，该能力不会自动调用外部服务。
 
 ### Roadmap
 
-近期计划：
-
-* 完成 GitHub 私有仓库初始化
-* 补齐 README / LICENSE / CONTRIBUTING / CHANGELOG / ROADMAP / AGENTS.md
-* 完成开源前安全审查
-* 准备 Windows 安装包
-* 发布 `v0.1.0`
-* 将仓库从 Private 切换为 Public
-* 收集第一批用户反馈
+近期计划请查看 [ROADMAP.md](./ROADMAP.md)。
 
 ### License
 
-本项目代码采用 AGPL-3.0-only 开源。
+Flow Shuttle 使用 [AGPL-3.0-only](./LICENSE) 许可证。
 
-普通用户下载安装、本地使用 Flow Shuttle，不需要公开个人数据。修改、分发或基于修改版提供网络服务时，需要遵守 AGPL-3.0 的源码开放要求。
+普通用户本地安装和使用 Flow Shuttle，不需要公开个人数据。若你修改、分发或基于修改版本提供网络服务，需要遵守 AGPL-3.0 的源代码开放要求。
 
 ## English
 
 ### What Is Flow Shuttle
 
-Flow Shuttle is a local-first personal work progress journal. It organizes projects, work items, and daily records so scattered work updates can become a reviewable and exportable work history.
+Flow Shuttle is a local-first desktop journal for personal work progress. It organizes projects, work items, daily notes, reports, and heatmaps into a continuous record that can be reviewed and exported.
 
-### What It Helps With
+### Why It Exists
 
-- Work progress is scattered across chats, documents, and memory.
-- Daily, weekly, and monthly reports often require rebuilding context from scratch.
-- Project progress is hard to review without a continuous record.
-- Generic todo tools focus on completion, not the real process behind work.
+Knowledge work is not always a simple todo list. Progress is often scattered across chats, documents, memory, and temporary notes. When it is time to write a daily report, weekly report, or project review, the context is easy to lose.
+
+Flow Shuttle is built to help connect each day’s work into a continuous thread.
 
 ### Core Features
 
 - Project and work item management.
-- Today view for daily work records.
+- Today view for daily progress recording.
+- Focused daily record editor with previous-workday reference and Markdown writing.
 - Daily, weekly, and monthly report generation.
-- Work activity heatmap.
-- Project timeline.
 - Markdown export.
-- Local SQLite storage.
-- Local-first by default, with no required login and no forced upload of work content.
+- Project progress timeline.
+- Work activity heatmap.
+- Optional AI report refinement.
+- Local SQLite storage with no required login or forced upload of work content.
 
-### Current Status
+### Screenshots
 
-Flow Shuttle is currently preparing the `v0.1.0` release. Core features and UI are mostly stable, and the repository remains private while README, LICENSE, roadmap, release preparation, and pre-open-source safety checks are completed.
+![Today](./docs/assets/screenshots/v0.1.0/today.png)
 
-After the repository is public, regular users can download installers from GitHub Releases, and developers can run the project from source and contribute.
+![Project detail and timeline](./docs/assets/screenshots/v0.1.0/project-detail.png)
+
+![Reports](./docs/assets/screenshots/v0.1.0/reports.png)
+
+![Heatmap](./docs/assets/screenshots/v0.1.0/heatmap.png)
+
+![Settings](./docs/assets/screenshots/v0.1.0/settings.png)
 
 ### Installation And Usage
 
-This repository is still being prepared before public release, so public downloads are not available yet.
+Flow Shuttle is currently preparing the `v0.1.0` release. After it becomes public, regular users will be able to download the Windows installer from GitHub Releases.
 
-The current installer is still in private testing and does not provide a public download link.
-
-After `v0.1.0` is released, regular users should prefer downloading the installer for their system from GitHub Releases. If you only use Flow Shuttle day to day, you do not need to run the project from source.
-
-`v0.1.0` will reserve the auto-update foundation. Real auto-update behavior will be verified through later versions after public Releases are available.
+Before the public Release is ready, the repository and installer are still in preparation and testing. Day-to-day users do not need to run the project from source.
 
 ### Local Development
 
-Flow Shuttle currently uses Electron, React, TypeScript, and SQLite.
-
-Local development is intended for developers who need to debug, verify issues, or contribute. Source commands are for development environments, not the regular user installation path.
+Flow Shuttle uses Electron, React, TypeScript, and SQLite.
 
 Recommended environment:
 
 - Node.js 20 or newer.
 - npm 10 or newer.
 
-Common development commands:
+Common commands:
 
 ```bash
 npm install
 npm run dev
 npm run typecheck
 npm run build
-npm run dist
+npm run dist:win
 ```
 
-Development helper commands:
+Development helper:
 
 ```bash
 # Development/debugging only. Generates local test data.
@@ -162,22 +175,18 @@ npm run create:test-data
 
 ### Privacy And Data
 
-Flow Shuttle stores data in a local data directory by default. The app does not require login and does not upload your work content. The current data directory can be viewed and migrated from the app settings.
+Flow Shuttle stores data in a local data directory by default. The app does not require login and does not upload your work content by itself.
+
+The current data directory, database file, and config file can be viewed from Settings. Manual data transfer is not cloud sync and does not automatically merge data from multiple computers.
+
+If AI report refinement is enabled, report content is sent to the AI service configured by you. When AI is not configured, the feature does not call external services automatically.
 
 ### Roadmap
 
-Near-term plan:
-
-* Complete GitHub private repository initialization.
-* Complete README / LICENSE / CONTRIBUTING / CHANGELOG / ROADMAP / AGENTS.md.
-* Complete pre-open-source safety review.
-* Prepare the Windows installer.
-* Release `v0.1.0`.
-* Switch the repository from Private to Public.
-* Collect the first round of user feedback.
+See [ROADMAP.md](./ROADMAP.md).
 
 ### License
 
-AGPL-3.0-only.
+Flow Shuttle is licensed under [AGPL-3.0-only](./LICENSE).
 
 End users can install and use Flow Shuttle locally without publishing personal data. If you modify, distribute, or provide a network service based on a modified version, you must follow the source availability requirements of AGPL-3.0.
