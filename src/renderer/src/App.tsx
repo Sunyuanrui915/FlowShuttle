@@ -52,7 +52,7 @@ import type {
   AiOperationResult,
   AiSaveSettingsInput,
   AiSettingsInfo,
-  AppUpdateCheckResult,
+  AppUpdateStatus,
   DailyAutoReportEvent,
   LanguagePreference,
   MarkdownPayload,
@@ -606,6 +606,32 @@ function storageDisplay(
   };
 }
 
+function formatVersionLabel(version: string | undefined): string {
+  const cleanVersion = version?.trim();
+  return cleanVersion ? `v${cleanVersion.replace(/^v/i, "")}` : "v0.1.0";
+}
+
+function sidebarUpdateDisplay(
+  status: AppUpdateStatus | null,
+  appVersion: string,
+  t: Translator
+): { label: string; title: string; hasUpdate: boolean } {
+  const currentVersion = formatVersionLabel(status?.currentVersion ?? appVersion);
+  if (status?.status === "update-available" && status.latestVersion) {
+    const latestVersion = formatVersionLabel(status.latestVersion);
+    return {
+      label: t("sidebarUpdateAvailable").replace("{version}", latestVersion),
+      title: t("sidebarUpdateAvailableTitle").replace("{version}", latestVersion),
+      hasUpdate: true
+    };
+  }
+  return {
+    label: t("sidebarCurrentVersion").replace("{version}", currentVersion),
+    title: t("sidebarCurrentVersionTitle").replace("{version}", currentVersion),
+    hasUpdate: false
+  };
+}
+
 function searchFieldLabel(value: string, t: Translator): string {
   if (value === "todayProgress" || value === "legacyProgress") {
     return t("progressToday");
@@ -705,6 +731,9 @@ function App() {
   const [quickWorkItemOpen, setQuickWorkItemOpen] = useState(false);
   const [editProjectOpen, setEditProjectOpen] = useState(false);
   const [settingsInfo, setSettingsInfo] = useState<SettingsInfo | null>(null);
+  const [appVersion, setAppVersion] = useState<string>("0.1.0");
+  const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus | null>(null);
+  const [settingsScrollTarget, setSettingsScrollTarget] = useState<string | null>(null);
   const [isMigratingData, setIsMigratingData] = useState(false);
   const [settingsBusyAction, setSettingsBusyAction] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<Toast | null>(null);
@@ -893,6 +922,50 @@ function App() {
       unsubscribeAutoReport();
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const handleStatus = (status: AppUpdateStatus) => {
+      if (!isMounted) {
+        return;
+      }
+      setUpdateStatus(status);
+      setAppVersion(status.currentVersion);
+    };
+
+    window.workJournal.appInfo
+      .getVersion()
+      .then((version) => {
+        if (isMounted) {
+          setAppVersion(version);
+        }
+      })
+      .catch(() => undefined);
+
+    window.workJournal.updates
+      .getStatus()
+      .then(handleStatus)
+      .catch(() => undefined);
+
+    const dispose = window.workJournal.updates.onStatus(handleStatus);
+    return () => {
+      isMounted = false;
+      dispose();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (view !== "settings" || !settingsScrollTarget) {
+      return;
+    }
+
+    const handle = window.setTimeout(() => {
+      document.getElementById(settingsScrollTarget)?.scrollIntoView({ block: "start", behavior: "smooth" });
+      setSettingsScrollTarget(null);
+    }, 80);
+
+    return () => window.clearTimeout(handle);
+  }, [view, settingsScrollTarget]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -1666,6 +1739,11 @@ function App() {
     .filter(Boolean)
     .join(" ");
   const currentStorageDisplay = storageDisplay(settingsInfo, t);
+  const currentSidebarUpdateDisplay = sidebarUpdateDisplay(updateStatus, appVersion, t);
+  const openVersionUpdateSettings = () => {
+    setSettingsScrollTarget("settings-version-updates");
+    setView("settings");
+  };
   const dailyEditorBlock = useMemo(() => {
     if (!dailyEditorTarget || !dailyView || dailyEditorTarget.journalDate !== dailyView.journalDate) {
       return null;
@@ -1786,11 +1864,22 @@ function App() {
             </button>
           ))}
         </nav>
-        <div className="storage-note">
-          <span className={`dot ${currentStorageDisplay.isWarning ? "warning" : ""}`} />
-          <span className="storage-status">
-            {t("storageLocal")} · {currentStorageDisplay.detail}
-          </span>
+        <div className="sidebar-footer-info">
+          <button
+            className={`sidebar-version-link ${currentSidebarUpdateDisplay.hasUpdate ? "has-update" : ""}`}
+            type="button"
+            title={currentSidebarUpdateDisplay.title}
+            onClick={openVersionUpdateSettings}
+          >
+            <span className={`dot version-dot ${currentSidebarUpdateDisplay.hasUpdate ? "update" : ""}`} />
+            <span className="storage-status">{currentSidebarUpdateDisplay.label}</span>
+          </button>
+          <div className="storage-note" title={currentStorageDisplay.title}>
+            <span className={`dot ${currentStorageDisplay.isWarning ? "warning" : ""}`} />
+            <span className="storage-status">
+              {t("storageLocal")} · {currentStorageDisplay.detail}
+            </span>
+          </div>
         </div>
       </aside>
 
@@ -5562,6 +5651,97 @@ function formatBytes(bytes: number): string {
   return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+function formatUpdateReleaseDate(value: string | undefined, language: LanguagePreference, t: Translator): string {
+  if (!value) {
+    return t("none");
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat(localeFor(language), {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function updateStatusLabel(status: AppUpdateStatus, t: Translator): string {
+  if (status.status === "checking") {
+    return t("updateChecking");
+  }
+  if (status.status === "update-not-available") {
+    return t("updateLatest");
+  }
+  if (status.status === "update-available") {
+    return status.latestVersion
+      ? t("updateAvailableWithVersion").replace("{version}", status.latestVersion)
+      : t("updateAvailable");
+  }
+  if (status.status === "download-progress") {
+    return t("updateDownloading");
+  }
+  if (status.status === "update-downloaded") {
+    return t("updateDownloaded");
+  }
+  if (status.status === "development") {
+    return t("updateDevelopmentUnavailable");
+  }
+  if (status.status === "error") {
+    return updateErrorMessage(status, t);
+  }
+  return t("updateStatusIdle");
+}
+
+function updateErrorMessage(status: AppUpdateStatus, t: Translator): string {
+  if (status.errorCode === "no-release") {
+    return t("updateNoRelease");
+  }
+  if (status.errorCode === "no-update-metadata") {
+    return t("updateMetadataMissing");
+  }
+  if (status.errorCode === "no-compatible-artifact") {
+    return t("updateNoCompatiblePackage");
+  }
+  if (status.errorCode === "signature") {
+    return t("updateSignatureFailed");
+  }
+  if (status.errorCode === "network") {
+    return t("updateNetworkFailed");
+  }
+  if (status.errorCode === "development") {
+    return t("updateDevelopmentUnavailable");
+  }
+  return t("updateCheckFailed");
+}
+
+function updatePanelDescription(status: AppUpdateStatus, t: Translator): string {
+  if (status.status === "update-available") {
+    return t("updateAvailableDescription");
+  }
+  if (status.status === "download-progress") {
+    return t("updateDownloadingDescription");
+  }
+  if (status.status === "update-downloaded") {
+    return t("updateDownloadedDescription");
+  }
+  if (status.status === "update-not-available") {
+    return t("updateLatestDescription");
+  }
+  if (status.status === "checking") {
+    return t("updateCheckingDescription");
+  }
+  if (status.status === "development") {
+    return t("updateDevelopmentDescription");
+  }
+  if (status.status === "error") {
+    return t("updateErrorDescription");
+  }
+  return t("updateIdleDescription");
+}
+
 function themeLabel(theme: ThemePreference, t: Translator): string {
   if (theme === "light") {
     return t("themeLight");
@@ -5623,7 +5803,8 @@ function SettingsPage({
   const [aiBusy, setAiBusy] = useState<string | null>(null);
   const [aiMessage, setAiMessage] = useState<Toast | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
-  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus | null>(null);
+  const [updateAction, setUpdateAction] = useState<"check" | "download" | "install" | null>(null);
   const [updateMessage, setUpdateMessage] = useState<Toast | null>(null);
 
   useEffect(() => {
@@ -5637,47 +5818,90 @@ function SettingsPage({
   }, [settings.ai.enabled, settings.ai.provider, settings.ai.baseUrl, settings.ai.model]);
 
   useEffect(() => {
+    let isMounted = true;
+    const handleStatus = (status: AppUpdateStatus) => {
+      if (!isMounted) {
+        return;
+      }
+      setUpdateStatus(status);
+      setAppVersion(status.currentVersion);
+    };
+
     window.workJournal.appInfo
       .getVersion()
-      .then((version) => setAppVersion(version))
-      .catch(() => setAppVersion("v0.1.0"));
+      .then((version) => {
+        if (isMounted) {
+          setAppVersion(version);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setAppVersion("0.1.0");
+        }
+      });
+
+    window.workJournal.updates
+      .getStatus()
+      .then(handleStatus)
+      .catch(() => {
+        if (isMounted) {
+          setUpdateStatus(null);
+        }
+      });
+
+    const dispose = window.workJournal.updates.onStatus(handleStatus);
+    return () => {
+      isMounted = false;
+      dispose();
+    };
   }, []);
 
-  const updateStatusMessage = (result: AppUpdateCheckResult): Toast => {
-    if (result.status === "development") {
-      return { kind: "info", message: t("updateDevelopmentUnavailable") };
-    }
-    if (result.status === "available") {
-      return {
-        kind: "success",
-        message: result.latestVersion
-          ? t("updateAvailableWithVersion").replace("{version}", result.latestVersion)
-          : t("updateAvailable")
-      };
-    }
-    if (result.status === "latest") {
-      return { kind: "success", message: t("updateLatest") };
-    }
-    return { kind: "warning", message: t("updateCheckFailed") };
-  };
-
   const checkUpdates = async () => {
-    setUpdateBusy(true);
-    setUpdateMessage({ kind: "info", message: t("updateChecking") });
+    setUpdateAction("check");
+    setUpdateMessage(null);
     try {
-      const result = await window.workJournal.appInfo.checkForUpdates();
+      const result = await window.workJournal.updates.checkForUpdates();
       setAppVersion(result.currentVersion);
-      setUpdateMessage(updateStatusMessage(result));
+      setUpdateStatus(result);
     } catch {
       setUpdateMessage({ kind: "warning", message: t("updateCheckFailed") });
     } finally {
-      setUpdateBusy(false);
+      setUpdateAction(null);
     }
+  };
+
+  const downloadUpdate = async () => {
+    setUpdateAction("download");
+    setUpdateMessage(null);
+    try {
+      const result = await window.workJournal.updates.downloadUpdate();
+      setUpdateStatus(result);
+    } catch {
+      setUpdateMessage({ kind: "warning", message: t("updateDownloadFailed") });
+    } finally {
+      setUpdateAction(null);
+    }
+  };
+
+  const quitAndInstallUpdate = async () => {
+    setUpdateAction("install");
+    setUpdateMessage(null);
+    try {
+      const result = await window.workJournal.updates.quitAndInstall();
+      setUpdateStatus(result);
+    } catch {
+      setUpdateMessage({ kind: "warning", message: t("updateInstallFailed") });
+      setUpdateAction(null);
+    }
+  };
+
+  const installLater = () => {
+    setUpdateMessage({ kind: "info", message: t("updateInstallLaterMessage") });
   };
 
   const openReleases = async () => {
     try {
-      await window.workJournal.appInfo.openReleasesPage();
+      await window.workJournal.updates.openReleasePage();
     } catch {
       setUpdateMessage({ kind: "warning", message: t("openReleasesFailed") });
     }
@@ -5728,6 +5952,20 @@ function SettingsPage({
       setAiBusy(null);
     }
   };
+  const displayedUpdateStatus: AppUpdateStatus = updateStatus ?? {
+    status: "idle",
+    currentVersion: appVersion || "0.1.0"
+  };
+  const updatePercent = Math.max(0, Math.min(100, displayedUpdateStatus.progress?.percent ?? 0));
+  const updateIsChecking = updateAction === "check" || displayedUpdateStatus.status === "checking";
+  const updateIsDownloading = updateAction === "download" || displayedUpdateStatus.status === "download-progress";
+  const updateIsInstalling = updateAction === "install";
+  const latestVersionDisplay = displayedUpdateStatus.latestVersion
+    ? `v${displayedUpdateStatus.latestVersion}`
+    : t("updateUnknownVersion");
+  const releaseDateDisplay = formatUpdateReleaseDate(displayedUpdateStatus.releaseDate, settings.language, t);
+  const releaseNotes = displayedUpdateStatus.releaseNotes?.trim();
+
   const aiKeyStatus = settings.ai.apiKeyConfigured
     ? `${t("aiApiKeyConfigured")} ${settings.ai.apiKeyPreview}`
     : t("aiApiKeyNotConfigured");
@@ -5904,37 +6142,6 @@ function SettingsPage({
           </div>
         </section>
 
-        <section className="settings-card" id="settings-version-updates">
-          <header className="settings-card-header">
-            <div className="settings-icon">
-              <RefreshCw size={20} />
-            </div>
-            <div>
-              <h2>{t("versionUpdatesTitle")}</h2>
-              <p>{t("versionUpdatesDescription")}</p>
-            </div>
-          </header>
-
-          <div className="settings-data-grid compact">
-            <InfoRow label={t("currentVersion")} value={appVersion ? `v${appVersion}` : t("loading")} />
-            <InfoRow
-              label={t("updateStatus")}
-              value={updateBusy ? t("updateCheckingShort") : updateMessage?.message ?? t("updateStatusIdle")}
-            />
-          </div>
-
-          <div className="settings-actions">
-            <button className="secondary-button" type="button" onClick={checkUpdates} disabled={updateBusy}>
-              <RefreshCw size={17} />
-              {updateBusy ? t("updateCheckingShort") : t("checkForUpdates")}
-            </button>
-            <button className="secondary-button" type="button" onClick={openReleases}>
-              <ExternalLink size={17} />
-              {t("openReleasesPage")}
-            </button>
-          </div>
-        </section>
-
         <section className="settings-card" id="settings-storage">
           <header className="settings-card-header">
             <div className="settings-icon">
@@ -6011,6 +6218,94 @@ function SettingsPage({
             >
               <RefreshCw size={17} />
               {busyAction === "reload" ? t("reloading") : t("reloadDataDirectory")}
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-card" id="settings-version-updates">
+          <header className="settings-card-header">
+            <div className="settings-icon">
+              <RefreshCw size={20} />
+            </div>
+            <div>
+              <h2>{t("versionUpdatesTitle")}</h2>
+              <p>{t("versionUpdatesDescription")}</p>
+            </div>
+          </header>
+
+          <div className="settings-data-grid compact">
+            <InfoRow label={t("currentVersion")} value={appVersion ? `v${appVersion}` : t("loading")} />
+            <InfoRow label={t("updateStatus")} value={updateStatusLabel(displayedUpdateStatus, t)} />
+            {(displayedUpdateStatus.latestVersion || displayedUpdateStatus.status === "update-available") && (
+              <InfoRow label={t("updateLatestVersion")} value={latestVersionDisplay} />
+            )}
+            {displayedUpdateStatus.releaseDate && (
+              <InfoRow label={t("updateReleaseDate")} value={releaseDateDisplay} />
+            )}
+          </div>
+
+          <div className={`update-status-panel ${displayedUpdateStatus.status}`}>
+            <strong>{updateStatusLabel(displayedUpdateStatus, t)}</strong>
+            <span>{updatePanelDescription(displayedUpdateStatus, t)}</span>
+          </div>
+
+          {displayedUpdateStatus.status === "download-progress" && (
+            <div className="update-progress-panel" aria-label={t("updateDownloadProgressLabel")}>
+              <div className="update-progress-meta">
+                <span>{t("updateDownloadProgressLabel")}</span>
+                <strong>{Math.round(updatePercent)}%</strong>
+              </div>
+              <div className="update-progress-track">
+                <div className="update-progress-bar" style={{ width: `${updatePercent}%` }} />
+              </div>
+              {displayedUpdateStatus.progress?.total && (
+                <p className="settings-note compact">
+                  {t("updateDownloadedSize")}
+                  ：{formatBytes(displayedUpdateStatus.progress.transferred ?? 0)} /{" "}
+                  {formatBytes(displayedUpdateStatus.progress.total)}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="update-release-notes">
+            <strong>{t("updateReleaseNotes")}</strong>
+            <p>{releaseNotes || t("updateReleaseNotesUnavailable")}</p>
+          </div>
+
+          <p className="settings-note compact">{t("updateDataSafetyNote")}</p>
+          {updateMessage && <div className={`inline-message ${updateMessage.kind}`}>{updateMessage.message}</div>}
+
+          <div className="settings-actions">
+            {displayedUpdateStatus.status === "update-available" ? (
+              <button className="primary-button" type="button" onClick={downloadUpdate} disabled={updateIsDownloading}>
+                <RefreshCw size={17} />
+                {updateIsDownloading ? t("updateDownloadingShort") : t("downloadAndInstallUpdate")}
+              </button>
+            ) : displayedUpdateStatus.status === "download-progress" ? (
+              <button className="primary-button" type="button" disabled>
+                <RefreshCw size={17} />
+                {t("updateDownloadingShort")}
+              </button>
+            ) : displayedUpdateStatus.status === "update-downloaded" ? (
+              <>
+                <button className="primary-button" type="button" onClick={quitAndInstallUpdate} disabled={updateIsInstalling}>
+                  <RefreshCw size={17} />
+                  {updateIsInstalling ? t("updateInstalling") : t("restartAndInstallUpdate")}
+                </button>
+                <button className="secondary-button" type="button" onClick={installLater}>
+                  {t("updateLater")}
+                </button>
+              </>
+            ) : (
+              <button className="secondary-button" type="button" onClick={checkUpdates} disabled={updateIsChecking}>
+                <RefreshCw size={17} />
+                {updateIsChecking ? t("updateCheckingShort") : displayedUpdateStatus.status === "error" ? t("retry") : t("checkForUpdates")}
+              </button>
+            )}
+            <button className="secondary-button" type="button" onClick={openReleases}>
+              <ExternalLink size={17} />
+              {t("viewReleaseDetails")}
             </button>
           </div>
         </section>

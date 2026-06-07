@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   AiDraftDailyChangeInput,
+  AppUpdateStatus,
   DailyAutoReportEvent,
   AiRefineReportInput,
   AiSaveSettingsInput,
@@ -21,11 +22,46 @@ import type {
   WorkJournalApi
 } from "../shared/types";
 
+const updateStatusListeners = new WeakMap<
+  (status: AppUpdateStatus) => void,
+  (event: Electron.IpcRendererEvent, status: AppUpdateStatus) => void
+>();
+
 const api: WorkJournalApi = {
   appInfo: {
     getVersion: () => ipcRenderer.invoke("app:get-version"),
     checkForUpdates: () => ipcRenderer.invoke("app:check-for-updates"),
     openReleasesPage: () => ipcRenderer.invoke("app:open-releases-page")
+  },
+  updates: {
+    getStatus: () => ipcRenderer.invoke("updates:get-status"),
+    checkForUpdates: () => ipcRenderer.invoke("updates:check"),
+    downloadUpdate: () => ipcRenderer.invoke("updates:download"),
+    quitAndInstall: () => ipcRenderer.invoke("updates:quit-and-install"),
+    openReleasePage: () => ipcRenderer.invoke("updates:open-release-page"),
+    onStatus: (callback: (status: AppUpdateStatus) => void) => {
+      const existingListener = updateStatusListeners.get(callback);
+      if (existingListener) {
+        ipcRenderer.removeListener("updates:status", existingListener);
+      }
+      const listener = (_event: Electron.IpcRendererEvent, status: AppUpdateStatus) => {
+        callback(status);
+      };
+      updateStatusListeners.set(callback, listener);
+      ipcRenderer.on("updates:status", listener);
+      return () => {
+        ipcRenderer.removeListener("updates:status", listener);
+        updateStatusListeners.delete(callback);
+      };
+    },
+    removeStatusListener: (callback: (status: AppUpdateStatus) => void) => {
+      const listener = updateStatusListeners.get(callback);
+      if (!listener) {
+        return;
+      }
+      ipcRenderer.removeListener("updates:status", listener);
+      updateStatusListeners.delete(callback);
+    }
   },
   projects: {
     listActive: () => ipcRenderer.invoke("projects:list-active"),

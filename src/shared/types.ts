@@ -425,14 +425,46 @@ export interface MigrationResult {
   operation?: "migrated" | "switched" | "unchanged" | "reloaded";
 }
 
-export type AppUpdateCheckStatus = "latest" | "checking" | "available" | "failed" | "development";
+export type AppUpdateStatusKind =
+  | "idle"
+  | "checking"
+  | "update-available"
+  | "update-not-available"
+  | "download-progress"
+  | "update-downloaded"
+  | "error"
+  | "development";
 
-export interface AppUpdateCheckResult {
-  status: AppUpdateCheckStatus;
+export type AppUpdateErrorCode =
+  | "no-release"
+  | "no-update-metadata"
+  | "no-compatible-artifact"
+  | "network"
+  | "signature"
+  | "development"
+  | "unknown";
+
+export interface AppUpdateProgress {
+  percent: number;
+  transferred?: number;
+  total?: number;
+  bytesPerSecond?: number;
+}
+
+export interface AppUpdateStatus {
+  status: AppUpdateStatusKind;
   currentVersion: string;
   latestVersion?: string;
   releaseDate?: string;
+  releaseName?: string;
+  releaseNotes?: string;
+  releaseUrl?: string;
+  progress?: AppUpdateProgress;
+  errorCode?: AppUpdateErrorCode;
+  errorMessage?: string;
 }
+
+export type AppUpdateCheckResult = AppUpdateStatus;
 
 export interface PrepareCopyResult {
   dataDirectory: string;
@@ -545,6 +577,15 @@ export interface WorkJournalApi {
     getVersion: () => Promise<string>;
     checkForUpdates: () => Promise<AppUpdateCheckResult>;
     openReleasesPage: () => Promise<void>;
+  };
+  updates: {
+    getStatus: () => Promise<AppUpdateStatus>;
+    checkForUpdates: () => Promise<AppUpdateStatus>;
+    downloadUpdate: () => Promise<AppUpdateStatus>;
+    quitAndInstall: () => Promise<AppUpdateStatus>;
+    openReleasePage: () => Promise<void>;
+    onStatus: (callback: (status: AppUpdateStatus) => void) => () => void;
+    removeStatusListener: (callback: (status: AppUpdateStatus) => void) => void;
   };
   projects: {
     listActive: () => Promise<ProjectListItem[]>;

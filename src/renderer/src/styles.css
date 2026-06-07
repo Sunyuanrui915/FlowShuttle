@@ -215,13 +215,39 @@ body {
   font-weight: 700;
 }
 
+.sidebar-footer-info {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 7px;
+  margin-top: auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sidebar-version-link,
 .storage-note {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: auto;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.sidebar-version-link {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+}
+
+.sidebar-version-link:hover {
+  color: var(--text-primary);
+}
+
+.sidebar-version-link.has-update {
+  color: var(--accent);
 }
 
 .storage-status {
@@ -240,6 +266,14 @@ body {
 
 .dot.warning {
   background: var(--warning);
+}
+
+.dot.version-dot {
+  background: var(--border-strong);
+}
+
+.dot.version-dot.update {
+  background: var(--accent);
 }
 
 .workspace {
@@ -5436,6 +5470,95 @@ textarea:focus {
   margin-top: 0;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.update-status-panel {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border-muted) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-surface-muted) 58%, transparent);
+  padding: 12px;
+}
+
+.update-status-panel strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.update-status-panel span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.update-status-panel.update-available,
+.update-status-panel.update-downloaded {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-muted));
+  background: color-mix(in srgb, var(--accent-soft) 36%, var(--bg-surface));
+}
+
+.update-status-panel.error {
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--border-muted));
+  background: color-mix(in srgb, var(--danger-soft) 45%, var(--bg-surface));
+}
+
+.update-progress-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.update-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.update-progress-meta strong {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.update-progress-track {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-surface-muted);
+}
+
+.update-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.18s ease;
+}
+
+.update-release-notes {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.update-release-notes strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.update-release-notes p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .settings-icon {

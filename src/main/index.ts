@@ -48,7 +48,15 @@ import {
 import { clearAiApiKey, draftDailyChange, getAiSettings, refineAiReport, saveAiSettings, testAiConnection } from "./ai";
 import { getLocalDateKey } from "./date";
 import { applyThemeFromConfig, getThemePreference, loadConfig, setLanguagePreference, setThemePreference } from "./settings";
-import { checkForAppUpdates, initializeAutoUpdater } from "./updater";
+import {
+  checkForAppUpdates,
+  downloadAppUpdate,
+  getReleaseDetailsUrl,
+  getUpdateStatus,
+  initializeAutoUpdater,
+  quitAndInstallAppUpdate,
+  scheduleBackgroundUpdateCheck
+} from "./updater";
 import type {
   AiRefineReportInput,
   AiDraftDailyChangeInput,
@@ -215,7 +223,14 @@ function registerIpc(): void {
   ipcMain.handle("app:get-version", () => app.getVersion());
   ipcMain.handle("app:check-for-updates", () => checkForAppUpdates());
   ipcMain.handle("app:open-releases-page", async () => {
-    await shell.openExternal(releasesLatestUrl);
+    await shell.openExternal(getReleaseDetailsUrl() ?? releasesLatestUrl);
+  });
+  ipcMain.handle("updates:get-status", () => getUpdateStatus());
+  ipcMain.handle("updates:check", () => checkForAppUpdates());
+  ipcMain.handle("updates:download", () => downloadAppUpdate());
+  ipcMain.handle("updates:quit-and-install", () => quitAndInstallAppUpdate());
+  ipcMain.handle("updates:open-release-page", async () => {
+    await shell.openExternal(getReleaseDetailsUrl() ?? releasesLatestUrl);
   });
 
   ipcMain.handle("projects:list-active", () => listActiveProjects());
@@ -376,6 +391,7 @@ app.whenReady().then(() => {
   createWindow();
   scheduleDailyAutoReport();
   initializeAutoUpdater();
+  scheduleBackgroundUpdateCheck();
 
   nativeTheme.on("updated", () => {
     if (getThemePreference() === "system") {
