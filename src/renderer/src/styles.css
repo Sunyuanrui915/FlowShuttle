@@ -1,5 +1,18 @@
+@font-face {
+  font-family: "Noto Serif SC Web";
+  src:
+    local("Noto Serif SC"),
+    url("./assets/fonts/Noto_Serif_SC/NotoSerifSC-VariableFont_wght.ttf") format("truetype");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
+  --font-ui: "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+  --font-reading: "Noto Serif SC Web", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  --font-app: var(--font-ui);
   --bg-app: #f5f7fb;
   --bg-sidebar: #f8fafd;
   --bg-surface: #ffffff;
@@ -43,14 +56,10 @@
   --shadow-card: 0 10px 26px rgba(15, 23, 42, 0.08);
   --shadow-float: 0 16px 42px rgba(15, 23, 42, 0.14);
   --overlay: rgba(22, 30, 44, 0.28);
-  font-family:
-    "Microsoft YaHei UI",
-    "Segoe UI",
-    system-ui,
-    sans-serif;
+  font-family: var(--font-app);
   color: var(--text-primary);
   background: var(--bg-app);
-  text-rendering: geometricPrecision;
+  text-rendering: optimizeLegibility;
 }
 
 :root[data-theme="dark"] {
@@ -131,6 +140,10 @@ button:disabled {
 body {
   overflow: hidden;
   background: var(--bg-app);
+  font-family: var(--font-app);
+  font-kerning: normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .app-shell {
@@ -3216,6 +3229,7 @@ button.today-reminder-item:focus-visible {
   padding: 26px 30px 34px;
   background: var(--bg-surface);
   color: var(--text-primary);
+  font-family: var(--font-reading);
   font-size: 14px;
   line-height: 1.78;
 }

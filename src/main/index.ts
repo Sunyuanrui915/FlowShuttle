@@ -71,6 +71,7 @@ import type {
 
 const appDisplayName = "Flow Shuttle";
 const userDataDirectoryName = "Flow Shuttle";
+const appUserModelId = "app.flowshuttle";
 const appIconRelativePath = join("assets", "icons", "flow-shuttle-icon.ico");
 const dailyAutoReportHour = 23;
 const dailyAutoReportMinute = 0;
@@ -78,9 +79,12 @@ let dailyAutoReportTimer: ReturnType<typeof setTimeout> | null = null;
 
 app.setName(appDisplayName);
 app.setPath("userData", join(app.getPath("appData"), userDataDirectoryName));
+if (process.platform === "win32") {
+  app.setAppUserModelId(appUserModelId);
+}
 
 function titleForLanguage(language: LanguagePreference): string {
-  return language === "en" ? "Flow Shuttle" : "流梭";
+  return language === "en" ? "Flow Shuttle" : "\u6d41\u68ad";
 }
 
 function currentWindowTitle(): string {
@@ -153,7 +157,7 @@ function notifySettingsChanged(): void {
 }
 
 function resolveWindowIconPath(): string | undefined {
-  const candidates = [join(app.getAppPath(), appIconRelativePath), join(process.cwd(), appIconRelativePath)];
+  const candidates = [join(process.resourcesPath, appIconRelativePath), join(app.getAppPath(), appIconRelativePath), join(process.cwd(), appIconRelativePath)];
   return candidates.find((candidate) => existsSync(candidate));
 }
 
