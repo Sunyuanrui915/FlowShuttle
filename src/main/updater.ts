@@ -1,6 +1,7 @@
 import { app } from "electron";
 import { autoUpdater } from "electron-updater";
 import type { ProgressInfo, UpdateInfo, UpdateDownloadedEvent } from "electron-updater";
+import type { AppUpdateCheckResult } from "../shared/types";
 
 const updateCheckDelayMs = 10_000;
 let updaterInitialized = false;
@@ -62,30 +63,45 @@ function registerUpdaterEvents(): void {
   });
 }
 
-export function initializeAutoUpdater(): void {
+function compareVersion(left: string, right: string): number {
+  const leftParts = left.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = right.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return 0;
+}
+
+function configureAutoUpdater(): void {
   if (updaterInitialized) {
     return;
   }
 
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.logger = {
+    info: (message?: unknown) => log(String(message ?? "")),
+    warn: (message?: unknown) => warn(String(message ?? "")),
+    error: (message?: unknown) => warn(String(message ?? "")),
+    debug: (message?: string) => log(message ?? "")
+  };
+
+  registerUpdaterEvents();
+  updaterInitialized = true;
+}
+
+export function initializeAutoUpdater(): void {
   if (!app.isPackaged) {
     log("skipped in development");
     return;
   }
 
-  updaterInitialized = true;
-
   try {
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
-    autoUpdater.logger = {
-      info: (message?: unknown) => log(String(message ?? "")),
-      warn: (message?: unknown) => warn(String(message ?? "")),
-      error: (message?: unknown) => warn(String(message ?? "")),
-      debug: (message?: string) => log(message ?? "")
-    };
-
-    registerUpdaterEvents();
-
+    configureAutoUpdater();
     setTimeout(() => {
       autoUpdater.checkForUpdates().catch((error: unknown) => {
         warn("update check promise rejected", error instanceof Error ? error.message : error);
@@ -93,5 +109,36 @@ export function initializeAutoUpdater(): void {
     }, updateCheckDelayMs);
   } catch (error) {
     warn("initialization failed", error instanceof Error ? error.message : error);
+  }
+}
+
+export async function checkForAppUpdates(): Promise<AppUpdateCheckResult> {
+  const currentVersion = app.getVersion();
+
+  if (!app.isPackaged) {
+    return { status: "development", currentVersion };
+  }
+
+  try {
+    configureAutoUpdater();
+    const result = await autoUpdater.checkForUpdates();
+    const latestVersion = result?.updateInfo.version;
+    if (latestVersion && compareVersion(latestVersion, currentVersion) > 0) {
+      return {
+        status: "available",
+        currentVersion,
+        latestVersion,
+        releaseDate: result?.updateInfo.releaseDate
+      };
+    }
+    return {
+      status: "latest",
+      currentVersion,
+      latestVersion: latestVersion ?? currentVersion,
+      releaseDate: result?.updateInfo.releaseDate
+    };
+  } catch (error) {
+    warn("manual update check failed", error instanceof Error ? error.message : error);
+    return { status: "failed", currentVersion };
   }
 }

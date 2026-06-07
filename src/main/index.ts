@@ -48,7 +48,7 @@ import {
 import { clearAiApiKey, draftDailyChange, getAiSettings, refineAiReport, saveAiSettings, testAiConnection } from "./ai";
 import { getLocalDateKey } from "./date";
 import { applyThemeFromConfig, getThemePreference, loadConfig, setLanguagePreference, setThemePreference } from "./settings";
-import { initializeAutoUpdater } from "./updater";
+import { checkForAppUpdates, initializeAutoUpdater } from "./updater";
 import type {
   AiRefineReportInput,
   AiDraftDailyChangeInput,
@@ -73,6 +73,7 @@ const appDisplayName = "Flow Shuttle";
 const userDataDirectoryName = "Flow Shuttle";
 const appUserModelId = "app.flowshuttle";
 const appIconRelativePath = join("assets", "icons", "flow-shuttle-icon.ico");
+const releasesLatestUrl = "https://github.com/Sunyuanrui915/FlowShuttle/releases/latest";
 const dailyAutoReportHour = 23;
 const dailyAutoReportMinute = 0;
 let dailyAutoReportTimer: ReturnType<typeof setTimeout> | null = null;
@@ -211,6 +212,12 @@ function registerAttachmentProtocol(): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle("app:get-version", () => app.getVersion());
+  ipcMain.handle("app:check-for-updates", () => checkForAppUpdates());
+  ipcMain.handle("app:open-releases-page", async () => {
+    await shell.openExternal(releasesLatestUrl);
+  });
+
   ipcMain.handle("projects:list-active", () => listActiveProjects());
   ipcMain.handle("projects:create", (_event, input: CreateProjectInput) => createProject(input));
   ipcMain.handle("projects:update", (_event, input: UpdateProjectInput) => updateProject(input));

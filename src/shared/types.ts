@@ -425,6 +425,15 @@ export interface MigrationResult {
   operation?: "migrated" | "switched" | "unchanged" | "reloaded";
 }
 
+export type AppUpdateCheckStatus = "latest" | "checking" | "available" | "failed" | "development";
+
+export interface AppUpdateCheckResult {
+  status: AppUpdateCheckStatus;
+  currentVersion: string;
+  latestVersion?: string;
+  releaseDate?: string;
+}
+
 export interface PrepareCopyResult {
   dataDirectory: string;
   databasePath: string;
@@ -532,6 +541,11 @@ export interface HeatmapMonth {
 }
 
 export interface WorkJournalApi {
+  appInfo: {
+    getVersion: () => Promise<string>;
+    checkForUpdates: () => Promise<AppUpdateCheckResult>;
+    openReleasesPage: () => Promise<void>;
+  };
   projects: {
     listActive: () => Promise<ProjectListItem[]>;
     create: (input: CreateProjectInput) => Promise<Project>;

@@ -57,9 +57,13 @@
 
 ### 安装与使用
 
-当前 Flow Shuttle 正在准备 `v0.1.0` 版本。公开后，普通用户可从 GitHub Releases 下载 Windows 安装包。
+普通用户请从 GitHub Releases 下载 Windows 安装包：
 
-在正式公开 Release 之前，仓库和安装包仍处于整理与测试阶段。日常使用不需要从源码运行项目。
+[下载最新版本](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
+
+当前版本为 `v0.1.0`。这是流梭的首个公开版本，仍处于早期阶段，建议先使用非敏感数据体验。
+
+Flow Shuttle 未进行代码签名，Windows 可能出现安全提示。如果只是日常使用流梭，不需要从源码运行项目。
 
 ### 本地开发
 
@@ -143,9 +147,13 @@ Flow Shuttle is built to help connect each day’s work into a continuous thread
 
 ### Installation And Usage
 
-Flow Shuttle is currently preparing the `v0.1.0` release. After it becomes public, regular users will be able to download the Windows installer from GitHub Releases.
+Regular users can download the Windows installer from GitHub Releases:
 
-Before the public Release is ready, the repository and installer are still in preparation and testing. Day-to-day users do not need to run the project from source.
+[Download the latest version](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
+
+The current version is `v0.1.0`. This is the first public release of Flow Shuttle, and it is still early. Try it with non-sensitive data first.
+
+Flow Shuttle is not code-signed yet, so Windows may show a security warning. If you only use Flow Shuttle day to day, you do not need to run the project from source.
 
 ### Local Development
 

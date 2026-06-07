@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ChevronsRight,
   Clipboard,
+  ExternalLink,
   FileDown,
   FileText,
   Folder,
@@ -51,6 +52,7 @@ import type {
   AiOperationResult,
   AiSaveSettingsInput,
   AiSettingsInfo,
+  AppUpdateCheckResult,
   DailyAutoReportEvent,
   LanguagePreference,
   MarkdownPayload,
@@ -5620,6 +5622,9 @@ function SettingsPage({
   });
   const [aiBusy, setAiBusy] = useState<string | null>(null);
   const [aiMessage, setAiMessage] = useState<Toast | null>(null);
+  const [appVersion, setAppVersion] = useState<string>("");
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<Toast | null>(null);
 
   useEffect(() => {
     setAiForm({
@@ -5630,6 +5635,53 @@ function SettingsPage({
       apiKey: ""
     });
   }, [settings.ai.enabled, settings.ai.provider, settings.ai.baseUrl, settings.ai.model]);
+
+  useEffect(() => {
+    window.workJournal.appInfo
+      .getVersion()
+      .then((version) => setAppVersion(version))
+      .catch(() => setAppVersion("v0.1.0"));
+  }, []);
+
+  const updateStatusMessage = (result: AppUpdateCheckResult): Toast => {
+    if (result.status === "development") {
+      return { kind: "info", message: t("updateDevelopmentUnavailable") };
+    }
+    if (result.status === "available") {
+      return {
+        kind: "success",
+        message: result.latestVersion
+          ? t("updateAvailableWithVersion").replace("{version}", result.latestVersion)
+          : t("updateAvailable")
+      };
+    }
+    if (result.status === "latest") {
+      return { kind: "success", message: t("updateLatest") };
+    }
+    return { kind: "warning", message: t("updateCheckFailed") };
+  };
+
+  const checkUpdates = async () => {
+    setUpdateBusy(true);
+    setUpdateMessage({ kind: "info", message: t("updateChecking") });
+    try {
+      const result = await window.workJournal.appInfo.checkForUpdates();
+      setAppVersion(result.currentVersion);
+      setUpdateMessage(updateStatusMessage(result));
+    } catch {
+      setUpdateMessage({ kind: "warning", message: t("updateCheckFailed") });
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
+
+  const openReleases = async () => {
+    try {
+      await window.workJournal.appInfo.openReleasesPage();
+    } catch {
+      setUpdateMessage({ kind: "warning", message: t("openReleasesFailed") });
+    }
+  };
 
   const saveAi = async () => {
     setAiBusy("save");
@@ -5848,6 +5900,37 @@ function SettingsPage({
             <button className="primary-button" type="button" onClick={saveAi} disabled={aiBusy !== null}>
               <Save size={17} />
               {aiBusy === "save" ? t("saving") : t("aiSaveSettings")}
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-card" id="settings-version-updates">
+          <header className="settings-card-header">
+            <div className="settings-icon">
+              <RefreshCw size={20} />
+            </div>
+            <div>
+              <h2>{t("versionUpdatesTitle")}</h2>
+              <p>{t("versionUpdatesDescription")}</p>
+            </div>
+          </header>
+
+          <div className="settings-data-grid compact">
+            <InfoRow label={t("currentVersion")} value={appVersion ? `v${appVersion}` : t("loading")} />
+            <InfoRow
+              label={t("updateStatus")}
+              value={updateBusy ? t("updateCheckingShort") : updateMessage?.message ?? t("updateStatusIdle")}
+            />
+          </div>
+
+          <div className="settings-actions">
+            <button className="secondary-button" type="button" onClick={checkUpdates} disabled={updateBusy}>
+              <RefreshCw size={17} />
+              {updateBusy ? t("updateCheckingShort") : t("checkForUpdates")}
+            </button>
+            <button className="secondary-button" type="button" onClick={openReleases}>
+              <ExternalLink size={17} />
+              {t("openReleasesPage")}
             </button>
           </div>
         </section>

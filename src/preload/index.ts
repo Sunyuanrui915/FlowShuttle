@@ -22,6 +22,11 @@ import type {
 } from "../shared/types";
 
 const api: WorkJournalApi = {
+  appInfo: {
+    getVersion: () => ipcRenderer.invoke("app:get-version"),
+    checkForUpdates: () => ipcRenderer.invoke("app:check-for-updates"),
+    openReleasesPage: () => ipcRenderer.invoke("app:open-releases-page")
+  },
   projects: {
     listActive: () => ipcRenderer.invoke("projects:list-active"),
     create: (input: CreateProjectInput) => ipcRenderer.invoke("projects:create", input),
