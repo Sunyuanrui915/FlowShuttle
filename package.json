@@ -1,6 +1,6 @@
 {
   "name": "flowshuttle",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first personal work progress journal",
   "main": "out/main/index.js",
   "author": "Flow Shuttle",
@@ -16,7 +16,14 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "@toast-ui/editor": "^3.2.2",
+    "@tiptap/extension-highlight": "^3.26.0",
+    "@tiptap/extension-image": "^3.26.0",
+    "@tiptap/extension-placeholder": "^3.26.0",
+    "@tiptap/extension-task-item": "^3.26.0",
+    "@tiptap/extension-task-list": "^3.26.0",
+    "@tiptap/markdown": "^3.26.0",
+    "@tiptap/react": "^3.26.0",
+    "@tiptap/starter-kit": "^3.26.0",
     "better-sqlite3": "^12.9.0",
     "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0",

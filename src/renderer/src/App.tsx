@@ -47,7 +47,7 @@ import {
 } from "react";
 import { countTextMetricCharacters } from "../../shared/textMetrics";
 import { createTranslator, languageOptions, type Translator } from "./i18n";
-import { MarkdownWysiwygEditor } from "./MarkdownWysiwygEditor";
+import { MarkdownWysiwygEditor, type MarkdownEditorLabels } from "./MarkdownWysiwygEditor";
 import type {
   AiOperationResult,
   AiSaveSettingsInput,
@@ -692,6 +692,37 @@ function compactToastMessage(message: string): string {
   const masked = message.replace(/sk-[A-Za-z0-9_-]{10,}/g, "sk-***");
   const compact = masked.replace(/\s+/g, " ").trim();
   return compact.length > 180 ? `${compact.slice(0, 177)}...` : compact;
+}
+
+function markdownEditorLabels(t: Translator): MarkdownEditorLabels {
+  return {
+    toolbarLabel: t("editorToolbarLabel"),
+    contextMenuLabel: t("editorContextMenuLabel"),
+    paragraph: t("editorParagraph"),
+    heading: t("editorHeading"),
+    heading1: t("editorHeading1"),
+    heading2: t("editorHeading2"),
+    heading3: t("editorHeading3"),
+    heading4: t("editorHeading4"),
+    heading5: t("editorHeading5"),
+    heading6: t("editorHeading6"),
+    bulletedList: t("editorBulletedList"),
+    numberedList: t("editorNumberedList"),
+    taskList: t("editorTaskList"),
+    quote: t("editorQuote"),
+    codeBlock: t("editorCodeBlock"),
+    highlightBlock: t("editorHighlightBlock"),
+    cut: t("editorCut"),
+    copy: t("editorCopy"),
+    paste: t("editorPaste"),
+    pasteAsPlainText: t("editorPasteAsPlainText"),
+    saveImageAs: t("editorSaveImageAs"),
+    saveImageAsUnsupported: t("editorSaveImageAsUnsupported"),
+    imageSaved: t("editorImageSaved"),
+    imageSaveFailed: t("editorImageSaveFailed"),
+    clipboardEmpty: t("editorClipboardEmpty"),
+    highlightPlaceholder: t("editorHighlightPlaceholder")
+  };
 }
 
 function App() {
@@ -3524,15 +3555,26 @@ function DailyEntryEditorPage({
 
   return (
     <section className="page daily-entry-editor-page">
-      <PageHeader
-        className="entry-page-header"
-        eyebrow={block.project.name}
-        title={block.workItem.title}
-        description={block.workItem.description || t("none")}
-        meta={`${t("lastSaved")}: ${formatTimestamp(block.entry?.updated_at ?? null, language, t)}`}
-        backAction={{ label: t("backToTodayWorkPage"), onClick: onBack }}
-        actions={
-          <div className="entry-header-actions">
+      <header className="entry-page-header">
+        <div className="entry-header-main">
+          <div className="entry-header-breadcrumb">
+            <button className="back-button page-header-back entry-header-back" type="button" onClick={onBack}>
+              <ChevronLeft size={17} />
+              {t("backToTodayWorkPage")}
+            </button>
+            <span className="entry-breadcrumb-separator">/</span>
+            <span className="entry-project-name">{block.project.name}</span>
+          </div>
+          <h1>{block.workItem.title}</h1>
+          <p className="entry-header-description" title={block.workItem.description || t("none")}>
+            {block.workItem.description || t("none")}
+          </p>
+        </div>
+        <div className="entry-header-actions">
+          <span className="entry-header-saved">
+            {t("lastSaved")}: {formatTimestamp(block.entry?.updated_at ?? null, language, t)}
+          </span>
+          <div className="entry-header-action-row">
             <label className="daily-status-select entry-status-control">
               <span>{t("todayStatus")}</span>
               <select
@@ -3556,8 +3598,8 @@ function DailyEntryEditorPage({
               </button>
             </div>
           </div>
-        }
-      />
+        </div>
+      </header>
 
       {isClosed && (
         <div className="closed-banner">
@@ -3689,12 +3731,14 @@ function DailyEntryEditorPage({
                 </div>
               </div>
             )}
-            <label className="daily-field editor-note-field">
+            <div className="daily-field editor-note-field" role="group" aria-label={t("workItemCurrentContent")}>
               <span className="sr-only">{t("workItemCurrentContent")}</span>
               <MarkdownWysiwygEditor
                 value={form.workItemNoteContent}
                 language={language}
                 theme={theme}
+                labels={markdownEditorLabels(t)}
+                onFeedback={onToast}
                 placeholder={t("workItemCurrentContentPlaceholder")}
                 height="100%"
                 minHeight="0px"
@@ -3706,7 +3750,7 @@ function DailyEntryEditorPage({
                   onToast({ kind: "error", message: error instanceof Error ? error.message : t("memoImagePasteFailed") })
                 }
               />
-            </label>
+            </div>
           </section>
         ) : (
           <section className="entry-editor-form">
@@ -3767,13 +3811,15 @@ function DailyEntryEditorPage({
                 </button>
               ))}
             </div>
-            <label className="daily-field editor-note-field">
-              {activeEditor.label}
+            <div className="daily-field editor-note-field" role="group" aria-label={activeEditor.label}>
+              <span>{activeEditor.label}</span>
               <MarkdownWysiwygEditor
                 key={activeEditor.id}
                 value={activeEditor.value}
                 language={language}
                 theme={theme}
+                labels={markdownEditorLabels(t)}
+                onFeedback={onToast}
                 placeholder={activeEditor.placeholder}
                 height="100%"
                 minHeight="0px"
@@ -3785,7 +3831,7 @@ function DailyEntryEditorPage({
                   onToast({ kind: "error", message: error instanceof Error ? error.message : t("memoImagePasteFailed") })
                 }
               />
-            </label>
+            </div>
           </section>
         )}
         </section>
@@ -5150,6 +5196,8 @@ function ProjectMemoPage({
             value={content}
             language={language}
             theme={theme}
+            labels={markdownEditorLabels(t)}
+            onFeedback={onToast}
             placeholder={t("memoPlaceholder")}
             height="100%"
             minHeight="0px"
@@ -5577,12 +5625,14 @@ function QuickProgressPanel({
             ))}
           </select>
         </label>
-        <label>
-          {t("progressToday")}
+        <div className="editor-form-field" role="group" aria-label={t("progressToday")}>
+          <span>{t("progressToday")}</span>
           <MarkdownWysiwygEditor
             value={quickForm.content}
             language={language}
             theme={theme}
+            labels={markdownEditorLabels(t)}
+            onFeedback={onToast}
             placeholder={t("progressPlaceholder")}
             height="210px"
             minHeight="150px"
@@ -5593,13 +5643,15 @@ function QuickProgressPanel({
               onToast({ kind: "error", message: error instanceof Error ? error.message : t("memoImagePasteFailed") })
             }
           />
-        </label>
-        <label>
-          {t("nextStepPlan")}
+        </div>
+        <div className="editor-form-field" role="group" aria-label={t("nextStepPlan")}>
+          <span>{t("nextStepPlan")}</span>
           <MarkdownWysiwygEditor
             value={quickForm.nextStep}
             language={language}
             theme={theme}
+            labels={markdownEditorLabels(t)}
+            onFeedback={onToast}
             placeholder={t("nextStepPlaceholder")}
             height="160px"
             minHeight="130px"
@@ -5610,13 +5662,15 @@ function QuickProgressPanel({
               onToast({ kind: "error", message: error instanceof Error ? error.message : t("memoImagePasteFailed") })
             }
           />
-        </label>
-        <label>
-          {t("blockerHelp")}
+        </div>
+        <div className="editor-form-field" role="group" aria-label={t("blockerHelp")}>
+          <span>{t("blockerHelp")}</span>
           <MarkdownWysiwygEditor
             value={quickForm.blocker}
             language={language}
             theme={theme}
+            labels={markdownEditorLabels(t)}
+            onFeedback={onToast}
             placeholder={t("blockerPlaceholder")}
             height="160px"
             minHeight="130px"
@@ -5627,7 +5681,7 @@ function QuickProgressPanel({
               onToast({ kind: "error", message: error instanceof Error ? error.message : t("memoImagePasteFailed") })
             }
           />
-        </label>
+        </div>
         <button className="primary-button full-width" type="submit">
           <Save size={17} />
           {t("saveProgress")}

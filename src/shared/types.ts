@@ -572,6 +572,22 @@ export interface HeatmapMonth {
   summary: HeatmapSummary;
 }
 
+export interface SaveAttachmentAsInput {
+  url: string;
+  suggestedName?: string;
+}
+
+export interface SaveAttachmentAsResult {
+  canceled: boolean;
+  filePath?: string;
+}
+
+export interface ClipboardImagePayload {
+  mimeType: string;
+  suggestedName: string;
+  data: ArrayBuffer;
+}
+
 export interface WorkJournalApi {
   appInfo: {
     getVersion: () => Promise<string>;
@@ -629,6 +645,18 @@ export interface WorkJournalApi {
   markdown: {
     generateToday: () => Promise<MarkdownPayload>;
     exportToday: (input: ExportMarkdownInput) => Promise<ExportMarkdownResult>;
+  };
+  editor: {
+    cut: () => Promise<void>;
+    copy: () => Promise<void>;
+    paste: () => Promise<void>;
+    readClipboardText: () => Promise<string>;
+    readClipboardImage: () => Promise<ClipboardImagePayload | null>;
+    writeClipboardText: (text: string) => Promise<void>;
+  };
+  attachments: {
+    saveImageAs: (input: SaveAttachmentAsInput) => Promise<SaveAttachmentAsResult>;
+    copyImage: (input: SaveAttachmentAsInput) => Promise<void>;
   };
   memos: {
     getProjectMemo: (projectId: string) => Promise<ProjectMemo>;

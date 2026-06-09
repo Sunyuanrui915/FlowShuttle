@@ -11,6 +11,7 @@ import type {
   ExportMarkdownInput,
   LanguagePreference,
   PeriodReportType,
+  SaveAttachmentAsInput,
   SaveDailyEntryAttachmentInput,
   SaveWorkItemNoteAttachmentInput,
   SaveMemoAttachmentInput,
@@ -117,6 +118,18 @@ const api: WorkJournalApi = {
   markdown: {
     generateToday: () => ipcRenderer.invoke("markdown:generate-today"),
     exportToday: (input: ExportMarkdownInput) => ipcRenderer.invoke("markdown:export-today", input)
+  },
+  editor: {
+    cut: () => ipcRenderer.invoke("editor:cut"),
+    copy: () => ipcRenderer.invoke("editor:copy"),
+    paste: () => ipcRenderer.invoke("editor:paste"),
+    readClipboardText: () => ipcRenderer.invoke("editor:read-clipboard-text"),
+    readClipboardImage: () => ipcRenderer.invoke("editor:read-clipboard-image"),
+    writeClipboardText: (text: string) => ipcRenderer.invoke("editor:write-clipboard-text", text)
+  },
+  attachments: {
+    saveImageAs: (input: SaveAttachmentAsInput) => ipcRenderer.invoke("attachments:save-image-as", input),
+    copyImage: (input: SaveAttachmentAsInput) => ipcRenderer.invoke("attachments:copy-image", input)
   },
   memos: {
     getProjectMemo: (projectId: string) => ipcRenderer.invoke("memos:get-project-memo", projectId),

@@ -3155,18 +3155,39 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
   const dailyRows = database()
     .prepare(
       `
-      SELECT journal_date, project_id, today_progress, next_step, blocker, status_for_today
-      FROM daily_work_item_entries
-      WHERE journal_date BETWEEN ? AND ?
+      SELECT
+        dwe.journal_date,
+        dwe.project_id,
+        dwe.work_item_id,
+        dwe.today_progress,
+        dwe.next_step,
+        dwe.blocker,
+        dwe.status_for_today,
+        COALESCE(
+          wins.content_markdown,
+          CASE
+            WHEN COALESCE(dj.status, 'draft') <> 'closed' THEN win.content_markdown
+            ELSE NULL
+          END
+        ) AS work_item_note_content
+      FROM daily_work_item_entries dwe
+      LEFT JOIN daily_journals dj ON dj.journal_date = dwe.journal_date
+      LEFT JOIN work_item_note_snapshots wins
+        ON wins.work_item_id = dwe.work_item_id
+        AND wins.snapshot_date = dwe.journal_date
+      LEFT JOIN work_item_notes win ON win.work_item_id = dwe.work_item_id
+      WHERE dwe.journal_date BETWEEN ? AND ?
       `
     )
     .all(startDate, endDate) as Array<{
     journal_date: string;
     project_id: string;
+    work_item_id: string;
     today_progress: string | null;
     next_step: string | null;
     blocker: string | null;
     status_for_today: DailyWorkItemStatus;
+    work_item_note_content: string | null;
   }>;
 
   const rowsByDate = new Map<string, typeof dailyRows>();
@@ -3204,9 +3225,10 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
     day.entryCount = entries.length;
     for (const entry of entries) {
       projectIds.add(entry.project_id);
-      const fields = [entry.today_progress, entry.next_step, entry.blocker];
-      const filledFieldCount = fields.filter((value) => Boolean(value?.trim())).length;
-      const entryTextLength = characterCount(...fields);
+      const dailyFields = [entry.today_progress, entry.next_step, entry.blocker];
+      const metricFields = [...dailyFields, entry.work_item_note_content];
+      const filledFieldCount = dailyFields.filter((value) => Boolean(value?.trim())).length;
+      const entryTextLength = characterCount(...metricFields);
       const hasText = entryTextLength > 0;
       const entryScore = textDepthScore(entryTextLength) + (filledFieldCount > 0 ? filledFieldCount : 0);
 

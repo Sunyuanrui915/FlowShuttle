@@ -1,6 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, shell } from "electron";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { copyFile } from "node:fs/promises";
+import { basename, extname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   archiveProject,
@@ -67,6 +68,7 @@ import type {
   ExportMarkdownInput,
   LanguagePreference,
   PeriodReportType,
+  SaveAttachmentAsInput,
   ThemePreference,
   UpsertDailyWorkItemEntryInput,
   UpdateProjectInput,
@@ -85,6 +87,7 @@ const releasesLatestUrl = "https://github.com/Sunyuanrui915/FlowShuttle/releases
 const dailyAutoReportHour = 23;
 const dailyAutoReportMinute = 0;
 let dailyAutoReportTimer: ReturnType<typeof setTimeout> | null = null;
+let mainWindowRef: BrowserWindow | null = null;
 
 app.setName(appDisplayName);
 app.setPath("userData", join(app.getPath("appData"), userDataDirectoryName));
@@ -189,8 +192,14 @@ function createWindow(): void {
       sandbox: false
     }
   });
+  mainWindowRef = mainWindow;
 
   mainWindow.setMenuBarVisibility(false);
+  mainWindow.on("closed", () => {
+    if (mainWindowRef === mainWindow) {
+      mainWindowRef = null;
+    }
+  });
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
@@ -217,6 +226,21 @@ function registerAttachmentProtocol(): void {
     const filePath = resolveAttachmentUrlToFilePath(request.url);
     return net.fetch(pathToFileURL(filePath).toString());
   });
+}
+
+function focusedWindowForSender(event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
+  return BrowserWindow.fromWebContents(event.sender);
+}
+
+function safeSuggestedFileName(sourcePath: string, suggestedName?: string): string {
+  const fallback = basename(sourcePath) || "flow-shuttle-image.png";
+  const sourceExtension = extname(fallback);
+  const rawName = suggestedName?.trim() || fallback;
+  const sanitized = rawName.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").replace(/\.+$/g, "").trim();
+  if (!sanitized) {
+    return fallback;
+  }
+  return extname(sanitized) ? sanitized : `${sanitized}${sourceExtension || ".png"}`;
 }
 
 function registerIpc(): void {
@@ -288,6 +312,62 @@ function registerIpc(): void {
 
     await writeMarkdownFile(input, result.filePath);
     return { canceled: false, filePath: result.filePath };
+  });
+  ipcMain.handle("editor:cut", (event) => {
+    focusedWindowForSender(event)?.webContents.cut();
+  });
+  ipcMain.handle("editor:copy", (event) => {
+    focusedWindowForSender(event)?.webContents.copy();
+  });
+  ipcMain.handle("editor:paste", (event) => {
+    focusedWindowForSender(event)?.webContents.paste();
+  });
+  ipcMain.handle("editor:read-clipboard-text", () => clipboard.readText());
+  ipcMain.handle("editor:read-clipboard-image", () => {
+    const image = clipboard.readImage();
+    if (image.isEmpty()) {
+      return null;
+    }
+    const png = image.toPNG();
+    const data = png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength);
+    return {
+      mimeType: "image/png",
+      suggestedName: "clipboard-image.png",
+      data
+    };
+  });
+  ipcMain.handle("editor:write-clipboard-text", (_event, text: string) => {
+    clipboard.writeText(text);
+  });
+  ipcMain.handle("attachments:save-image-as", async (_event, input: SaveAttachmentAsInput) => {
+    if (!input.url.startsWith("attachment://")) {
+      throw new Error("Only attachment images can be saved from Flow Shuttle.");
+    }
+    const sourcePath = resolveAttachmentUrlToFilePath(input.url);
+    const result = await dialog.showSaveDialog({
+      title: "Save Image As",
+      defaultPath: safeSuggestedFileName(sourcePath, input.suggestedName),
+      filters: [
+        { name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"] },
+        { name: "All Files", extensions: ["*"] }
+      ]
+    });
+    if (result.canceled || !result.filePath) {
+      return { canceled: true };
+    }
+    await copyFile(sourcePath, result.filePath);
+    return { canceled: false, filePath: result.filePath };
+  });
+  ipcMain.handle("attachments:copy-image", (_event, input: SaveAttachmentAsInput) => {
+    if (!input.url.startsWith("attachment://")) {
+      throw new Error("Only attachment images can be copied from Flow Shuttle.");
+    }
+    const sourcePath = resolveAttachmentUrlToFilePath(input.url);
+    const image = nativeImage.createFromPath(sourcePath);
+    if (image.isEmpty()) {
+      throw new Error("Image could not be copied.");
+    }
+    clipboard.writeImage(image);
   });
   ipcMain.handle("memos:get-project-memo", (_event, projectId: string) => getOrCreateProjectMemo(projectId));
   ipcMain.handle("memos:save-project-memo", (_event, input: SaveProjectMemoInput) => saveProjectMemo(input));
