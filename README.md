@@ -61,7 +61,7 @@
 
 [下载最新版本](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-当前版本为 `v0.1.1`。流梭仍处于早期公开阶段，建议先使用非敏感数据体验，并欢迎反馈问题。
+当前版本为 `v0.1.1`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
 
 Flow Shuttle 未进行代码签名，Windows 可能出现安全提示。如果只是日常使用流梭，不需要从源码运行项目。
 
