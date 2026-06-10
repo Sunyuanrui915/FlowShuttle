@@ -6,11 +6,24 @@
 
 ## v0.1.2 - 2026-06-10
 
-* 修复新建项目时“项目简介”输入焦点被项目名称输入框抢回的问题。
-* 修复 Markdown 编辑器中图片相邻文本位置使用任务列表工具后，光标和回车换行异常的问题。
+### Added
+
 * 新增应用内使用指南，并在 Today 空状态和 Settings 中提供入口。
+* Added an in-app user guide, available from the Today empty state and Settings.
+
+### Fixed
+
+* 修复新建项目时“项目简介”输入焦点被项目名称输入框抢回的问题。
+* Fixed the project description field losing focus back to the project name field when creating a project.
+* 修复 Markdown 编辑器中图片相邻文本位置使用任务列表工具后，光标和回车换行异常的问题。
+* Fixed a Markdown editor cursor issue around images and task-list toggles.
 * 修正热力图统计口径，使当天实际编辑过的工作项当前内容也能体现为活跃度。
-* 补充 v0.1.2 Windows 安装包与 Release 文档。
+* Updated heatmap activity calculation so real edits to work item current content can contribute to activity.
+
+### Documentation
+
+* 补充 v0.1.2 Windows 安装包与 Release 文档，并增加中英双语使用指南。
+* Added v0.1.2 Windows installer release notes and bilingual user guide documentation.
 
 ## v0.1.1
 
