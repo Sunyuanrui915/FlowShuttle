@@ -46,6 +46,8 @@ import {
   type ReactNode
 } from "react";
 import { countTextMetricCharacters } from "../../shared/textMetrics";
+import userGuideEn from "./content/user-guide.en.md?raw";
+import userGuideZhCn from "./content/user-guide.zh-CN.md?raw";
 import { createTranslator, languageOptions, type Translator } from "./i18n";
 import { MarkdownWysiwygEditor, type MarkdownEditorLabels } from "./MarkdownWysiwygEditor";
 import type {
@@ -87,7 +89,9 @@ type View =
   | "reports"
   | "heatmap"
   | "archive"
-  | "settings";
+  | "settings"
+  | "user-guide";
+type UserGuideReturnView = Exclude<View, "user-guide">;
 type ReportTab = "daily" | "weekly" | "monthly";
 type ReportTimeFilter = "all" | "today" | "last7" | "last30" | "thisMonth" | "lastMonth";
 type ReportItem = MarkdownPayload & {
@@ -727,6 +731,7 @@ function markdownEditorLabels(t: Translator): MarkdownEditorLabels {
 
 function App() {
   const [view, setView] = useState<View>("today");
+  const [userGuideReturnView, setUserGuideReturnView] = useState<UserGuideReturnView>("settings");
   const [dailyView, setDailyView] = useState<DailyJournalView | null>(null);
   const [dailyForms, setDailyForms] = useState<Record<string, DailyEntryForm>>({});
   const [dailyEditorTarget, setDailyEditorTarget] = useState<DailyEntryEditorTarget | null>(null);
@@ -1775,6 +1780,10 @@ function App() {
     setSettingsScrollTarget("settings-version-updates");
     setView("settings");
   };
+  const openUserGuide = (returnView: UserGuideReturnView = "settings") => {
+    setUserGuideReturnView(returnView);
+    setView("user-guide");
+  };
   const dailyEditorBlock = useMemo(() => {
     if (!dailyEditorTarget || !dailyView || dailyEditorTarget.journalDate !== dailyView.journalDate) {
       return null;
@@ -1875,7 +1884,8 @@ function App() {
               className={`nav-item ${
                 view === item.id ||
                 (view === "daily-entry-editor" && item.id === "today") ||
-                (view === "project-memo" && item.id === "projects")
+                (view === "project-memo" && item.id === "projects") ||
+                (view === "user-guide" && item.id === "settings")
                   ? "active"
                   : ""
               }`}
@@ -1936,6 +1946,11 @@ function App() {
             onReopen={handleReopenToday}
             onOpenProject={openProjectDetail}
             onOpenMemo={(projectId) => openProjectMemo(projectId, "today")}
+            onCreateProject={() => {
+              setProjectForm({ name: "", description: "" });
+              setNewProjectOpen(true);
+            }}
+            onOpenUserGuide={() => openUserGuide("today")}
           />
         )}
         {view === "daily-entry-editor" && dailyView && (
@@ -2069,6 +2084,15 @@ function App() {
             onSaveAiSettings={handleSaveAiSettings}
             onClearAiKey={handleClearAiKey}
             onTestAiConnection={handleTestAiConnection}
+            onOpenUserGuide={() => openUserGuide("settings")}
+          />
+        )}
+        {view === "user-guide" && (
+          <UserGuidePage
+            t={t}
+            content={language === "en" ? userGuideEn : userGuideZhCn}
+            backLabel={userGuideReturnView === "today" ? t("backToTodayWorkPage") : t("userGuideBackToSettings")}
+            onBack={() => setView(userGuideReturnView)}
           />
         )}
       </main>
@@ -2731,7 +2755,9 @@ function TodayPage({
   onOpenEntryEditor,
   onReopen,
   onOpenProject,
-  onOpenMemo
+  onOpenMemo,
+  onCreateProject,
+  onOpenUserGuide
 }: {
   dailyView: DailyJournalView;
   heatmapData: HeatmapMonth | null;
@@ -2752,6 +2778,8 @@ function TodayPage({
   onReopen: () => void;
   onOpenProject: (id: string) => void;
   onOpenMemo: (projectId: string) => void;
+  onCreateProject: () => void;
+  onOpenUserGuide: () => void;
 }) {
   useEffect(() => {
     if (!focusedWorkItemId) {
@@ -2820,7 +2848,22 @@ function TodayPage({
             </header>
             <div className="project-groups">
               {dailyView.groups.length === 0 ? (
-                <EmptyState title={t("todayEmptyTitle")} body={t("todayEmptyBody")} />
+                <EmptyState
+                  title={t("todayGuideEmptyTitle")}
+                  body={t("todayGuideEmptyBody")}
+                  actions={
+                    <>
+                      <button className="primary-button" type="button" onClick={onCreateProject}>
+                        <Plus size={17} />
+                        {t("newProject")}
+                      </button>
+                      <button className="secondary-button" type="button" onClick={onOpenUserGuide}>
+                        <BookOpenText size={17} />
+                        {t("viewUserGuide")}
+                      </button>
+                    </>
+                  }
+                />
               ) : (
                 dailyView.groups.map((group) => (
                   <DailyGroupCard
@@ -5250,6 +5293,31 @@ function MemoPreview({ content, t }: { content: string; t: Translator }) {
   );
 }
 
+function UserGuidePage({
+  t,
+  content,
+  backLabel,
+  onBack
+}: {
+  t: Translator;
+  content: string;
+  backLabel: string;
+  onBack: () => void;
+}) {
+  return (
+    <section className="page user-guide-page">
+      <PageHeader
+        title={t("userGuide")}
+        description={t("userGuideSubtitle")}
+        backAction={{ label: backLabel, onClick: onBack }}
+      />
+      <article className="user-guide-reader">
+        <ReadableMarkdown content={content} />
+      </article>
+    </section>
+  );
+}
+
 function ProjectDetailPage({
   detail,
   language,
@@ -5823,7 +5891,8 @@ function SettingsPage({
   onTestAiConnection,
   onOpenDataDirectory,
   onMigrateDataDirectory,
-  onReloadDataDirectory
+  onReloadDataDirectory,
+  onOpenUserGuide
 }: {
   settings: SettingsInfo;
   t: Translator;
@@ -5841,6 +5910,7 @@ function SettingsPage({
   onOpenDataDirectory: () => void;
   onMigrateDataDirectory: () => void;
   onReloadDataDirectory: () => void;
+  onOpenUserGuide: () => void;
 }) {
   const themeOptions: Array<{ value: ThemePreference; label: string; icon: typeof Monitor }> = [
     { value: "system", label: t("themeSystem"), icon: Monitor },
@@ -6276,6 +6346,25 @@ function SettingsPage({
           </div>
         </section>
 
+        <section className="settings-card" id="settings-user-guide">
+          <header className="settings-card-header">
+            <div className="settings-icon">
+              <BookOpenText size={20} />
+            </div>
+            <div>
+              <h2>{t("helpUserGuideTitle")}</h2>
+              <p>{t("helpUserGuideDescription")}</p>
+            </div>
+          </header>
+
+          <div className="settings-actions">
+            <button className="secondary-button" type="button" onClick={onOpenUserGuide}>
+              <BookOpenText size={17} />
+              {t("openUserGuide")}
+            </button>
+          </div>
+        </section>
+
         <section className="settings-card" id="settings-version-updates">
           <header className="settings-card-header">
             <div className="settings-icon">
@@ -6398,11 +6487,12 @@ function PlaceholderPage({
   );
 }
 
-function EmptyState({ title, body }: { title: string; body: string }) {
+function EmptyState({ title, body, actions }: { title: string; body: string; actions?: ReactNode }) {
   return (
     <div className="empty-state">
       <strong>{title}</strong>
       <span>{body}</span>
+      {actions && <div className="empty-state-actions">{actions}</div>}
     </div>
   );
 }
@@ -6555,22 +6645,30 @@ function FormModal({
   t: Translator;
 }) {
   const modalRef = useRef<HTMLFormElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       trapModalFocus(event, modalRef.current);
     };
     window.addEventListener("keydown", handleKeyDown);
-    window.requestAnimationFrame(() => {
+    const focusFrame = window.requestAnimationFrame(() => {
       const firstField = getFocusableElements(modalRef.current).find((element) => !element.classList.contains("icon-button"));
       firstField?.focus();
     });
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.cancelAnimationFrame(focusFrame);
+    };
+  }, []);
 
   return (
     <div

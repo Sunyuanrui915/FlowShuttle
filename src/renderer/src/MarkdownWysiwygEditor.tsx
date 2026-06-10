@@ -331,6 +331,7 @@ function Toolbar({
   disabled?: boolean;
 }): JSX.Element {
   const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph");
+  const toolbarSelectionRef = useRef<{ from: number; to: number } | null>(null);
 
   useEffect(() => {
     if (!editor) {
@@ -347,7 +348,35 @@ function Toolbar({
     };
   }, [editor]);
 
+  const captureToolbarSelection = () => {
+    if (!editor) {
+      toolbarSelectionRef.current = null;
+      return;
+    }
+    const { selection } = editor.state;
+    if (!selection.$from.parent.isTextblock && !selection.$to.parent.isTextblock) {
+      toolbarSelectionRef.current = null;
+      return;
+    }
+    toolbarSelectionRef.current = {
+      from: selection.from,
+      to: selection.to
+    };
+  };
+
+  const restoreToolbarSelection = () => {
+    if (!editor || !toolbarSelectionRef.current) {
+      return;
+    }
+    const { from, to } = toolbarSelectionRef.current;
+    const docSize = editor.state.doc.content.size;
+    if (from <= docSize && to <= docSize) {
+      editor.commands.setTextSelection({ from, to });
+    }
+  };
+
   const keepSelection = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    captureToolbarSelection();
     event.preventDefault();
   };
 
@@ -355,6 +384,8 @@ function Toolbar({
     if (!editor || disabled) {
       return;
     }
+    restoreToolbarSelection();
+    toolbarSelectionRef.current = null;
     command();
   };
 

@@ -2,11 +2,15 @@
 
 ## Unreleased
 
-* 初始化 Flow Shuttle GitHub 私有仓库准备工作
-* 统一项目命名为“流梭 Flow Shuttle”
-* 新增 AGPL-3.0-only 许可证
-* 新增 README、CONTRIBUTING、ROADMAP、AGENTS.md
-* 补充开源前安全检查和仓库维护规则
+* 暂无。
+
+## v0.1.2 - 2026-06-10
+
+* 修复新建项目时“项目简介”输入焦点被项目名称输入框抢回的问题。
+* 修复 Markdown 编辑器中图片相邻文本位置使用任务列表工具后，光标和回车换行异常的问题。
+* 新增应用内使用指南，并在 Today 空状态和 Settings 中提供入口。
+* 修正热力图统计口径，使当天实际编辑过的工作项当前内容也能体现为活跃度。
+* 补充 v0.1.2 Windows 安装包与 Release 文档。
 
 ## v0.1.1
 

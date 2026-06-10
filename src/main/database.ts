@@ -3163,13 +3163,28 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
         dwe.next_step,
         dwe.blocker,
         dwe.status_for_today,
-        COALESCE(
-          wins.content_markdown,
-          CASE
-            WHEN COALESCE(dj.status, 'draft') <> 'closed' THEN win.content_markdown
-            ELSE NULL
-          END
-        ) AS work_item_note_content
+        CASE
+          WHEN wins.id IS NOT NULL
+            AND TRIM(COALESCE(wins.content_markdown, '')) <> ''
+            AND COALESCE(
+              (
+                SELECT previous.content_markdown
+                FROM work_item_note_snapshots previous
+                WHERE previous.work_item_id = wins.work_item_id
+                  AND previous.snapshot_date < wins.snapshot_date
+                ORDER BY previous.snapshot_date DESC
+                LIMIT 1
+              ),
+              ''
+            ) <> COALESCE(wins.content_markdown, '')
+            THEN wins.content_markdown
+          WHEN wins.id IS NULL
+            AND COALESCE(dj.status, 'draft') <> 'closed'
+            AND date(win.updated_at, 'localtime') = dwe.journal_date
+            AND TRIM(COALESCE(win.content_markdown, '')) <> ''
+            THEN win.content_markdown
+          ELSE NULL
+        END AS work_item_note_content
       FROM daily_work_item_entries dwe
       LEFT JOIN daily_journals dj ON dj.journal_date = dwe.journal_date
       LEFT JOIN work_item_note_snapshots wins
@@ -3177,9 +3192,66 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
         AND wins.snapshot_date = dwe.journal_date
       LEFT JOIN work_item_notes win ON win.work_item_id = dwe.work_item_id
       WHERE dwe.journal_date BETWEEN ? AND ?
+      UNION ALL
+      SELECT
+        wins.snapshot_date AS journal_date,
+        wi.project_id,
+        wins.work_item_id,
+        NULL AS today_progress,
+        NULL AS next_step,
+        NULL AS blocker,
+        'in_progress' AS status_for_today,
+        wins.content_markdown AS work_item_note_content
+      FROM work_item_note_snapshots wins
+      JOIN work_items wi ON wi.id = wins.work_item_id
+      WHERE wins.snapshot_date BETWEEN ? AND ?
+        AND TRIM(COALESCE(wins.content_markdown, '')) <> ''
+        AND COALESCE(
+          (
+            SELECT previous.content_markdown
+            FROM work_item_note_snapshots previous
+            WHERE previous.work_item_id = wins.work_item_id
+              AND previous.snapshot_date < wins.snapshot_date
+            ORDER BY previous.snapshot_date DESC
+            LIMIT 1
+          ),
+          ''
+        ) <> COALESCE(wins.content_markdown, '')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM daily_work_item_entries existing
+          WHERE existing.journal_date = wins.snapshot_date
+            AND existing.work_item_id = wins.work_item_id
+        )
+      UNION ALL
+      SELECT
+        date(win.updated_at, 'localtime') AS journal_date,
+        wi.project_id,
+        win.work_item_id,
+        NULL AS today_progress,
+        NULL AS next_step,
+        NULL AS blocker,
+        'in_progress' AS status_for_today,
+        win.content_markdown AS work_item_note_content
+      FROM work_item_notes win
+      JOIN work_items wi ON wi.id = win.work_item_id
+      WHERE date(win.updated_at, 'localtime') BETWEEN ? AND ?
+        AND TRIM(COALESCE(win.content_markdown, '')) <> ''
+        AND NOT EXISTS (
+          SELECT 1
+          FROM daily_work_item_entries existing
+          WHERE existing.journal_date = date(win.updated_at, 'localtime')
+            AND existing.work_item_id = win.work_item_id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM work_item_note_snapshots snapshot
+          WHERE snapshot.snapshot_date = date(win.updated_at, 'localtime')
+            AND snapshot.work_item_id = win.work_item_id
+        )
       `
     )
-    .all(startDate, endDate) as Array<{
+    .all(startDate, endDate, startDate, endDate, startDate, endDate) as Array<{
     journal_date: string;
     project_id: string;
     work_item_id: string;

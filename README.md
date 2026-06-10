@@ -40,6 +40,7 @@
 - 日报、周报、月报生成与 Markdown 导出。
 - 项目进展时间线。
 - 工作活跃度热力图。
+- 内置使用指南，帮助理解项目、工作项、当前内容和今日变更摘要。
 - 可选 AI 报告提炼。
 - 本地 SQLite 存储，不强制登录，不主动上传工作内容。
 
@@ -61,7 +62,7 @@
 
 [下载最新版本](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-当前版本为 `v0.1.1`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
+当前版本为 `v0.1.2`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
 
 Flow Shuttle 未进行代码签名，Windows 可能出现安全提示。如果只是日常使用流梭，不需要从源码运行项目。
 
@@ -130,6 +131,7 @@ Flow Shuttle is built to help connect each day’s work into a continuous thread
 - Markdown export.
 - Project progress timeline.
 - Work activity heatmap.
+- Built-in user guide for understanding projects, work items, current content, and today’s change summary.
 - Optional AI report refinement.
 - Local SQLite storage with no required login or forced upload of work content.
 
@@ -151,7 +153,7 @@ Regular users can download the Windows installer from GitHub Releases:
 
 [Download the latest version](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-The current version is `v0.1.1`. Flow Shuttle is still an early public release, so try it with non-sensitive data first and share feedback if something feels rough.
+The current version is `v0.1.2`. Flow Shuttle is still an early public release. It is local-first by default, does not require login, and does not upload your work content by itself.
 
 Flow Shuttle is not code-signed yet, so Windows may show a security warning. If you only use Flow Shuttle day to day, you do not need to run the project from source.
 

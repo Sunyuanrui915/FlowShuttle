@@ -6132,6 +6132,40 @@ textarea:focus {
   padding: 0;
 }
 
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.user-guide-page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.user-guide-reader {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+
+.user-guide-reader .readable-markdown-preview {
+  width: 100%;
+  padding: 30px 34px 42px;
+}
+
+.user-guide-reader .readable-markdown-preview h2:first-child {
+  margin-top: 0;
+}
+
 .settings-stack {
   display: grid;
   gap: 16px;
