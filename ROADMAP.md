@@ -1,8 +1,12 @@
 # Roadmap
 
-## 已发布
+[简体中文](#简体中文) | [English](#english)
 
-### v0.1.2
+## 简体中文
+
+### 已发布
+
+#### v0.1.2
 
 当前公开版本。重点包含：
 
@@ -13,7 +17,7 @@
 * 更新 Windows 安装包与 Release 文档；
 * 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
 
-### v0.1.1
+#### v0.1.1
 
 重点包含：
 
@@ -25,7 +29,7 @@
 * 发布 Windows 安装包；
 * 保留本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
 
-### v0.1.0
+#### v0.1.0
 
 首个公开发布版本，完成基础能力：
 
@@ -39,21 +43,21 @@
 * Windows 安装包；
 * 自动更新框架预留。
 
-## 近期计划
+### 近期计划
 
-### v0.1.x
+#### v0.1.x
 
 * 收集第一批用户反馈；
 * 修复安装、启动、更新检查、数据目录等基础体验问题；
 * 优化 README、官网说明、使用指南和故障排查；
 * 完善 Issue 模板和反馈流程；
 * 在仓库公开后验证应用内检查更新能力；
-* 优化 Today、项目详情、报告、热力图等核心页面的细节体验；
+* 优化 Today、项目详情、报告、热力图、设置等核心页面的细节体验；
 * 继续验证自动更新流程。
 
-## 后续方向
+### 后续方向
 
-### v0.2.x
+#### v0.2.x
 
 * 根据真实使用反馈优化记录流程；
 * 完善日报 / 周报 / 月报模板；
@@ -63,7 +67,7 @@
 * 评估多平台安装包支持；
 * 持续保持本地优先和个人工具定位。
 
-## 不在近期计划中
+### 不在近期计划中
 
 * 团队协作；
 * 云同步；
@@ -72,3 +76,78 @@
 * 上级查看进度；
 * 强制登录；
 * 默认上传工作内容。
+
+## English
+
+### Released
+
+#### v0.1.2
+
+Current public release. Highlights:
+
+* Fixed a focus issue in the new project dialog;
+* Fixed a cursor issue around images and task-list toggles in the Markdown editor;
+* Added an in-app user guide with entry points from the Today empty state and Settings;
+* Updated heatmap activity calculation so real edits to work item current content can contribute to activity;
+* Updated the Windows installer and release documentation;
+* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
+
+#### v0.1.1
+
+Highlights:
+
+* Improved editing and daily recording experience;
+* Improved UI details and default theme behavior;
+* Completed Windows installer and application icon setup;
+* Added version and update entry;
+* Updated README, release notes, screenshots, and public release documentation;
+* Released Windows installer;
+* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
+
+#### v0.1.0
+
+First public release with core features:
+
+* Project and work item management;
+* Today daily records;
+* Daily / weekly / monthly report generation;
+* Project timeline;
+* Work activity heatmap;
+* Markdown export;
+* Local SQLite storage;
+* Windows installer;
+* Update framework prepared.
+
+### Near-term plans
+
+#### v0.1.x
+
+* Collect early user feedback;
+* Fix issues around installation, startup, update checks, and data directory behavior;
+* Improve README, website copy, user guide, and troubleshooting documentation;
+* Improve issue templates and feedback flow;
+* Verify in-app update checks after the repository becomes public;
+* Refine Today, project detail, reports, heatmap, and settings pages;
+* Continue validating the update workflow.
+
+### Future direction
+
+#### v0.2.x
+
+* Improve the recording workflow based on real usage feedback;
+* Improve daily / weekly / monthly report templates;
+* Improve AI summarization experience;
+* Improve data backup, migration, and export guidance;
+* Evaluate code signing;
+* Evaluate multi-platform installer support;
+* Continue keeping Flow Shuttle local-first and personal-tool oriented.
+
+### Not in near-term scope
+
+* Team collaboration;
+* Cloud sync;
+* Mobile app;
+* Enterprise admin console;
+* Manager progress tracking;
+* Mandatory login;
+* Uploading work content by default.
