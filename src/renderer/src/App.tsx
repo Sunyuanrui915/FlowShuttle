@@ -56,6 +56,7 @@ import type {
   AiSettingsInfo,
   AppUpdateStatus,
   DailyAutoReportEvent,
+  DailyWorkItemEntry,
   LanguagePreference,
   MarkdownPayload,
   Project,
@@ -77,6 +78,7 @@ import type {
   PeriodReportListItem,
   WorkItemHistoryRecovery,
   WorkItemDeleteSummary,
+  WorkItemNote,
   WorkItemWithLatest
 } from "../../shared/types";
 
@@ -446,6 +448,51 @@ function todayBlocks(dailyView: DailyJournalView): DailyWorkItemBlock[] {
   return dailyView.groups.flatMap((group) => group.items);
 }
 
+function dailyEntryCountsAsFilled(entry: DailyWorkItemEntry | null | undefined): boolean {
+  return Boolean(
+    entry &&
+      (entry.today_progress?.trim() ||
+        entry.next_step?.trim() ||
+        entry.blocker?.trim() ||
+        entry.status_for_today === "done_today" ||
+        entry.status_for_today === "paused")
+  );
+}
+
+function blockHasFilledDailyEntry(block: DailyWorkItemBlock): boolean {
+  return dailyEntryCountsAsFilled(block.entry);
+}
+
+function updateDailyViewAfterEntrySave(
+  dailyView: DailyJournalView,
+  workItemId: string,
+  entry: DailyWorkItemEntry | null,
+  workItemNote: WorkItemNote
+): DailyJournalView {
+  const groups = dailyView.groups.map((group) => ({
+    ...group,
+    items: group.items.map((item) =>
+      item.workItem.id === workItemId
+        ? {
+            ...item,
+            entry,
+            workItemNote
+          }
+        : item
+    )
+  }));
+  const blocks = groups.flatMap((group) => group.items);
+  return {
+    ...dailyView,
+    stats: {
+      ...dailyView.stats,
+      filledEntries: blocks.filter(blockHasFilledDailyEntry).length,
+      completedToday: blocks.filter((block) => block.entry?.status_for_today === "done_today").length
+    },
+    groups
+  };
+}
+
 type TodayReminderTone = "warning" | "danger" | "neutral";
 
 interface TodayReminder {
@@ -459,7 +506,7 @@ interface TodayReminder {
 
 function buildTodayReminders(dailyView: DailyJournalView, t: Translator, language: LanguagePreference): TodayReminder[] {
   const blocks = todayBlocks(dailyView);
-  const missingSummaryBlocks = blocks.filter((block) => !block.entry?.today_progress?.trim());
+  const missingSummaryBlocks = blocks.filter((block) => !blockHasFilledDailyEntry(block));
   const blockerBlocks = blocks.filter((block) => block.entry?.blocker?.trim());
   const reminders: TodayReminder[] = [];
 
@@ -1417,7 +1464,7 @@ function App() {
       return false;
     }
     try {
-      await window.workJournal.daily.upsertWorkItemEntry({
+      const result = await window.workJournal.daily.upsertWorkItemEntry({
         journalDate: dailyView.journalDate,
         projectId: block.project.id,
         workItemId: block.workItem.id,
@@ -1426,6 +1473,18 @@ function App() {
         blocker: form.blocker,
         statusForToday: form.statusForToday,
         workItemNoteContentMarkdown: form.workItemNoteContent
+      });
+      setDailyView((current) =>
+        current && current.journalDate === dailyView.journalDate
+          ? updateDailyViewAfterEntrySave(current, block.workItem.id, result.entry, result.workItemNote)
+          : current
+      );
+      updateDailyForm(block.workItem.id, {
+        workItemNoteContent: result.workItemNote.content_markdown ?? "",
+        todayProgress: result.entry?.today_progress ?? "",
+        nextStep: result.entry?.next_step ?? "",
+        blocker: result.entry?.blocker ?? "",
+        statusForToday: result.entry?.status_for_today ?? form.statusForToday
       });
       if (options.refresh ?? true) {
         await refreshActiveView();
@@ -2646,7 +2705,123 @@ function HoverTooltip({
   );
 }
 
-function ReadableMarkdown({ content }: { content: string }) {
+function looksLikeHtml(value: string): boolean {
+  return /<\/?[a-z][\s\S]*>/i.test(value);
+}
+
+function compactElementText(element: Element): string {
+  return (element.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+function htmlToReadableMarkdown(value: string): string {
+  if (typeof DOMParser === "undefined") {
+    return value
+      .replace(/<\s*br\s*\/?>/gi, "\n")
+      .replace(/<\/(h[1-6]|p|div|section|article|li|ul|ol)>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  const parsed = new DOMParser().parseFromString(value, "text/html");
+  parsed.querySelectorAll("script, style, noscript").forEach((element) => element.remove());
+  const lines: string[] = [];
+  const pushLine = (line: string) => {
+    const normalized = line.trim();
+    if (normalized) {
+      lines.push(normalized);
+    }
+  };
+
+  const pushBlank = () => {
+    if (lines.length > 0 && lines.at(-1) !== "") {
+      lines.push("");
+    }
+  };
+
+  const walk = (element: Element) => {
+    const tag = element.tagName.toLowerCase();
+    if (/^h[1-6]$/.test(tag)) {
+      const level = Math.min(Number(tag.slice(1)), 4);
+      pushLine(`${"#".repeat(level)} ${compactElementText(element)}`);
+      pushBlank();
+      return;
+    }
+    if (tag === "li") {
+      pushLine(`- ${compactElementText(element)}`);
+      return;
+    }
+    if (tag === "br") {
+      pushBlank();
+      return;
+    }
+    if (["p", "blockquote", "pre"].includes(tag)) {
+      pushLine((element.textContent ?? "").trim());
+      pushBlank();
+      return;
+    }
+    if (["ul", "ol"].includes(tag)) {
+      Array.from(element.children).forEach(walk);
+      pushBlank();
+      return;
+    }
+    if (["div", "section", "article", "main", "header", "footer", "body"].includes(tag)) {
+      Array.from(element.children).forEach(walk);
+      if (tag !== "body") {
+        pushBlank();
+      }
+      return;
+    }
+    const text = compactElementText(element);
+    if (text) {
+      pushLine(text);
+      pushBlank();
+    }
+  };
+
+  walk(parsed.body);
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function releaseNotesToReadableMarkdown(value: string): string {
+  const trimmed = value.trim();
+  return looksLikeHtml(trimmed) ? htmlToReadableMarkdown(trimmed) : trimmed;
+}
+
+function parseMarkdownImageLine(line: string): { alt: string; src: string } | null {
+  const match = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$/.exec(line.trim());
+  if (!match) {
+    return null;
+  }
+  return {
+    alt: match[1] || "image",
+    src: match[2]
+  };
+}
+
+function canRenderReadableImage(src: string): boolean {
+  return src.startsWith("attachment://");
+}
+
+function ReadableMarkdownImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className="readable-markdown-image-missing">
+        <span>{alt || "image"}</span>
+        <code>{src}</code>
+      </div>
+    );
+  }
+  return (
+    <figure className="readable-markdown-image-block">
+      <img src={src} alt={alt || "image"} loading="lazy" onError={() => setFailed(true)} />
+      {alt && alt !== "image" && <figcaption>{alt}</figcaption>}
+    </figure>
+  );
+}
+
+function ReadableMarkdown({ content, compact = false }: { content: string; compact?: boolean }) {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
   const elements: ReactNode[] = [];
   let codeLines: string[] = [];
@@ -2681,6 +2856,12 @@ function ReadableMarkdown({ content }: { content: string }) {
 
     if (!trimmed) {
       elements.push(<div className="readable-markdown-space" key={`space-${index}`} />);
+      return;
+    }
+
+    const image = parseMarkdownImageLine(line);
+    if (image && canRenderReadableImage(image.src)) {
+      elements.push(<ReadableMarkdownImage key={`image-${index}`} src={image.src} alt={image.alt} />);
       return;
     }
 
@@ -2730,7 +2911,7 @@ function ReadableMarkdown({ content }: { content: string }) {
   }
 
   return (
-    <div className="readable-markdown-preview">
+    <div className={`readable-markdown-preview ${compact ? "compact" : ""}`}>
       {elements.length > 0 ? elements : <p className="readable-markdown-paragraph">{content}</p>}
     </div>
   );
@@ -3054,7 +3235,7 @@ function TodayOverviewCard({
   onOpenEntryEditor: (block: DailyWorkItemBlock) => void;
 }) {
   const blocks = todayBlocks(dailyView);
-  const missingSummaryCount = blocks.filter((block) => !block.entry?.today_progress?.trim()).length;
+  const missingSummaryCount = blocks.filter((block) => !blockHasFilledDailyEntry(block)).length;
   const blockerCount = blocks.filter((block) => block.entry?.blocker?.trim()).length;
   const latestSavedAt = latestTimestamp(
     blocks.flatMap((block) => [block.entry?.updated_at, block.workItemNote?.updated_at])
@@ -3305,14 +3486,15 @@ function DailyWorkItemSummaryCard({
   const entry = block.entry;
   const progressText = entry?.today_progress?.trim();
   const blockerText = entry?.blocker?.trim();
+  const dailyEntryFilled = blockHasFilledDailyEntry(block);
   const itemStatus = workItemRowStatus(block, t);
   const previousText =
     block.previousEntry?.today_progress?.trim() ||
     block.previousEntry?.next_step?.trim() ||
     block.workItem.description?.trim() ||
     t("noPreviousWorkdayReference");
-  const hintLabel = progressText ? t("todayEntrySummary") : t("previousWorkdayReference");
-  const hintText = progressText || previousText;
+  const hintLabel = dailyEntryFilled ? t("todayEntrySummary") : t("previousWorkdayReference");
+  const hintText = progressText || entry?.next_step?.trim() || entry?.blocker?.trim() || previousText;
   const latestSavedAt = latestBlockSavedAt(block);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -3345,9 +3527,9 @@ function DailyWorkItemSummaryCard({
         </p>
       </div>
       <div className="daily-entry-row-meta" aria-label={t("todayEntryMeta")}>
-        <span className={`row-status-chip ${progressText ? "filled" : "unfilled"}`}>
+        <span className={`row-status-chip ${dailyEntryFilled ? "filled" : "unfilled"}`}>
           <SquarePen size={14} />
-          {progressText ? t("summaryFilled") : t("summaryMissing")}
+          {dailyEntryFilled ? t("summaryFilled") : t("summaryMissing")}
         </span>
         <span className={`row-status-chip ${blockerText ? "risk" : ""}`}>
           <AlertTriangle size={14} />
@@ -3419,12 +3601,12 @@ function DailyEntryEditorPage({
   ];
   const previousNoteContent = block.previousNoteSnapshot?.content_markdown ?? "";
   const previousRows = [
-    [t("dateLabel"), previousEntry ? block.previousWorkDate : null, false],
-    [t("workItemPreviousContent"), previousNoteContent, true],
-    [t("changeSummary"), previousEntry?.today_progress, true],
-    [t("nextStepPlan"), previousEntry?.next_step, true],
-    [t("blockerHelp"), previousEntry?.blocker, true]
-  ] as Array<[string, string | null | undefined, boolean]>;
+    [t("dateLabel"), previousEntry ? block.previousWorkDate : null, false, false],
+    [t("workItemPreviousContent"), previousNoteContent, true, true],
+    [t("changeSummary"), previousEntry?.today_progress, true, true],
+    [t("nextStepPlan"), previousEntry?.next_step, true, true],
+    [t("blockerHelp"), previousEntry?.blocker, true, true]
+  ] as Array<[string, string | null | undefined, boolean, boolean]>;
   const editorSections: Array<{
     id: DailyEditorSection;
     label: string;
@@ -3690,7 +3872,7 @@ function DailyEntryEditorPage({
             </div>
             <div className="reference-detail-scroll">
               <dl className="previous-reference-list">
-                {previousRows.map(([label, value, canCopy]) => {
+                {previousRows.map(([label, value, canCopy, renderMarkdown]) => {
                   const referenceText = value?.trim();
                   return (
                     <div key={label}>
@@ -3709,7 +3891,17 @@ function DailyEntryEditorPage({
                           </button>
                         )}
                       </dt>
-                      <dd>{referenceText || t("none")}</dd>
+                      <dd>
+                        {referenceText ? (
+                          renderMarkdown ? (
+                            <ReadableMarkdown content={referenceText} compact />
+                          ) : (
+                            referenceText
+                          )
+                        ) : (
+                          t("none")
+                        )}
+                      </dd>
                     </div>
                   );
                 })}
@@ -6089,6 +6281,7 @@ function SettingsPage({
     : t("updateUnknownVersion");
   const releaseDateDisplay = formatUpdateReleaseDate(displayedUpdateStatus.releaseDate, settings.language, t);
   const releaseNotes = displayedUpdateStatus.releaseNotes?.trim();
+  const readableReleaseNotes = releaseNotes ? releaseNotesToReadableMarkdown(releaseNotes) : "";
 
   const aiKeyStatus = settings.ai.apiKeyConfigured
     ? `${t("aiApiKeyConfigured")} ${settings.ai.apiKeyPreview}`
@@ -6413,7 +6606,11 @@ function SettingsPage({
 
           <div className="update-release-notes">
             <strong>{t("updateReleaseNotes")}</strong>
-            <p>{releaseNotes || t("updateReleaseNotesUnavailable")}</p>
+            {readableReleaseNotes ? (
+              <ReadableMarkdown content={readableReleaseNotes} compact />
+            ) : (
+              <p>{t("updateReleaseNotesUnavailable")}</p>
+            )}
           </div>
 
           <p className="settings-note compact">{t("updateDataSafetyNote")}</p>

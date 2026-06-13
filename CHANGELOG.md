@@ -4,6 +4,22 @@
 
 * 暂无。
 
+## v0.1.3 - 2026-06-13
+
+### Fixed
+
+* 修复 Settings 中 Release 说明直接显示 HTML 标签的问题。
+* Fixed release notes being displayed as raw HTML in Settings.
+* 修复上一工作日参考 / 上一快照中 Markdown 换行和 attachment 图片显示异常的问题。
+* Fixed Markdown line breaks and attachment images not rendering correctly in previous workday references and previous snapshots.
+* 修复今日记录编辑页点击「保存本项」后，Today 总览仍显示摘要未填的问题。
+* Fixed Today overview not recognizing saved change summaries after clicking Save Item.
+
+### Documentation
+
+* 补充 v0.1.3 Windows 安装包与 Release 文档。
+* Added v0.1.3 Windows installer release notes.
+
 ## v0.1.2 - 2026-06-10
 
 ### Added

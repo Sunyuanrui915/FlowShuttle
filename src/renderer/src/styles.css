@@ -3385,6 +3385,17 @@ button.today-reminder-item:focus-visible {
   line-height: 1.78;
 }
 
+.readable-markdown-preview.compact {
+  flex: initial;
+  min-height: auto;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
 .readable-markdown-preview h2,
 .readable-markdown-preview h3,
 .readable-markdown-preview h4 {
@@ -3444,6 +3455,44 @@ button.today-reminder-item:focus-visible {
 
 .readable-markdown-space {
   height: 10px;
+}
+
+.readable-markdown-image-block {
+  max-width: 100%;
+  margin: 8px 0;
+}
+
+.readable-markdown-image-block img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+  background: var(--bg-surface-muted);
+  object-fit: contain;
+}
+
+.readable-markdown-image-block figcaption {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.readable-markdown-image-missing {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-surface-muted);
+  padding: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.readable-markdown-image-missing code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .report-version-toggle {

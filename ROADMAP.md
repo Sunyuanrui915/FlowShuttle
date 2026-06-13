@@ -6,9 +6,19 @@
 
 ### 已发布
 
-#### v0.1.2
+#### v0.1.3
 
 当前公开版本。重点包含：
+
+* 修复 Settings 中 Release 说明显示原始 HTML 标签的问题；
+* 修复上一工作日参考 / 上一快照中的 Markdown 换行和 attachment 图片显示问题；
+* 修复「保存本项」后 Today 总览摘要状态刷新不及时的问题；
+* 更新 Windows 安装包与 Release 文档；
+* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
+
+#### v0.1.2
+
+重点包含：
 
 * 修复新建项目弹窗中的输入焦点问题；
 * 修复 Markdown 编辑器中图片相邻文本和任务列表切换的光标问题；
@@ -81,9 +91,19 @@
 
 ### Released
 
-#### v0.1.2
+#### v0.1.3
 
 Current public release. Highlights:
+
+* Fixed release notes being displayed as raw HTML in Settings;
+* Fixed Markdown line breaks and attachment images not rendering correctly in previous workday references and previous snapshots;
+* Fixed Today overview not refreshing saved change summary status after clicking Save Item;
+* Updated the Windows installer and release documentation;
+* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
+
+#### v0.1.2
+
+Highlights:
 
 * Fixed a focus issue in the new project dialog;
 * Fixed a cursor issue around images and task-list toggles in the Markdown editor;
