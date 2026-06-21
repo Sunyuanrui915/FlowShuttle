@@ -55,6 +55,7 @@ import type {
   TimelineEntry,
   TodayOverview,
   UpdateProjectInput,
+  UpdateWorkItemInput,
   UpsertDailyWorkItemEntryInput,
   WorkItem,
   WorkItemNote,
@@ -560,6 +561,7 @@ function getWorkItem(id: string): WorkItem {
 }
 
 function getItemsWithLatest(projectId: string, status: "active" | "done"): WorkItemWithLatest[] {
+  const statusFilter = status === "active" ? "wi.status IN ('active', 'paused')" : "wi.status = 'done'";
   return database()
     .prepare(
       `
@@ -625,11 +627,11 @@ function getItemsWithLatest(projectId: string, status: "active" | "done"): WorkI
           LIMIT 1
         ) AS latest_created_at
       FROM work_items wi
-      WHERE wi.project_id = ? AND wi.status = ?
+      WHERE wi.project_id = ? AND ${statusFilter}
       ORDER BY wi.updated_at DESC
       `
     )
-    .all(projectId, status) as WorkItemWithLatest[];
+    .all(projectId) as WorkItemWithLatest[];
 }
 
 export function listActiveProjects(): ProjectListItem[] {
@@ -639,7 +641,7 @@ export function listActiveProjects(): ProjectListItem[] {
       SELECT p.*, COUNT(wi.id) AS active_item_count
       FROM projects p
       LEFT JOIN work_items wi
-        ON wi.project_id = p.id AND wi.status = 'active'
+        ON wi.project_id = p.id AND wi.status IN ('active', 'paused')
       WHERE p.status = 'active'
       GROUP BY p.id
       ORDER BY p.updated_at DESC
@@ -1078,6 +1080,36 @@ export function createWorkItem(input: CreateWorkItemInput): WorkItem {
   return item;
 }
 
+export function updateWorkItem(input: UpdateWorkItemInput): WorkItem {
+  const item = getWorkItem(input.id);
+  const title = requireText(input.title, "Work item title");
+  const description = cleanOptional(input.description);
+  if (!["active", "done", "paused", "archived"].includes(input.status)) {
+    throw new Error("Unsupported work item status.");
+  }
+
+  const now = getTimestamp();
+  const completedAt = input.status === "done" ? item.completed_at ?? now : null;
+  const archivedAt = input.status === "archived" ? item.archived_at ?? now : null;
+  const transaction = database().transaction(() => {
+    database()
+      .prepare(
+        `
+        UPDATE work_items
+        SET title = ?, description = ?, status = ?, completed_at = ?, archived_at = ?, updated_at = ?
+        WHERE id = ?
+        `
+      )
+      .run(title, description, input.status, completedAt, archivedAt, now, input.id);
+    database()
+      .prepare("UPDATE projects SET updated_at = ? WHERE id = ?")
+      .run(now, item.project_id);
+  });
+  transaction();
+
+  return getWorkItem(input.id);
+}
+
 export function completeWorkItem(id: string): WorkItem {
   const item = getWorkItem(id);
   const now = getTimestamp();
@@ -1244,7 +1276,7 @@ export function getTodayOverview(): TodayOverview {
             SELECT COUNT(*) AS count
             FROM work_items wi
             JOIN projects p ON p.id = wi.project_id
-            WHERE wi.status = 'active' AND p.status = 'active'
+            WHERE wi.status IN ('active', 'paused') AND p.status = 'active'
             `
           )
           .get() as { count: number }
@@ -1751,7 +1783,7 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
         ON today_entry.work_item_id = wi.id AND today_entry.journal_date = ?
       WHERE p.status = 'active'
         AND wi.status <> 'archived'
-        AND (wi.status = 'active' OR today_entry.id IS NOT NULL)
+        AND (wi.status IN ('active', 'paused') OR today_entry.id IS NOT NULL)
       ORDER BY p.updated_at DESC, wi.updated_at DESC
       `
     )

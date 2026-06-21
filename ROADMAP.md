@@ -6,9 +6,21 @@
 
 ### 已发布
 
-#### v0.1.3
+#### v0.1.4
 
 当前公开版本。重点包含：
+
+* 修复 Today 页面在没有今日变更摘要时的“摘要已填”状态识别问题；
+* 修复上一工作日参考中换行内容被显示成分段的问题；
+* 增加编辑器换行 / 分段操作提示；
+* 优化图片右键菜单，选中图片时隐藏不适合图片场景的粘贴操作；
+* 增加工作项编辑能力，支持修改标题、描述和状态；
+* 优化部分 UI 显示细节；
+* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
+
+#### v0.1.3
+
+重点包含：
 
 * 修复 Settings 中 Release 说明显示原始 HTML 标签的问题；
 * 修复上一工作日参考 / 上一快照中的 Markdown 换行和 attachment 图片显示问题；
@@ -91,9 +103,21 @@
 
 ### Released
 
-#### v0.1.3
+#### v0.1.4
 
 Current public release. Highlights:
+
+* Fixed Today summary-filled state detection when no valid change summary exists;
+* Fixed line-break rendering in previous workday references;
+* Added editor guidance for line breaks and paragraph breaks;
+* Improved the image context menu by hiding paste actions that do not apply to selected images;
+* Added work item editing for title, description, and status updates;
+* Improved several UI display details;
+* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
+
+#### v0.1.3
+
+Highlights:
 
 * Fixed release notes being displayed as raw HTML in Settings;
 * Fixed Markdown line breaks and attachment images not rendering correctly in previous workday references and previous snapshots;

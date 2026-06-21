@@ -43,6 +43,7 @@ import {
   getOrCreateProjectMemo,
   upsertDailyWorkItemEntry,
   updateProject,
+  updateWorkItem,
   useExistingDatabaseDirectory,
   writeMarkdownFile
 } from "./database";
@@ -72,6 +73,7 @@ import type {
   ThemePreference,
   UpsertDailyWorkItemEntryInput,
   UpdateProjectInput,
+  UpdateWorkItemInput,
   SaveMemoAttachmentInput,
   SaveDailyEntryAttachmentInput,
   SaveWorkItemNoteAttachmentInput,
@@ -268,6 +270,7 @@ function registerIpc(): void {
   ipcMain.handle("work-items:create", (_event, input: CreateWorkItemInput) =>
     createWorkItem(input)
   );
+  ipcMain.handle("work-items:update", (_event, input: UpdateWorkItemInput) => updateWorkItem(input));
   ipcMain.handle("work-items:complete", (_event, id: string) => completeWorkItem(id));
   ipcMain.handle("work-items:get-delete-summary", (_event, id: string) => getWorkItemDeleteSummary(id));
   ipcMain.handle("work-items:delete", (_event, id: string) => deleteWorkItem(id));

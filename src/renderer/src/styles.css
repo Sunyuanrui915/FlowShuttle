@@ -1732,6 +1732,70 @@ button.today-reminder-item:focus-visible {
   margin-bottom: 0;
 }
 
+.entry-page-header.daily-entry-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 72px;
+  gap: 20px;
+  padding-bottom: 14px;
+}
+
+.daily-entry-route {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 14px;
+}
+
+.entry-back-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.entry-back-icon:hover,
+.entry-back-icon:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-heading);
+  outline: none;
+}
+
+.entry-route-project,
+.entry-route-work-item {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-route-project {
+  color: var(--text-heading);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.entry-route-divider {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.entry-route-work-item {
+  color: var(--text-secondary);
+  font-size: 17px;
+  font-weight: 700;
+}
+
 .entry-header-main {
   display: grid;
   gap: 4px;
@@ -1787,6 +1851,25 @@ button.today-reminder-item:focus-visible {
   white-space: nowrap;
 }
 
+.entry-work-item-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  border: 1px solid var(--tag-border);
+  border-radius: 999px;
+  background: var(--tag-bg);
+  color: var(--text-secondary);
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.entry-work-item-status strong {
+  color: var(--accent);
+  font-weight: 760;
+}
+
 .entry-header-actions {
   display: grid;
   justify-items: end;
@@ -1815,8 +1898,52 @@ button.today-reminder-item:focus-visible {
   gap: 8px;
 }
 
+.daily-entry-topbar .entry-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: auto;
+  gap: 16px;
+  flex: 0 0 auto;
+}
+
+.daily-entry-topbar .entry-header-saved {
+  white-space: nowrap;
+  font-size: 14px;
+}
+
 .entry-status-control {
   flex: 0 0 auto;
+}
+
+.daily-entry-topbar .entry-topbar-status {
+  min-width: 140px;
+  min-height: 44px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: 0 14px;
+}
+
+.daily-entry-topbar .entry-topbar-status span {
+  display: none;
+}
+
+.daily-entry-topbar .entry-topbar-status select {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  outline: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.daily-entry-topbar .entry-save-button {
+  min-width: 92px;
+  min-height: 44px;
+  font-size: 16px;
+  font-weight: 800;
 }
 
 .entry-editor-main {
@@ -2432,6 +2559,16 @@ button.today-reminder-item:focus-visible {
     padding-bottom: 0;
   }
 
+  .entry-page-header.daily-entry-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .daily-entry-topbar .entry-header-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2620,8 +2757,8 @@ button.today-reminder-item:focus-visible {
 .work-item-row,
 .project-workitem-table-head {
   display: grid;
-  grid-template-columns: 24px minmax(150px, 1.7fr) 78px minmax(120px, 1fr) 96px 126px;
-  gap: 12px;
+  grid-template-columns: 24px minmax(150px, 1.35fr) 88px minmax(110px, 1fr) 82px 212px;
+  gap: 10px;
   align-items: center;
   min-width: 0;
 }
@@ -2634,6 +2771,13 @@ button.today-reminder-item:focus-visible {
   font-size: 12px;
   font-weight: 760;
   padding: 0 16px;
+}
+
+.project-workitem-table-head span:nth-child(3),
+.project-workitem-table-head span:nth-child(5),
+.project-workitem-table-head span:last-child {
+  justify-self: center;
+  text-align: center;
 }
 
 .work-item-row {
@@ -2656,38 +2800,89 @@ button.today-reminder-item:focus-visible {
   text-decoration: line-through;
 }
 
+.project-workitem-table .work-item-status-pill,
+.project-workitem-table .work-item-updated {
+  justify-self: center;
+  text-align: center;
+}
+
 .work-item-actions {
-  position: relative;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 8px;
   min-width: 0;
 }
 
-.work-item-delete-button {
+.work-item-record-button,
+.work-item-edit-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.work-item-record-button {
+  gap: 5px;
+  min-width: 96px;
+  min-height: 30px;
+  padding: 0 9px;
+  white-space: nowrap;
+}
+
+.work-item-edit-icon-button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  color: var(--text-secondary);
+}
+
+.work-item-record-button:hover,
+.work-item-record-button:focus-visible,
+.work-item-edit-icon-button:hover,
+.work-item-edit-icon-button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
+}
+
+.work-item-actions .work-item-delete-button {
   width: 30px;
+  flex: 0 0 30px;
   min-width: 30px;
   min-height: 30px;
-  overflow: hidden;
+  border-color: transparent;
+  background: transparent;
   justify-content: center;
   gap: 0;
   padding: 0;
-  opacity: 0;
-  font-size: 0;
-  pointer-events: none;
+  opacity: 0.42;
   white-space: nowrap;
-  transition: opacity 140ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease;
 }
 
-.work-item-delete-button svg {
+.work-item-actions .work-item-delete-button svg {
   flex: 0 0 auto;
 }
 
-.work-item-row:hover .work-item-delete-button,
-.work-item-row:focus-within .work-item-delete-button {
+.work-item-row:hover .work-item-actions .work-item-delete-button,
+.work-item-row:focus-within .work-item-actions .work-item-delete-button {
+  opacity: 0.82;
+}
+
+.work-item-actions .work-item-delete-button:hover,
+.work-item-actions .work-item-delete-button:focus-visible {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .check-button {
@@ -2918,17 +3113,9 @@ button.today-reminder-item:focus-visible {
   min-height: 0;
 }
 
-.reports-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
 .report-tabs {
   display: inline-flex;
-  align-self: flex-start;
+  flex: 0 0 auto;
   gap: 6px;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
@@ -3422,6 +3609,7 @@ button.today-reminder-item:focus-visible {
 .readable-markdown-paragraph,
 .readable-markdown-list-line {
   max-width: 900px;
+  margin: 0;
   color: var(--text-primary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -3455,6 +3643,13 @@ button.today-reminder-item:focus-visible {
 
 .readable-markdown-space {
   height: 10px;
+}
+
+.editor-key-hint {
+  margin: -4px 0 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .readable-markdown-image-block {
@@ -4454,12 +4649,73 @@ button.today-reminder-item:focus-visible {
   margin-bottom: 18px;
 }
 
+.project-detail-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 72px;
+  min-width: 0;
+  margin: 0 0 18px;
+}
+
+.project-detail-heading {
+  display: flex;
+  min-width: 0;
+}
+
+.project-detail-route {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.project-detail-back-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.project-detail-back-icon:hover,
+.project-detail-back-icon:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-heading);
+  outline: none;
+}
+
+.project-detail-title-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.project-detail-title-line h1 {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-heading);
+  font-size: clamp(28px, 2.35vw, 34px);
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-detail-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
+  flex: 0 0 auto;
 }
 
 .project-detail-actions .ghost-button {
@@ -4801,12 +5057,26 @@ button.today-reminder-item:focus-visible {
 @media (max-width: 1360px) {
   .active-work-section .work-item-row,
   .project-workitem-table-head {
-    grid-template-columns: 24px minmax(132px, 1.5fr) 74px minmax(110px, 1fr) 84px 112px;
-    gap: 10px;
+    grid-template-columns: 24px minmax(132px, 1.2fr) 74px minmax(96px, 1fr) 84px 176px;
+    gap: 8px;
+  }
+
+  .active-work-section .work-item-record-button {
+    min-width: 90px;
+    padding-inline: 8px;
   }
 }
 
 @media (max-width: 1180px) {
+  .project-detail-topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project-detail-actions {
+    justify-content: flex-start;
+  }
+
   .detail-workbench {
     grid-template-columns: 1fr;
   }
@@ -6233,6 +6503,19 @@ textarea:focus {
   padding: 18px;
 }
 
+.settings-user-guide-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.settings-user-guide-card .settings-card-header {
+  min-width: 0;
+}
+
+.settings-user-guide-card .settings-actions {
+  justify-content: flex-end;
+}
+
 .settings-card-header {
   display: flex;
   align-items: flex-start;
@@ -6728,6 +7011,15 @@ textarea:focus {
 }
 
 @media (max-width: 860px) {
+  .settings-user-guide-card {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .settings-user-guide-card .settings-actions {
+    justify-content: flex-start;
+  }
+
   .settings-preference-grid,
   .settings-form-grid {
     grid-template-columns: 1fr;

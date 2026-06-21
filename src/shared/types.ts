@@ -1,5 +1,5 @@
 export type ProjectStatus = "active" | "archived";
-export type WorkItemStatus = "active" | "done" | "archived";
+export type WorkItemStatus = "active" | "done" | "paused" | "archived";
 export type ThemePreference = "system" | "light" | "dark";
 export type EffectiveTheme = "light" | "dark";
 export type LanguagePreference = "zh-CN" | "zh-TW" | "en";
@@ -321,6 +321,13 @@ export interface CreateWorkItemInput {
   description?: string;
 }
 
+export interface UpdateWorkItemInput {
+  id: string;
+  title: string;
+  description?: string;
+  status: WorkItemStatus;
+}
+
 export interface CreateProgressInput {
   projectId: string;
   workItemId: string;
@@ -614,6 +621,7 @@ export interface WorkJournalApi {
   };
   workItems: {
     create: (input: CreateWorkItemInput) => Promise<WorkItem>;
+    update: (input: UpdateWorkItemInput) => Promise<WorkItem>;
     complete: (id: string) => Promise<WorkItem>;
     getDeleteSummary: (id: string) => Promise<WorkItemDeleteSummary>;
     delete: (id: string) => Promise<void>;

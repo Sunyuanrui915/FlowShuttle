@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsRight,
+  Clock3,
   Clipboard,
   ExternalLink,
   FileDown,
@@ -79,6 +80,7 @@ import type {
   WorkItemHistoryRecovery,
   WorkItemDeleteSummary,
   WorkItemNote,
+  WorkItemStatus,
   WorkItemWithLatest
 } from "../../shared/types";
 
@@ -380,7 +382,20 @@ function workItemRowStatus(block: DailyWorkItemBlock, t: Translator): { label: s
   if (block.entry?.status_for_today === "done_today" || block.workItem.status === "done") {
     return { label: t("statusDone"), className: "done" };
   }
+  if (block.workItem.status === "paused") {
+    return { label: t("statusPaused"), className: "paused" };
+  }
   return { label: t("statusActive"), className: "active" };
+}
+
+function workItemLifecycleStatusLabel(status: WorkItemStatus, t: Translator): string {
+  if (status === "done") {
+    return t("statusDone");
+  }
+  if (status === "paused") {
+    return t("statusPaused");
+  }
+  return t("statusActive");
 }
 
 function dateKeyParts(dateKey: string): { year: number; month: number; day: number } {
@@ -463,6 +478,14 @@ function blockHasFilledDailyEntry(block: DailyWorkItemBlock): boolean {
   return dailyEntryCountsAsFilled(block.entry);
 }
 
+function dailyEntryHasChangeSummary(entry: DailyWorkItemEntry | null | undefined): boolean {
+  return Boolean(entry?.today_progress?.trim());
+}
+
+function blockHasChangeSummary(block: DailyWorkItemBlock): boolean {
+  return dailyEntryHasChangeSummary(block.entry);
+}
+
 function updateDailyViewAfterEntrySave(
   dailyView: DailyJournalView,
   workItemId: string,
@@ -506,7 +529,7 @@ interface TodayReminder {
 
 function buildTodayReminders(dailyView: DailyJournalView, t: Translator, language: LanguagePreference): TodayReminder[] {
   const blocks = todayBlocks(dailyView);
-  const missingSummaryBlocks = blocks.filter((block) => !blockHasFilledDailyEntry(block));
+  const missingSummaryBlocks = blocks.filter((block) => !blockHasChangeSummary(block));
   const blockerBlocks = blocks.filter((block) => block.entry?.blocker?.trim());
   const reminders: TodayReminder[] = [];
 
@@ -813,6 +836,9 @@ function App() {
   const [quickProjectOpen, setQuickProjectOpen] = useState(false);
   const [quickWorkItemOpen, setQuickWorkItemOpen] = useState(false);
   const [editProjectOpen, setEditProjectOpen] = useState(false);
+  const [editWorkItemTarget, setEditWorkItemTarget] = useState<WorkItemWithLatest | null>(null);
+  const [workItemEditStatus, setWorkItemEditStatus] =
+    useState<Extract<WorkItemStatus, "active" | "done" | "paused">>("active");
   const [settingsInfo, setSettingsInfo] = useState<SettingsInfo | null>(null);
   const [appVersion, setAppVersion] = useState<string>("0.1.0");
   const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus | null>(null);
@@ -1309,6 +1335,35 @@ function App() {
       showToast({ kind: "success", message: t("workItemCompleteSuccess") });
     } catch (error) {
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("workItemCompleteFailed") });
+    }
+  };
+
+  const openEditWorkItem = (item: WorkItemWithLatest) => {
+    setWorkItemForm({
+      title: item.title,
+      description: item.description || ""
+    });
+    setWorkItemEditStatus(item.status === "done" ? "done" : item.status === "paused" ? "paused" : "active");
+    setEditWorkItemTarget(item);
+  };
+
+  const handleUpdateWorkItem = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!editWorkItemTarget) {
+      return;
+    }
+    try {
+      await window.workJournal.workItems.update({
+        id: editWorkItemTarget.id,
+        title: workItemForm.title,
+        description: workItemForm.description,
+        status: workItemEditStatus
+      });
+      setEditWorkItemTarget(null);
+      await refreshActiveView();
+      showToast({ kind: "success", message: t("workItemUpdateSuccess") });
+    } catch (error) {
+      showToast({ kind: "error", message: error instanceof Error ? error.message : t("workItemUpdateFailed") });
     }
   };
 
@@ -2025,7 +2080,6 @@ function App() {
               onBack={() => setView("today")}
               onUpdate={(patch) => updateDailyForm(dailyEditorBlock.workItem.id, patch)}
               onSave={() => handleSaveDailyEntry(dailyEditorBlock)}
-              onSaveAndReturn={() => handleSaveDailyEntryAndReturn(dailyEditorBlock)}
               onViewHistory={() => handleViewWorkItemHistory(dailyEditorBlock)}
               onRestoreHistory={() => handleRestoreWorkItemHistory(dailyEditorBlock)}
               onToast={showToast}
@@ -2089,6 +2143,7 @@ function App() {
             onBack={() => setView("projects")}
             onRecordProgress={openDailyEntryEditor}
             onComplete={handleCompleteWorkItem}
+            onEditWorkItem={openEditWorkItem}
             onDeleteWorkItem={handleRequestDeleteWorkItem}
             onCreateWorkItem={() => {
               setWorkItemForm({ title: "", description: "" });
@@ -2311,6 +2366,52 @@ function App() {
               placeholder={t("workItemDescriptionPlaceholder")}
               rows={4}
             />
+          </label>
+        </FormModal>
+      )}
+
+      {editWorkItemTarget && (
+        <FormModal
+          title={t("editWorkItem")}
+          description={t("editWorkItemModalDescription")}
+          primaryLabel={t("saveChanges")}
+          t={t}
+          onClose={() => setEditWorkItemTarget(null)}
+          onSubmit={handleUpdateWorkItem}
+        >
+          <label>
+            <span className="label-text">{t("workItemTitleShort")} <RequiredMark /></span>
+            <input
+              autoFocus
+              value={workItemForm.title}
+              onChange={(event) => setWorkItemForm((current) => ({ ...current, title: event.target.value }))}
+              placeholder={t("workItemTitlePlaceholder")}
+              required
+            />
+          </label>
+          <label>
+            {t("workItemDescriptionShort")}
+            <textarea
+              value={workItemForm.description}
+              onChange={(event) =>
+                setWorkItemForm((current) => ({ ...current, description: event.target.value }))
+              }
+              placeholder={t("workItemDescriptionPlaceholder")}
+              rows={4}
+            />
+          </label>
+          <label>
+            {t("workItemStatus")}
+            <select
+              value={workItemEditStatus}
+              onChange={(event) =>
+                setWorkItemEditStatus(event.target.value as Extract<WorkItemStatus, "active" | "done" | "paused">)
+              }
+            >
+              <option value="active">{workItemLifecycleStatusLabel("active", t)}</option>
+              <option value="done">{workItemLifecycleStatusLabel("done", t)}</option>
+              <option value="paused">{workItemLifecycleStatusLabel("paused", t)}</option>
+            </select>
           </label>
         </FormModal>
       )}
@@ -3235,7 +3336,7 @@ function TodayOverviewCard({
   onOpenEntryEditor: (block: DailyWorkItemBlock) => void;
 }) {
   const blocks = todayBlocks(dailyView);
-  const missingSummaryCount = blocks.filter((block) => !blockHasFilledDailyEntry(block)).length;
+  const missingSummaryCount = blocks.filter((block) => !blockHasChangeSummary(block)).length;
   const blockerCount = blocks.filter((block) => block.entry?.blocker?.trim()).length;
   const latestSavedAt = latestTimestamp(
     blocks.flatMap((block) => [block.entry?.updated_at, block.workItemNote?.updated_at])
@@ -3485,16 +3586,18 @@ function DailyWorkItemSummaryCard({
 }) {
   const entry = block.entry;
   const progressText = entry?.today_progress?.trim();
+  const nextStepText = entry?.next_step?.trim();
   const blockerText = entry?.blocker?.trim();
-  const dailyEntryFilled = blockHasFilledDailyEntry(block);
+  const summaryFilled = blockHasChangeSummary(block);
+  const hasDailyText = Boolean(progressText || nextStepText || blockerText);
   const itemStatus = workItemRowStatus(block, t);
   const previousText =
     block.previousEntry?.today_progress?.trim() ||
     block.previousEntry?.next_step?.trim() ||
     block.workItem.description?.trim() ||
     t("noPreviousWorkdayReference");
-  const hintLabel = dailyEntryFilled ? t("todayEntrySummary") : t("previousWorkdayReference");
-  const hintText = progressText || entry?.next_step?.trim() || entry?.blocker?.trim() || previousText;
+  const hintLabel = summaryFilled ? t("todayEntrySummary") : hasDailyText ? t("dailyEditorTitle") : t("previousWorkdayReference");
+  const hintText = progressText || nextStepText || blockerText || previousText;
   const latestSavedAt = latestBlockSavedAt(block);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -3527,9 +3630,9 @@ function DailyWorkItemSummaryCard({
         </p>
       </div>
       <div className="daily-entry-row-meta" aria-label={t("todayEntryMeta")}>
-        <span className={`row-status-chip ${dailyEntryFilled ? "filled" : "unfilled"}`}>
+        <span className={`row-status-chip ${summaryFilled ? "filled" : "unfilled"}`}>
           <SquarePen size={14} />
-          {dailyEntryFilled ? t("summaryFilled") : t("summaryMissing")}
+          {summaryFilled ? t("summaryFilled") : t("summaryMissing")}
         </span>
         <span className={`row-status-chip ${blockerText ? "risk" : ""}`}>
           <AlertTriangle size={14} />
@@ -3552,7 +3655,6 @@ function DailyEntryEditorPage({
   onBack,
   onUpdate,
   onSave,
-  onSaveAndReturn,
   onViewHistory,
   onRestoreHistory,
   onToast,
@@ -3568,7 +3670,6 @@ function DailyEntryEditorPage({
   onBack: () => void;
   onUpdate: (patch: Partial<DailyEntryForm>) => void;
   onSave: () => void;
-  onSaveAndReturn: () => void;
   onViewHistory: () => void;
   onRestoreHistory: () => void;
   onToast: (toast: Toast) => void;
@@ -3780,49 +3881,38 @@ function DailyEntryEditorPage({
 
   return (
     <section className="page daily-entry-editor-page">
-      <header className="entry-page-header">
-        <div className="entry-header-main">
-          <div className="entry-header-breadcrumb">
-            <button className="back-button page-header-back entry-header-back" type="button" onClick={onBack}>
-              <ChevronLeft size={17} />
-              {t("backToTodayWorkPage")}
-            </button>
-            <span className="entry-breadcrumb-separator">/</span>
-            <span className="entry-project-name">{block.project.name}</span>
-          </div>
-          <h1>{block.workItem.title}</h1>
-          <p className="entry-header-description" title={block.workItem.description || t("none")}>
-            {block.workItem.description || t("none")}
-          </p>
+      <header className="entry-page-header daily-entry-topbar">
+        <div className="daily-entry-route">
+          <button className="entry-back-icon" type="button" aria-label={t("backToTodayWorkPage")} onClick={onBack}>
+            <ChevronLeft size={20} />
+          </button>
+          <span className="entry-route-project" title={block.project.name}>
+            {block.project.name}
+          </span>
+          <span className="entry-route-divider">/</span>
+          <span className="entry-route-work-item" title={block.workItem.title}>
+            {block.workItem.title}
+          </span>
         </div>
         <div className="entry-header-actions">
           <span className="entry-header-saved">
-            {t("lastSaved")}: {formatTimestamp(block.entry?.updated_at ?? null, language, t)}
+            {t("lastSavedAt")} {formatTimeDisplay(block.entry?.updated_at ?? null, language, t)}
           </span>
-          <div className="entry-header-action-row">
-            <label className="daily-status-select entry-status-control">
-              <span>{t("todayStatus")}</span>
-              <select
-                value={form.statusForToday}
-                onChange={(event) => onUpdate({ statusForToday: event.target.value as DailyWorkItemStatus })}
-                disabled={isClosed}
-              >
-                <option value="in_progress">{t("statusContinue")}</option>
-                <option value="done_today">{t("statusDoneToday")}</option>
-                <option value="paused">{t("statusPaused")}</option>
-              </select>
-            </label>
-            <div className="button-row entry-save-actions">
-              <button className="secondary-button" type="button" onClick={onSave} disabled={isClosed}>
-                <Save size={17} />
-                {t("saveThisItem")}
-              </button>
-              <button className="primary-button" type="button" onClick={onSaveAndReturn} disabled={isClosed}>
-                <Save size={17} />
-                {t("saveAndReturn")}
-              </button>
-            </div>
-          </div>
+          <label className="daily-status-select entry-status-control entry-topbar-status">
+            <span>{t("todayStatus")}</span>
+            <select
+              value={form.statusForToday}
+              onChange={(event) => onUpdate({ statusForToday: event.target.value as DailyWorkItemStatus })}
+              disabled={isClosed}
+            >
+              <option value="in_progress">{t("statusContinue")}</option>
+              <option value="done_today">{t("statusDoneToday")}</option>
+              <option value="paused">{t("statusPaused")}</option>
+            </select>
+          </label>
+          <button className="secondary-button entry-save-button" type="button" onClick={onSave} disabled={isClosed}>
+            {t("saveAction")}
+          </button>
         </div>
       </header>
 
@@ -3942,6 +4032,7 @@ function DailyEntryEditorPage({
                 <em>{savingImageTarget === "note" ? t("memoSavingImage") : t("workItemCurrentContentHelp")}</em>
               </div>
             </div>
+            <p className="editor-key-hint">{t("editorLineBreakHint")}</p>
             {showHistoryRecoveryCard && block.recoverableHistory && (
               <div className="history-recovery-card">
                 <div className="history-recovery-icon">
@@ -3995,6 +4086,7 @@ function DailyEntryEditorPage({
                 {savingImageTarget === "daily" && <em>{t("memoSavingImage")}</em>}
               </div>
             </div>
+            <p className="editor-key-hint">{t("editorLineBreakHint")}</p>
             <div className="change-draft-actions" role="group" aria-label={t("changeSummaryGenerationActions")}>
               <button
                 className="change-draft-card local-draft-action"
@@ -4082,6 +4174,7 @@ function WorkItemRow({
   language,
   onRecordProgress,
   onComplete,
+  onEdit,
   onDelete,
   t
 }: {
@@ -4091,6 +4184,7 @@ function WorkItemRow({
   language: LanguagePreference;
   onRecordProgress: () => void;
   onComplete?: () => void;
+  onEdit?: () => void;
   onDelete?: () => void;
   t: Translator;
 }) {
@@ -4112,24 +4206,36 @@ function WorkItemRow({
         <strong>{item.title}</strong>
         {item.description && <p className="description">{item.description}</p>}
       </HoverTooltip>
-      {mode === "detail" && <span className="work-item-status-pill">{item.status === "done" ? t("statusDone") : t("statusActive")}</span>}
+      {mode === "detail" && <span className="work-item-status-pill">{workItemLifecycleStatusLabel(item.status, t)}</span>}
       <HoverTooltip as="div" className="work-item-recent-wrap" content={recentRecord}>
         <p className="work-item-recent">{recentRecord}</p>
       </HoverTooltip>
       <time className="work-item-updated">{updatedAt}</time>
       <div className="work-item-actions">
-        <button className="text-button" type="button" onClick={onRecordProgress}>
+        <button className="work-item-record-button" type="button" onClick={onRecordProgress}>
+          <Clock3 size={14} />
           {t("recordProgress")}
         </button>
+        {onEdit && (
+          <button
+            className="work-item-edit-icon-button"
+            type="button"
+            title={t("editWorkItem")}
+            aria-label={t("editWorkItem")}
+            onClick={onEdit}
+          >
+            <SquarePen size={15} />
+          </button>
+        )}
         {onDelete && (
           <button
             className="ghost-button danger-ghost work-item-delete-button"
             type="button"
+            title={t("deleteWorkItem")}
             aria-label={t("deleteWorkItem")}
             onClick={onDelete}
           >
             <Trash2 size={14} />
-            {t("deleteWorkItem")}
           </button>
         )}
       </div>
@@ -4566,50 +4672,52 @@ function ReportsPage({
 
   return (
     <section className="page reports-page">
-      <PageHeader title={t("reportsTitle")} description={t("reportsSubtitle")} />
-
-      <div className="reports-toolbar">
-        <div
-          className="report-tabs"
-          role="tablist"
-          aria-label={t("reportsTitle")}
-          onKeyDown={(event) => handleSegmentedKeyDown(event, reportTabIds, activeTab, setActiveTab)}
-        >
-          <button
-            data-tab-id="daily"
-            className={activeTab === "daily" ? "active" : ""}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "daily"}
-            tabIndex={activeTab === "daily" ? 0 : -1}
-            onClick={() => setActiveTab("daily")}
+      <PageHeader
+        title={t("reportsTitle")}
+        description={t("reportsSubtitle")}
+        actions={
+          <div
+            className="report-tabs"
+            role="tablist"
+            aria-label={t("reportsTitle")}
+            onKeyDown={(event) => handleSegmentedKeyDown(event, reportTabIds, activeTab, setActiveTab)}
           >
-            {t("dailyReports")}
-          </button>
-          <button
-            data-tab-id="weekly"
-            className={activeTab === "weekly" ? "active" : ""}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "weekly"}
-            tabIndex={activeTab === "weekly" ? 0 : -1}
-            onClick={() => setActiveTab("weekly")}
-          >
-            {t("weeklyReports")}
-          </button>
-          <button
-            data-tab-id="monthly"
-            className={activeTab === "monthly" ? "active" : ""}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "monthly"}
-            tabIndex={activeTab === "monthly" ? 0 : -1}
-            onClick={() => setActiveTab("monthly")}
-          >
-            {t("monthlyReports")}
-          </button>
-        </div>
-      </div>
+            <button
+              data-tab-id="daily"
+              className={activeTab === "daily" ? "active" : ""}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "daily"}
+              tabIndex={activeTab === "daily" ? 0 : -1}
+              onClick={() => setActiveTab("daily")}
+            >
+              {t("dailyReports")}
+            </button>
+            <button
+              data-tab-id="weekly"
+              className={activeTab === "weekly" ? "active" : ""}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "weekly"}
+              tabIndex={activeTab === "weekly" ? 0 : -1}
+              onClick={() => setActiveTab("weekly")}
+            >
+              {t("weeklyReports")}
+            </button>
+            <button
+              data-tab-id="monthly"
+              className={activeTab === "monthly" ? "active" : ""}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "monthly"}
+              tabIndex={activeTab === "monthly" ? 0 : -1}
+              onClick={() => setActiveTab("monthly")}
+            >
+              {t("monthlyReports")}
+            </button>
+          </div>
+        }
+      />
 
       <div className="reports-layout">
         <aside className="reports-filter-panel" aria-label={t("reportFilters")}>
@@ -5517,6 +5625,7 @@ function ProjectDetailPage({
   onBack,
   onRecordProgress,
   onComplete,
+  onEditWorkItem,
   onDeleteWorkItem,
   onCreateWorkItem,
   onEditProject,
@@ -5530,6 +5639,7 @@ function ProjectDetailPage({
   onBack: () => void;
   onRecordProgress: (projectId: string, workItemId: string) => void;
   onComplete: (id: string) => void;
+  onEditWorkItem: (item: WorkItemWithLatest) => void;
   onDeleteWorkItem: (item: WorkItemWithLatest) => void;
   onCreateWorkItem: () => void;
   onEditProject: () => void;
@@ -5566,82 +5676,88 @@ function ProjectDetailPage({
 
   return (
     <section className="page detail-page">
-      <PageHeader
-        title={
-          <span className="detail-title-inline">
-            <span>{detail.project.name}</span>
-            <span className="detail-status-pill">
-              {detail.project.status === "active" ? t("statusActive") : t("statusArchived")}
-            </span>
-          </span>
-        }
-        description={detail.project.description || t("noProjectDescription")}
-        backAction={{ label: t("detailBackToProjects"), onClick: onBack }}
-        actions={
-          <div className="project-detail-actions">
-            <button className="secondary-button" type="button" onClick={onOpenMemo}>
-              <BookOpenText size={17} />
-              {t("projectMemo")}
+      <header className="project-detail-topbar">
+        <div className="project-detail-heading">
+          <div className="project-detail-route">
+            <button
+              className="project-detail-back-icon"
+              type="button"
+              aria-label={t("detailBackToProjects")}
+              onClick={onBack}
+            >
+              <ChevronLeft size={20} />
             </button>
-            <div className={`project-more-menu ${projectActionsOpen ? "open" : ""}`.trim()} ref={projectActionsMenuRef}>
-              <button
-                className="ghost-button project-more-trigger"
-                type="button"
-                aria-haspopup="menu"
-                aria-expanded={projectActionsOpen}
-                onClick={() => setProjectActionsOpen((current) => !current)}
-              >
-                <ChevronDown size={16} />
-                {t("moreActions")}
-              </button>
-              {projectActionsOpen && (
-                <div className="project-more-menu-list" role="menu" aria-label={t("moreActions")}>
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setProjectActionsOpen(false);
-                      onEditProject();
-                    }}
-                  >
-                    <SquarePen size={16} />
-                    {t("editProject")}
-                  </button>
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setProjectActionsOpen(false);
-                      onArchiveProject();
-                    }}
-                  >
-                    <Archive size={16} />
-                    {t("archiveProject")}
-                  </button>
-                  <button
-                    className="ghost-button danger-ghost"
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setProjectActionsOpen(false);
-                      onDeleteProject();
-                    }}
-                  >
-                    <Trash2 size={16} />
-                    {t("deleteProject")}
-                  </button>
-                </div>
-              )}
+            <div className="project-detail-title-line">
+              <h1 title={detail.project.name}>{detail.project.name}</h1>
+              <span className="detail-status-pill">
+                {detail.project.status === "active" ? t("statusActive") : t("statusArchived")}
+              </span>
             </div>
-            <button className="primary-button" type="button" onClick={onCreateWorkItem}>
-              <Plus size={17} />
-              {t("newWorkItem")}
-            </button>
           </div>
-        }
-      />
+        </div>
+        <div className="project-detail-actions">
+          <button className="secondary-button" type="button" onClick={onOpenMemo}>
+            <BookOpenText size={17} />
+            {t("projectMemo")}
+          </button>
+          <div className={`project-more-menu ${projectActionsOpen ? "open" : ""}`.trim()} ref={projectActionsMenuRef}>
+            <button
+              className="ghost-button project-more-trigger"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={projectActionsOpen}
+              onClick={() => setProjectActionsOpen((current) => !current)}
+            >
+              <ChevronDown size={16} />
+              {t("moreActions")}
+            </button>
+            {projectActionsOpen && (
+              <div className="project-more-menu-list" role="menu" aria-label={t("moreActions")}>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setProjectActionsOpen(false);
+                    onEditProject();
+                  }}
+                >
+                  <SquarePen size={16} />
+                  {t("editProject")}
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setProjectActionsOpen(false);
+                    onArchiveProject();
+                  }}
+                >
+                  <Archive size={16} />
+                  {t("archiveProject")}
+                </button>
+                <button
+                  className="ghost-button danger-ghost"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setProjectActionsOpen(false);
+                    onDeleteProject();
+                  }}
+                >
+                  <Trash2 size={16} />
+                  {t("deleteProject")}
+                </button>
+              </div>
+            )}
+          </div>
+          <button className="primary-button" type="button" onClick={onCreateWorkItem}>
+            <Plus size={17} />
+            {t("newWorkItem")}
+          </button>
+        </div>
+      </header>
 
       <div className="detail-workbench">
         <section className="detail-section active-work-section">
@@ -5671,6 +5787,7 @@ function ProjectDetailPage({
                   language={language}
                   onRecordProgress={() => onRecordProgress(detail.project.id, item.id)}
                   onComplete={() => onComplete(item.id)}
+                  onEdit={() => onEditWorkItem(item)}
                   onDelete={() => onDeleteWorkItem(item)}
                   t={t}
                 />
@@ -5697,6 +5814,7 @@ function ProjectDetailPage({
                   compact
                   language={language}
                   onRecordProgress={() => onRecordProgress(detail.project.id, item.id)}
+                  onEdit={() => onEditWorkItem(item)}
                   onDelete={() => onDeleteWorkItem(item)}
                   t={t}
                 />
@@ -6409,7 +6527,7 @@ function SettingsPage({
               <input
                 value={aiForm.baseUrl}
                 onChange={(event) => setAiForm((current) => ({ ...current, baseUrl: event.target.value }))}
-                placeholder="https://your-provider.example.com/v1"
+                placeholder={t("aiBaseUrlPlaceholder")}
               />
             </label>
             <label>
@@ -6539,7 +6657,7 @@ function SettingsPage({
           </div>
         </section>
 
-        <section className="settings-card" id="settings-user-guide">
+        <section className="settings-card settings-user-guide-card" id="settings-user-guide">
           <header className="settings-card-header">
             <div className="settings-icon">
               <BookOpenText size={20} />

@@ -123,34 +123,7 @@ function isMarkdownStructuralLine(line: string): boolean {
 }
 
 function normalizeMarkdownForImport(value: string): string {
-  const lines = normalizePlainText(value).split("\n");
-  const output: string[] = [];
-  let inCodeFence = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    const isFence = /^(```|~~~)/.test(trimmed);
-    const previous = output.at(-1) ?? "";
-    const shouldSplitPlainLine =
-      !inCodeFence &&
-      output.length > 0 &&
-      previous.trim().length > 0 &&
-      trimmed.length > 0 &&
-      !isMarkdownStructuralLine(previous) &&
-      !isMarkdownStructuralLine(line);
-
-    if (shouldSplitPlainLine) {
-      output.push("");
-    }
-
-    output.push(line);
-
-    if (isFence) {
-      inCodeFence = !inCodeFence;
-    }
-  }
-
-  return output.join("\n");
+  return normalizePlainText(value);
 }
 
 function shouldSplitPastedTextIntoBlocks(text: string): boolean {
@@ -828,12 +801,16 @@ export function MarkdownWysiwygEditor({
               )}
             </>
           )}
-          <button type="button" role="menuitem" onClick={() => void runContextAction("paste", contextMenu)}>
-            {resolvedLabels.paste}
-          </button>
-          <button type="button" role="menuitem" onClick={() => void runContextAction("pastePlain", contextMenu)}>
-            {resolvedLabels.pasteAsPlainText}
-          </button>
+          {contextMenu.kind !== "image" && (
+            <>
+              <button type="button" role="menuitem" onClick={() => void runContextAction("paste", contextMenu)}>
+                {resolvedLabels.paste}
+              </button>
+              <button type="button" role="menuitem" onClick={() => void runContextAction("pastePlain", contextMenu)}>
+                {resolvedLabels.pasteAsPlainText}
+              </button>
+            </>
+          )}
           {contextMenu.kind === "image" && (
             <>
               <span className="markdown-editor-context-divider" role="separator" />

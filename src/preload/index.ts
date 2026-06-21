@@ -20,6 +20,7 @@ import type {
   ThemePreference,
   UpsertDailyWorkItemEntryInput,
   UpdateProjectInput,
+  UpdateWorkItemInput,
   WorkJournalApi
 } from "../shared/types";
 
@@ -75,6 +76,7 @@ const api: WorkJournalApi = {
   },
   workItems: {
     create: (input: CreateWorkItemInput) => ipcRenderer.invoke("work-items:create", input),
+    update: (input: UpdateWorkItemInput) => ipcRenderer.invoke("work-items:update", input),
     complete: (id: string) => ipcRenderer.invoke("work-items:complete", id),
     getDeleteSummary: (id: string) => ipcRenderer.invoke("work-items:get-delete-summary", id),
     delete: (id: string) => ipcRenderer.invoke("work-items:delete", id)

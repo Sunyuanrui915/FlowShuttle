@@ -4,6 +4,26 @@
 
 * 暂无。
 
+## v0.1.4 - 2026-06-21
+
+### Fixed
+
+* 修复没有今日变更摘要记录时，Today 页面仍显示“摘要已填”的问题。
+* Fixed an issue where the Today page could show a change summary as filled even when no valid summary existed.
+* 修复换行保存后，第二天在上一工作日参考中显示成分段的问题。
+* Fixed an issue where line breaks could be rendered as separate paragraphs in the previous workday reference.
+
+### Improved
+
+* 增加换行与分段操作区分提示，帮助用户理解编辑器中的换行行为。
+* Added guidance to clarify line breaks and paragraph breaks in the editor.
+* 优化图片右键菜单，选中图片时不再显示不适合图片场景的粘贴操作。
+* Improved the image context menu by removing paste actions that do not apply to selected images.
+* 增加工作项编辑能力，支持修改工作项标题、描述和状态。
+* Added work item editing, including title, description, and status updates.
+* 优化部分 UI 显示细节。
+* Improved several UI display details.
+
 ## v0.1.3 - 2026-06-13
 
 ### Fixed
