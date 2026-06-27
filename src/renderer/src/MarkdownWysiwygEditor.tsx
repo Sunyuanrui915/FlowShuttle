@@ -131,6 +131,21 @@ function shouldSplitPastedTextIntoBlocks(text: string): boolean {
   return lines.length > 1 && lines.every((line) => !isMarkdownStructuralLine(line));
 }
 
+function plainTextToHardBreakContent(text: string): Array<{ type: "text"; text: string } | { type: "hardBreak" }> {
+  const content: Array<{ type: "text"; text: string } | { type: "hardBreak" }> = [];
+  const lines = normalizePlainText(text).split("\n");
+  lines.forEach((line, index) => {
+    const trimmedLine = line.trimEnd();
+    if (trimmedLine) {
+      content.push({ type: "text", text: trimmedLine });
+    }
+    if (index < lines.length - 1) {
+      content.push({ type: "hardBreak" });
+    }
+  });
+  return content;
+}
+
 function markdownImage(src: string, altText = "image"): string {
   const safeAlt = altText.replace(/[\[\]\n\r]/g, " ").trim() || "image";
   return `![${safeAlt}](${src})`;
@@ -206,15 +221,7 @@ function insertPlainText(editor: TiptapEditor, text: string): void {
   }
 
   if (shouldSplitPastedTextIntoBlocks(normalized)) {
-    const nodes = normalized
-      .split(/\n+/)
-      .map((line) => line.trimEnd())
-      .filter((line) => line.trim().length > 0)
-      .map((line) => ({
-        type: "paragraph",
-        content: [{ type: "text", text: line }]
-      }));
-    editor.chain().focus().insertContent(nodes).run();
+    editor.chain().focus().insertContent(plainTextToHardBreakContent(normalized)).run();
     return;
   }
 
@@ -270,6 +277,20 @@ const FlowShuttleKeyboardExtension = Extension.create({
 
   addKeyboardShortcuts() {
     return {
+      Enter: () => {
+        const { editor } = this;
+        if (
+          editor.isActive("codeBlock") ||
+          editor.isActive("bulletList") ||
+          editor.isActive("orderedList") ||
+          editor.isActive("taskList") ||
+          editor.isActive("heading")
+        ) {
+          return false;
+        }
+
+        return editor.chain().focus().setHardBreak().run();
+      },
       Backspace: () => {
         const { editor } = this;
         if (!editor.isActive("blockquote")) {
@@ -469,7 +490,7 @@ export function MarkdownWysiwygEditor({
       }),
       Markdown.configure({
         markedOptions: {
-          breaks: false,
+          breaks: true,
           gfm: true
         }
       })
@@ -486,7 +507,7 @@ export function MarkdownWysiwygEditor({
     editorProps: {
       attributes: {
         class: "markdown-editor-content",
-        spellcheck: "true"
+        spellcheck: "false"
       },
       handlePaste: (_view, event) => {
         const currentEditor = editorRef.current;
@@ -843,13 +864,14 @@ export function MarkdownWysiwygEditor({
             <p>{editorError}</p>
             <textarea
               value={value}
+              spellCheck={false}
               placeholder={placeholder}
               disabled={disabled}
               onChange={(event) => onChange(event.target.value)}
             />
           </div>
         ) : (
-          <div className={`markdown-wysiwyg-editor ${compact ? "compact" : ""} ${disabled ? "editor-disabled" : ""}`}>
+          <div className={`markdown-wysiwyg-editor ${compact ? "compact" : ""} ${disabled ? "editor-disabled" : ""}`} spellCheck={false}>
             <Toolbar editor={editor} labels={resolvedLabels} disabled={disabled} />
             <EditorContent className="tiptap-editor-content" editor={editor} />
           </div>

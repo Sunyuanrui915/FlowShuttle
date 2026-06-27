@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, session, shell } from "electron";
 import { existsSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
@@ -29,6 +29,8 @@ import {
   listPeriodReports,
   listTodayProgress,
   migrateDatabaseToDirectory,
+  moveProject,
+  moveWorkItem,
   prepareDataDirectoryForCopy,
   reloadDatabaseFromSettings,
   reopenDailyJournal,
@@ -70,6 +72,7 @@ import type {
   LanguagePreference,
   PeriodReportType,
   SaveAttachmentAsInput,
+  SortMoveDirection,
   ThemePreference,
   UpsertDailyWorkItemEntryInput,
   UpdateProjectInput,
@@ -95,6 +98,11 @@ app.setName(appDisplayName);
 app.setPath("userData", join(app.getPath("appData"), userDataDirectoryName));
 if (process.platform === "win32") {
   app.setAppUserModelId(appUserModelId);
+}
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
 }
 
 function titleForLanguage(language: LanguagePreference): string {
@@ -219,6 +227,22 @@ function createWindow(): void {
   }
 }
 
+function focusMainWindow(): void {
+  const window = mainWindowRef ?? BrowserWindow.getAllWindows()[0] ?? null;
+  if (!window) {
+    return;
+  }
+  if (window.isMinimized()) {
+    window.restore();
+  }
+  if (!window.isVisible()) {
+    window.show();
+  }
+  window.focus();
+  if (process.platform === "win32") {
+    window.moveTop();
+  }
+}
 function hideApplicationMenu(): void {
   Menu.setApplicationMenu(null);
 }
@@ -262,6 +286,7 @@ function registerIpc(): void {
   ipcMain.handle("projects:list-active", () => listActiveProjects());
   ipcMain.handle("projects:create", (_event, input: CreateProjectInput) => createProject(input));
   ipcMain.handle("projects:update", (_event, input: UpdateProjectInput) => updateProject(input));
+  ipcMain.handle("projects:move", (_event, id: string, direction: SortMoveDirection) => moveProject(id, direction));
   ipcMain.handle("projects:archive", (_event, id: string) => archiveProject(id));
   ipcMain.handle("projects:get-detail", (_event, id: string) => getProjectDetail(id));
   ipcMain.handle("projects:get-delete-summary", (_event, id: string) => getProjectDeleteSummary(id));
@@ -271,6 +296,7 @@ function registerIpc(): void {
     createWorkItem(input)
   );
   ipcMain.handle("work-items:update", (_event, input: UpdateWorkItemInput) => updateWorkItem(input));
+  ipcMain.handle("work-items:move", (_event, id: string, direction: SortMoveDirection) => moveWorkItem(id, direction));
   ipcMain.handle("work-items:complete", (_event, id: string) => completeWorkItem(id));
   ipcMain.handle("work-items:get-delete-summary", (_event, id: string) => getWorkItemDeleteSummary(id));
   ipcMain.handle("work-items:delete", (_event, id: string) => deleteWorkItem(id));
@@ -466,7 +492,12 @@ function registerIpc(): void {
   ipcMain.handle("ai:draft-daily-change", (_event, input: AiDraftDailyChangeInput) => draftDailyChange(input));
 }
 
+app.on("second-instance", () => {
+  focusMainWindow();
+});
+
 app.whenReady().then(() => {
+  session.defaultSession.setSpellCheckerEnabled(false);
   applyThemeFromConfig();
   hideApplicationMenu();
   registerAttachmentProtocol();

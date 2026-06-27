@@ -6,6 +6,7 @@ export type LanguagePreference = "zh-CN" | "zh-TW" | "en";
 export type DailyJournalStatus = "draft" | "closed";
 export type DailyWorkItemStatus = "in_progress" | "done_today" | "paused";
 export type PeriodReportType = "weekly" | "monthly";
+export type SortMoveDirection = "up" | "down";
 export type AiProvider = "openai-compatible";
 export type AiRefinementMode = "standard";
 
@@ -67,6 +68,7 @@ export interface Project {
   name: string;
   description: string | null;
   status: ProjectStatus;
+  sort_order: number;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
@@ -78,6 +80,7 @@ export interface WorkItem {
   title: string;
   description: string | null;
   status: WorkItemStatus;
+  sort_order: number;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -614,6 +617,7 @@ export interface WorkJournalApi {
     listActive: () => Promise<ProjectListItem[]>;
     create: (input: CreateProjectInput) => Promise<Project>;
     update: (input: UpdateProjectInput) => Promise<Project>;
+    move: (id: string, direction: SortMoveDirection) => Promise<Project>;
     archive: (id: string) => Promise<Project>;
     getDetail: (id: string) => Promise<ProjectDetail>;
     getDeleteSummary: (id: string) => Promise<ProjectDeleteSummary>;
@@ -622,6 +626,7 @@ export interface WorkJournalApi {
   workItems: {
     create: (input: CreateWorkItemInput) => Promise<WorkItem>;
     update: (input: UpdateWorkItemInput) => Promise<WorkItem>;
+    move: (id: string, direction: SortMoveDirection) => Promise<WorkItem>;
     complete: (id: string) => Promise<WorkItem>;
     getDeleteSummary: (id: string) => Promise<WorkItemDeleteSummary>;
     delete: (id: string) => Promise<void>;

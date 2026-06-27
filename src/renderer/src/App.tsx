@@ -1,5 +1,7 @@
 import {
   Archive,
+  ArrowDown,
+  ArrowUp,
   AlertTriangle,
   BookOpenText,
   Bot,
@@ -67,6 +69,7 @@ import type {
   ProjectListItem,
   SearchResult,
   SettingsInfo,
+  SortMoveDirection,
   ThemePreference,
   DailyJournalView,
   DailyProjectGroup,
@@ -805,7 +808,7 @@ function App() {
   const [dailyView, setDailyView] = useState<DailyJournalView | null>(null);
   const [dailyForms, setDailyForms] = useState<Record<string, DailyEntryForm>>({});
   const [dailyEditorTarget, setDailyEditorTarget] = useState<DailyEntryEditorTarget | null>(null);
-  const [focusedWorkItemId, setFocusedWorkItemId] = useState<string | null>(null);
+  const [dailyEditorReturnView, setDailyEditorReturnView] = useState<"today" | "project-detail">("today");
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [dailyReports, setDailyReports] = useState<DailyReportListItem[]>([]);
@@ -862,6 +865,9 @@ function App() {
   const confirmResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
   const currentEditorSaveRef = useRef<(options?: EditorSaveOptions) => Promise<boolean>>(async () => false);
   const saveInFlightRef = useRef(false);
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const todayScrollPositionsRef = useRef<Record<string, number>>({});
+  const pendingTodayScrollRestoreKeyRef = useRef<string | null>(null);
   const language = settingsInfo?.language ?? "zh-CN";
   const effectiveTheme = settingsInfo?.effectiveTheme ?? "light";
   const t = useMemo(() => createTranslator(language), [language]);
@@ -891,6 +897,22 @@ function App() {
     confirmResolveRef.current = null;
     setPendingConfirm(null);
     resolver?.(confirmed);
+  };
+  const todayScrollKey = (journalDate: string) => `today-scroll-position-${journalDate}`;
+
+  const getTodayScrollElement = (): HTMLElement | null =>
+    workspaceRef.current?.querySelector<HTMLElement>(".daily-page") ?? workspaceRef.current;
+
+  const rememberTodayScrollPosition = (journalDate: string) => {
+    const key = todayScrollKey(journalDate);
+    const scrollTop = getTodayScrollElement()?.scrollTop ?? 0;
+    todayScrollPositionsRef.current[key] = scrollTop;
+    pendingTodayScrollRestoreKeyRef.current = key;
+    try {
+      window.sessionStorage.setItem(key, String(scrollTop));
+    } catch {
+      // sessionStorage can be unavailable in restricted contexts; in-memory restore still works.
+    }
   };
 
   const loadTodayHeatmap = async (dateKey: string) => {
@@ -994,6 +1016,52 @@ function App() {
       await loadDetail(selectedProjectId);
     }
   };
+
+  useLayoutEffect(() => {
+    if (view !== "today" || !dailyView) {
+      return;
+    }
+
+    const key = todayScrollKey(dailyView.journalDate);
+    if (pendingTodayScrollRestoreKeyRef.current !== key) {
+      return;
+    }
+
+    let storedScrollTop: number | undefined;
+    try {
+      const storedValue = window.sessionStorage.getItem(key);
+      storedScrollTop = storedValue === null ? undefined : Number(storedValue);
+    } catch {
+      storedScrollTop = undefined;
+    }
+
+    const savedValue = todayScrollPositionsRef.current[key] ?? storedScrollTop;
+    if (!Number.isFinite(savedValue)) {
+      pendingTodayScrollRestoreKeyRef.current = null;
+      return;
+    }
+
+    let restored = false;
+    const restore = () => {
+      if (restored) {
+        return;
+      }
+      const element = getTodayScrollElement();
+      if (!element) {
+        return;
+      }
+      element.scrollTop = Math.max(0, savedValue);
+      pendingTodayScrollRestoreKeyRef.current = null;
+      restored = true;
+    };
+
+    const frame = window.requestAnimationFrame(restore);
+    const handle = window.setTimeout(restore, 80);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(handle);
+    };
+  }, [view, dailyView]);
 
   useEffect(() => {
     refreshActiveView().catch((error) =>
@@ -1148,13 +1216,21 @@ function App() {
     }
   };
 
-  const openDailyEntryEditor = (projectId: string, workItemId: string, journalDate = dailyView?.journalDate ?? getLocalDateKey()) => {
+  const openDailyEntryEditor = (
+    projectId: string,
+    workItemId: string,
+    journalDate = dailyView?.journalDate ?? getLocalDateKey(),
+    returnView: "today" | "project-detail" = view === "project-detail" ? "project-detail" : "today"
+  ) => {
+    if (returnView === "today") {
+      rememberTodayScrollPosition(journalDate);
+    }
+    setDailyEditorReturnView(returnView);
     setDailyEditorTarget({
       journalDate,
       projectId,
       workItemId
     });
-    setFocusedWorkItemId(workItemId);
     setView("daily-entry-editor");
   };
 
@@ -1251,6 +1327,37 @@ function App() {
     }
   };
 
+
+  const handleMoveProject = async (projectId: string, direction: SortMoveDirection) => {
+    const index = projects.findIndex((project) => project.id === projectId);
+    const isAtEdge = direction === "up" ? index <= 0 : index < 0 || index >= projects.length - 1;
+    if (isAtEdge) {
+      showToast({ kind: "info", message: direction === "up" ? t("alreadyAtTop") : t("alreadyAtBottom") });
+      return;
+    }
+    try {
+      await window.workJournal.projects.move(projectId, direction);
+      await Promise.all([loadProjects(), loadToday()]);
+      if (selectedProjectId) {
+        await loadDetail(selectedProjectId);
+      }
+    } catch (error) {
+      showToast({ kind: "error", message: error instanceof Error ? error.message : t("projectUpdateFailed") });
+    }
+  };
+
+  const handleMoveWorkItem = async (item: WorkItemWithLatest, direction: SortMoveDirection, canMove: boolean) => {
+    if (!canMove) {
+      showToast({ kind: "info", message: direction === "up" ? t("alreadyAtTop") : t("alreadyAtBottom") });
+      return;
+    }
+    try {
+      await window.workJournal.workItems.move(item.id, direction);
+      await Promise.all([loadToday(), selectedProjectId ? loadDetail(selectedProjectId) : Promise.resolve()]);
+    } catch (error) {
+      showToast({ kind: "error", message: error instanceof Error ? error.message : t("workItemUpdateFailed") });
+    }
+  };
   const handleRequestDeleteProject = async () => {
     if (!detail) {
       return;
@@ -1560,7 +1667,7 @@ function App() {
   const handleSaveDailyEntryAndReturn = async (block: DailyWorkItemBlock) => {
     const saved = await saveDailyEntryBlock(block, { refresh: true, showSuccess: true });
     if (saved) {
-      setView("today");
+      setView(dailyEditorReturnView);
     }
   };
 
@@ -1859,9 +1966,6 @@ function App() {
       setSearchResults([]);
       return;
     }
-    if (result.workItemId) {
-      setFocusedWorkItemId(result.workItemId);
-    }
     if (result.projectId) {
       openProjectDetail(result.projectId);
     } else {
@@ -1986,7 +2090,7 @@ function App() {
   }, []);
 
   return (
-    <div className={appShellClassName}>
+    <div className={appShellClassName} spellCheck={false}>
       <aside className="sidebar">
         <div className="brand">
           <BookOpenText size={22} />
@@ -2038,7 +2142,7 @@ function App() {
         </div>
       </aside>
 
-      <main className={`workspace ${view === "daily-entry-editor" || view === "project-memo" ? "workspace-focus" : ""}`}>
+      <main ref={workspaceRef} className={`workspace ${view === "daily-entry-editor" || view === "project-memo" ? "workspace-focus" : ""}`}>
         {view === "today" && dailyView && (
           <TodayPage
             dailyView={dailyView}
@@ -2054,9 +2158,9 @@ function App() {
             onGenerateMarkdown={handleGenerateMarkdown}
             collapsedGroups={collapsedGroups}
             setCollapsedGroups={setCollapsedGroups}
-            focusedWorkItemId={focusedWorkItemId}
-            onClearFocus={() => setFocusedWorkItemId(null)}
-            onOpenEntryEditor={openDailyEntryEditor}
+            onOpenEntryEditor={(projectId, workItemId, journalDate) =>
+              openDailyEntryEditor(projectId, workItemId, journalDate, "today")
+            }
             onReopen={handleReopenToday}
             onOpenProject={openProjectDetail}
             onOpenMemo={(projectId) => openProjectMemo(projectId, "today")}
@@ -2077,7 +2181,7 @@ function App() {
               theme={effectiveTheme}
               aiSettings={settingsInfo?.ai ?? null}
               t={t}
-              onBack={() => setView("today")}
+              onBack={() => setView(dailyEditorReturnView)}
               onUpdate={(patch) => updateDailyForm(dailyEditorBlock.workItem.id, patch)}
               onSave={() => handleSaveDailyEntry(dailyEditorBlock)}
               onViewHistory={() => handleViewWorkItemHistory(dailyEditorBlock)}
@@ -2099,6 +2203,7 @@ function App() {
               setNewProjectOpen(true);
             }}
             onOpenProject={openProjectDetail}
+            onMoveProject={handleMoveProject}
           />
         )}
         {view === "reports" && (
@@ -2141,9 +2246,11 @@ function App() {
             language={language}
             t={t}
             onBack={() => setView("projects")}
-            onRecordProgress={openDailyEntryEditor}
+            onRecordProgress={(projectId, workItemId) => openDailyEntryEditor(projectId, workItemId, undefined, "project-detail")}
+            onMoveProject={(direction) => handleMoveProject(detail.project.id, direction)}
             onComplete={handleCompleteWorkItem}
             onEditWorkItem={openEditWorkItem}
+            onMoveWorkItem={handleMoveWorkItem}
             onDeleteWorkItem={handleRequestDeleteWorkItem}
             onCreateWorkItem={() => {
               setWorkItemForm({ title: "", description: "" });
@@ -2578,6 +2685,39 @@ function App() {
   );
 }
 
+function HighlightedSearchText({ text, term }: { text: string; term: string }) {
+  const needle = term.trim();
+  if (!needle) {
+    return <>{text}</>;
+  }
+
+  const source = text || "";
+  const sourceLower = source.toLocaleLowerCase();
+  const needleLower = needle.toLocaleLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let matchIndex = sourceLower.indexOf(needleLower, cursor);
+
+  while (matchIndex >= 0) {
+    if (matchIndex > cursor) {
+      parts.push(source.slice(cursor, matchIndex));
+    }
+    const matchEnd = matchIndex + needle.length;
+    parts.push(
+      <mark className="search-highlight" key={`${matchIndex}-${matchEnd}`}>
+        {source.slice(matchIndex, matchEnd)}
+      </mark>
+    );
+    cursor = matchEnd;
+    matchIndex = sourceLower.indexOf(needleLower, cursor);
+  }
+
+  if (cursor < source.length) {
+    parts.push(source.slice(cursor));
+  }
+
+  return <>{parts}</>;
+}
 function SearchBox({
   term,
   results,
@@ -2593,17 +2733,37 @@ function SearchBox({
   onTermChange: (term: string) => void;
   onResult: (result: SearchResult) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const trimmedTerm = term.trim();
+
   return (
     <div className="search-wrap">
       <Search size={18} />
       <input
+        ref={inputRef}
         value={term}
         onChange={(event) => onTermChange(event.target.value)}
         placeholder={t("searchPlaceholder")}
         aria-label={t("searchAria")}
+        spellCheck={false}
       />
+      {term && (
+        <button
+          className="search-clear-button"
+          type="button"
+          aria-label={t("clearSearch")}
+          title={t("clearSearch")}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            onTermChange("");
+            window.requestAnimationFrame(() => inputRef.current?.focus());
+          }}
+        >
+          <X size={14} />
+        </button>
+      )}
       <span className="shortcut">Ctrl+F</span>
-      {term.trim() && (
+      {trimmedTerm && (
         <div className="search-popover">
           <div className="search-heading">{isSearching ? t("searchLoading") : t("searchResults")}</div>
           {results.length === 0 && !isSearching ? (
@@ -2631,16 +2791,21 @@ function SearchBox({
                       ? t("searchKindWorkItem")
                       : t("searchKindProject")}
                 </span>
-                <span className="result-title">{result.title}</span>
+                <span className="result-title"><HighlightedSearchText text={result.title} term={term} /></span>
                 <span className="result-context">
                   {result.entryDate ? `${result.entryDate} · ` : ""}
-                  {result.projectName ?? t("todayWorkPageTitle")}
-                  {result.workItemTitle ? ` / ${result.workItemTitle}` : ""}
+                  {result.projectName ? <HighlightedSearchText text={result.projectName} term={term} /> : t("todayWorkPageTitle")}
+                  {result.workItemTitle ? (
+                    <>
+                      {" / "}
+                      <HighlightedSearchText text={result.workItemTitle} term={term} />
+                    </>
+                  ) : ""}
                 </span>
                 <span className="result-snippet">
                   {searchFieldLabel(result.matchedField, t)}
                   {t("searchMatchedSeparator")}
-                  {result.snippet}
+                  <HighlightedSearchText text={result.snippet} term={term} />
                 </span>
               </button>
             ))
@@ -3032,8 +3197,6 @@ function TodayPage({
   onGenerateMarkdown,
   collapsedGroups,
   setCollapsedGroups,
-  focusedWorkItemId,
-  onClearFocus,
   onOpenEntryEditor,
   onReopen,
   onOpenProject,
@@ -3054,8 +3217,6 @@ function TodayPage({
   onGenerateMarkdown: () => void;
   collapsedGroups: Record<string, boolean>;
   setCollapsedGroups: (value: Record<string, boolean>) => void;
-  focusedWorkItemId: string | null;
-  onClearFocus: () => void;
   onOpenEntryEditor: (projectId: string, workItemId: string, journalDate?: string) => void;
   onReopen: () => void;
   onOpenProject: (id: string) => void;
@@ -3063,18 +3224,6 @@ function TodayPage({
   onCreateProject: () => void;
   onOpenUserGuide: () => void;
 }) {
-  useEffect(() => {
-    if (!focusedWorkItemId) {
-      return;
-    }
-    const handle = window.setTimeout(() => {
-      const element = document.querySelector(`[data-work-item-id="${focusedWorkItemId}"]`);
-      element?.scrollIntoView({ behavior: "smooth", block: "center" });
-      onClearFocus();
-    }, 80);
-    return () => window.clearTimeout(handle);
-  }, [focusedWorkItemId, onClearFocus]);
-
   const isClosed = dailyView.journal.status === "closed";
   const isLocalToday = dailyView.journalDate === getLocalDateKey();
   const openBlockEditor = (block: DailyWorkItemBlock) =>
@@ -3702,7 +3851,7 @@ function DailyEntryEditorPage({
   ];
   const previousNoteContent = block.previousNoteSnapshot?.content_markdown ?? "";
   const previousRows = [
-    [t("dateLabel"), previousEntry ? block.previousWorkDate : null, false, false],
+    [t("dateLabel"), block.previousWorkDate, false, false],
     [t("workItemPreviousContent"), previousNoteContent, true, true],
     [t("changeSummary"), previousEntry?.today_progress, true, true],
     [t("nextStepPlan"), previousEntry?.next_step, true, true],
@@ -4032,7 +4181,6 @@ function DailyEntryEditorPage({
                 <em>{savingImageTarget === "note" ? t("memoSavingImage") : t("workItemCurrentContentHelp")}</em>
               </div>
             </div>
-            <p className="editor-key-hint">{t("editorLineBreakHint")}</p>
             {showHistoryRecoveryCard && block.recoverableHistory && (
               <div className="history-recovery-card">
                 <div className="history-recovery-icon">
@@ -4086,7 +4234,6 @@ function DailyEntryEditorPage({
                 {savingImageTarget === "daily" && <em>{t("memoSavingImage")}</em>}
               </div>
             </div>
-            <p className="editor-key-hint">{t("editorLineBreakHint")}</p>
             <div className="change-draft-actions" role="group" aria-label={t("changeSummaryGenerationActions")}>
               <button
                 className="change-draft-card local-draft-action"
@@ -4174,6 +4321,10 @@ function WorkItemRow({
   language,
   onRecordProgress,
   onComplete,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp = false,
+  canMoveDown = false,
   onEdit,
   onDelete,
   t
@@ -4184,6 +4335,10 @@ function WorkItemRow({
   language: LanguagePreference;
   onRecordProgress: () => void;
   onComplete?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
   t: Translator;
@@ -4212,6 +4367,32 @@ function WorkItemRow({
       </HoverTooltip>
       <time className="work-item-updated">{updatedAt}</time>
       <div className="work-item-actions">
+        {(onMoveUp || onMoveDown) && (
+          <span className="work-item-reorder-buttons" role="group" aria-label={t("reorder")}>
+            {onMoveUp && (
+              <button
+                className="icon-button reorder-icon-button"
+                type="button"
+                title={canMoveUp ? t("moveUp") : t("alreadyAtTop")}
+                aria-label={canMoveUp ? t("moveUp") : t("alreadyAtTop")}
+                onClick={onMoveUp}
+              >
+                <ArrowUp size={14} />
+              </button>
+            )}
+            {onMoveDown && (
+              <button
+                className="icon-button reorder-icon-button"
+                type="button"
+                title={canMoveDown ? t("moveDown") : t("alreadyAtBottom")}
+                aria-label={canMoveDown ? t("moveDown") : t("alreadyAtBottom")}
+                onClick={onMoveDown}
+              >
+                <ArrowDown size={14} />
+              </button>
+            )}
+          </span>
+        )}
         <button className="work-item-record-button" type="button" onClick={onRecordProgress}>
           <Clock3 size={14} />
           {t("recordProgress")}
@@ -4248,14 +4429,26 @@ function ProjectsPage({
   language,
   t,
   onCreateProject,
-  onOpenProject
+  onOpenProject,
+  onMoveProject
 }: {
   projects: ProjectListItem[];
   language: LanguagePreference;
   t: Translator;
   onCreateProject: () => void;
   onOpenProject: (id: string) => void;
+  onMoveProject: (id: string, direction: SortMoveDirection) => void;
 }) {
+  const handleProjectCardKeyDown = (event: KeyboardEvent<HTMLElement>, projectId: string) => {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onOpenProject(projectId);
+    }
+  };
+
   return (
     <section className="page">
       <PageHeader
@@ -4278,14 +4471,18 @@ function ProjectsPage({
             </button>
           </div>
         ) : (
-          projects.map((project) => {
+          projects.map((project, index) => {
             const description = project.description?.trim();
+            const canMoveUp = index > 0;
+            const canMoveDown = index < projects.length - 1;
             return (
-              <button
+              <article
                 className="project-list-card"
                 key={project.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => onOpenProject(project.id)}
+                onKeyDown={(event) => handleProjectCardKeyDown(event, project.id)}
               >
                 <header className="project-list-card-header">
                   <span className="project-list-card-icon" aria-hidden="true">
@@ -4296,6 +4493,32 @@ function ProjectsPage({
                     <span className={`project-list-status ${project.status}`}>
                       {project.status === "archived" ? t("statusArchived") : t("statusActive")}
                     </span>
+                  </span>
+                  <span className="project-list-card-reorder" role="group" aria-label={t("reorder")}>
+                    <button
+                      className="icon-button reorder-icon-button"
+                      type="button"
+                      title={canMoveUp ? t("moveUp") : t("alreadyAtTop")}
+                      aria-label={canMoveUp ? t("moveUp") : t("alreadyAtTop")}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onMoveProject(project.id, "up");
+                      }}
+                    >
+                      <ArrowUp size={15} />
+                    </button>
+                    <button
+                      className="icon-button reorder-icon-button"
+                      type="button"
+                      title={canMoveDown ? t("moveDown") : t("alreadyAtBottom")}
+                      aria-label={canMoveDown ? t("moveDown") : t("alreadyAtBottom")}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onMoveProject(project.id, "down");
+                      }}
+                    >
+                      <ArrowDown size={15} />
+                    </button>
                   </span>
                 </header>
 
@@ -4316,7 +4539,7 @@ function ProjectsPage({
                   {t("viewProject")}
                   <ChevronRight size={15} />
                 </span>
-              </button>
+              </article>
             );
           })
         )}
@@ -4324,7 +4547,6 @@ function ProjectsPage({
     </section>
   );
 }
-
 function ArchivePage({
   projects,
   language,
@@ -5624,8 +5846,10 @@ function ProjectDetailPage({
   t,
   onBack,
   onRecordProgress,
+  onMoveProject,
   onComplete,
   onEditWorkItem,
+  onMoveWorkItem,
   onDeleteWorkItem,
   onCreateWorkItem,
   onEditProject,
@@ -5638,8 +5862,10 @@ function ProjectDetailPage({
   t: Translator;
   onBack: () => void;
   onRecordProgress: (projectId: string, workItemId: string) => void;
+  onMoveProject: (direction: SortMoveDirection) => void;
   onComplete: (id: string) => void;
   onEditWorkItem: (item: WorkItemWithLatest) => void;
+  onMoveWorkItem: (item: WorkItemWithLatest, direction: SortMoveDirection, canMove: boolean) => void;
   onDeleteWorkItem: (item: WorkItemWithLatest) => void;
   onCreateWorkItem: () => void;
   onEditProject: () => void;
@@ -5719,6 +5945,30 @@ function ProjectDetailPage({
                   role="menuitem"
                   onClick={() => {
                     setProjectActionsOpen(false);
+                    onMoveProject("up");
+                  }}
+                >
+                  <ArrowUp size={16} />
+                  {t("moveUp")}
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setProjectActionsOpen(false);
+                    onMoveProject("down");
+                  }}
+                >
+                  <ArrowDown size={16} />
+                  {t("moveDown")}
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setProjectActionsOpen(false);
                     onEditProject();
                   }}
                 >
@@ -5779,7 +6029,7 @@ function ProjectDetailPage({
                 <span>{t("workItemUpdatedAt")}</span>
                 <span>{t("workItemActions")}</span>
               </div>
-              {detail.activeItems.map((item) => (
+              {detail.activeItems.map((item, index) => (
                 <WorkItemRow
                   key={item.id}
                   item={item}
@@ -5787,6 +6037,10 @@ function ProjectDetailPage({
                   language={language}
                   onRecordProgress={() => onRecordProgress(detail.project.id, item.id)}
                   onComplete={() => onComplete(item.id)}
+                  onMoveUp={() => onMoveWorkItem(item, "up", index > 0)}
+                  onMoveDown={() => onMoveWorkItem(item, "down", index < detail.activeItems.length - 1)}
+                  canMoveUp={index > 0}
+                  canMoveDown={index < detail.activeItems.length - 1}
                   onEdit={() => onEditWorkItem(item)}
                   onDelete={() => onDeleteWorkItem(item)}
                   t={t}
@@ -5806,7 +6060,7 @@ function ProjectDetailPage({
             <EmptyState title={t("noCompletedItemsTitle")} body={t("noCompletedItemsBody")} />
           ) : (
             <div className="completed-work-list">
-              {detail.completedItems.map((item) => (
+              {detail.completedItems.map((item, index) => (
                 <WorkItemRow
                   key={item.id}
                   item={item}
@@ -5814,6 +6068,10 @@ function ProjectDetailPage({
                   compact
                   language={language}
                   onRecordProgress={() => onRecordProgress(detail.project.id, item.id)}
+                  onMoveUp={() => onMoveWorkItem(item, "up", index > 0)}
+                  onMoveDown={() => onMoveWorkItem(item, "down", index < detail.completedItems.length - 1)}
+                  canMoveUp={index > 0}
+                  canMoveDown={index < detail.completedItems.length - 1}
                   onEdit={() => onEditWorkItem(item)}
                   onDelete={() => onDeleteWorkItem(item)}
                   t={t}

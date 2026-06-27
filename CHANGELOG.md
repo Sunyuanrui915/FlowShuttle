@@ -4,6 +4,22 @@
 
 * 暂无。
 
+## v0.2.0 - 2026-06-27
+
+### Fixed
+
+* 修复只点击“保存本项”、但没有填写今日变更摘要时，总记录字数和热力图活跃值异常升高的问题。
+* Fixed an issue where clicking “Save Item” without a valid change summary could incorrectly increase total text length and heatmap activity score.
+* 修复上一工作日参考中换行和分段显示不一致的问题，减少次日回看时的阅读干扰。
+* Fixed inconsistent line break and paragraph rendering in previous workday references.
+
+### Improved
+
+* 优化上一工作日参考、编辑器、搜索、单实例运行和 Today 返回体验。
+* Improved previous workday references, editor behavior, search, single-instance behavior, and Today return navigation.
+* 增加项目和工作项的手动顺序调整能力。
+* Added manual ordering for projects and work items.
+
 ## v0.1.4 - 2026-06-21
 
 ### Fixed

@@ -376,6 +376,26 @@ body {
   box-shadow: none;
   outline: 0;
 }
+.search-clear-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.search-clear-button:hover,
+.search-clear-button:focus-visible {
+  border-color: var(--border-muted);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  outline: none;
+}
 
 .shortcut {
   color: var(--text-muted);
@@ -442,6 +462,17 @@ body {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.45;
+}
+.search-highlight {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warning-soft) 78%, var(--bg-surface));
+  color: var(--text-primary);
+  padding: 0 2px;
+}
+
+:root[data-theme="dark"] .search-highlight {
+  background: color-mix(in srgb, var(--warning) 32%, var(--bg-surface));
+  color: var(--text-heading);
 }
 
 .page {
@@ -2757,7 +2788,7 @@ button.today-reminder-item:focus-visible {
 .work-item-row,
 .project-workitem-table-head {
   display: grid;
-  grid-template-columns: 24px minmax(150px, 1.35fr) 88px minmax(110px, 1fr) 82px 212px;
+  grid-template-columns: 24px minmax(150px, 1.35fr) 88px minmax(110px, 1fr) 82px 284px;
   gap: 10px;
   align-items: center;
   min-width: 0;
@@ -2812,6 +2843,28 @@ button.today-reminder-item:focus-visible {
   justify-content: center;
   gap: 8px;
   min-width: 0;
+}
+
+.work-item-reorder-buttons,
+.project-list-card-reorder {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.reorder-icon-button {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  color: var(--text-muted);
+}
+
+.reorder-icon-button:hover,
+.reorder-icon-button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
 }
 
 .work-item-record-button,
@@ -3645,12 +3698,6 @@ button.today-reminder-item:focus-visible {
   height: 10px;
 }
 
-.editor-key-hint {
-  margin: -4px 0 10px;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
 
 .readable-markdown-image-block {
   max-width: 100%;
@@ -4466,10 +4513,20 @@ button.today-reminder-item:focus-visible {
 
 .project-list-card-header {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
   gap: 11px;
   min-width: 0;
+}
+
+.project-list-card-reorder {
+  justify-self: end;
+}
+
+.project-list-card-reorder .reorder-icon-button {
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px;
 }
 
 .project-list-card-icon {
@@ -5057,7 +5114,7 @@ button.today-reminder-item:focus-visible {
 @media (max-width: 1360px) {
   .active-work-section .work-item-row,
   .project-workitem-table-head {
-    grid-template-columns: 24px minmax(132px, 1.2fr) 74px minmax(96px, 1fr) 84px 176px;
+    grid-template-columns: 24px minmax(132px, 1.2fr) 74px minmax(96px, 1fr) 84px 248px;
     gap: 8px;
   }
 

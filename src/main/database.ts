@@ -52,6 +52,7 @@ import type {
   RestoreWorkItemHistoryResult,
   SettingsInfo,
   SearchResult,
+  SortMoveDirection,
   TimelineEntry,
   TodayOverview,
   UpdateProjectInput,
@@ -385,6 +386,59 @@ const migrations = [
         });
       }
     }
+  },
+  {
+    version: 8,
+    name: "manual_sort_order",
+    up(database: SqliteDatabase) {
+      const hasColumn = (tableName: string, columnName: string): boolean =>
+        (database.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).some(
+          (column) => column.name === columnName
+        );
+
+      if (!hasColumn("projects", "sort_order")) {
+        database.exec("ALTER TABLE projects ADD COLUMN sort_order INTEGER");
+      }
+      if (!hasColumn("work_items", "sort_order")) {
+        database.exec("ALTER TABLE work_items ADD COLUMN sort_order INTEGER");
+      }
+
+      const updateProjectOrder = database.prepare("UPDATE projects SET sort_order = ? WHERE id = ? AND sort_order IS NULL");
+      const projectRows = database
+        .prepare(
+          `
+          SELECT id
+          FROM projects
+          ORDER BY updated_at DESC, created_at ASC, id ASC
+          `
+        )
+        .all() as Array<{ id: string }>;
+      projectRows.forEach((row, index) => updateProjectOrder.run((index + 1) * 1000, row.id));
+
+      const updateWorkItemOrder = database.prepare("UPDATE work_items SET sort_order = ? WHERE id = ? AND sort_order IS NULL");
+      const itemRows = database
+        .prepare(
+          `
+          SELECT id, project_id
+          FROM work_items
+          ORDER BY project_id ASC, updated_at DESC, created_at ASC, id ASC
+          `
+        )
+        .all() as Array<{ id: string; project_id: string }>;
+      const itemOrderByProject = new Map<string, number>();
+      for (const row of itemRows) {
+        const nextIndex = (itemOrderByProject.get(row.project_id) ?? 0) + 1;
+        itemOrderByProject.set(row.project_id, nextIndex);
+        updateWorkItemOrder.run(nextIndex * 1000, row.id);
+      }
+
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_projects_status_sort
+          ON projects(status, sort_order);
+        CREATE INDEX IF NOT EXISTS idx_work_items_project_status_sort
+          ON work_items(project_id, status, sort_order);
+      `);
+    }
   }
 ];
 
@@ -560,6 +614,71 @@ function getWorkItem(id: string): WorkItem {
   return row as WorkItem;
 }
 
+const SORT_ORDER_GAP = 1000;
+const SORT_ORDER_FALLBACK = 2147483647;
+
+function normalizeMoveDirection(direction: SortMoveDirection): SortMoveDirection {
+  if (direction !== "up" && direction !== "down") {
+    throw new Error("Unsupported move direction.");
+  }
+  return direction;
+}
+
+function nextProjectSortOrder(status: Project["status"] = "active"): number {
+  const row = database()
+    .prepare("SELECT MAX(COALESCE(sort_order, 0)) AS max_order FROM projects WHERE status = ?")
+    .get(status) as { max_order: number | null };
+  return Number(row.max_order ?? 0) + SORT_ORDER_GAP;
+}
+
+function nextWorkItemSortOrder(projectId: string): number {
+  const row = database()
+    .prepare("SELECT MAX(COALESCE(sort_order, 0)) AS max_order FROM work_items WHERE project_id = ?")
+    .get(projectId) as { max_order: number | null };
+  return Number(row.max_order ?? 0) + SORT_ORDER_GAP;
+}
+
+function normalizeProjectSortOrders(status: Project["status"]): void {
+  const rows = database()
+    .prepare(
+      `
+      SELECT id
+      FROM projects
+      WHERE status = ?
+      ORDER BY COALESCE(sort_order, ${SORT_ORDER_FALLBACK}) ASC, updated_at DESC, created_at ASC, id ASC
+      `
+    )
+    .all(status) as Array<{ id: string }>;
+  const update = database().prepare("UPDATE projects SET sort_order = ? WHERE id = ?");
+  rows.forEach((row, index) => update.run((index + 1) * SORT_ORDER_GAP, row.id));
+}
+
+function normalizeWorkItemSortOrders(projectId: string, statuses: WorkItem["status"][]): void {
+  const placeholders = statuses.map(() => "?").join(", ");
+  const rows = database()
+    .prepare(
+      `
+      SELECT id
+      FROM work_items
+      WHERE project_id = ? AND status IN (${placeholders})
+      ORDER BY COALESCE(sort_order, ${SORT_ORDER_FALLBACK}) ASC, updated_at DESC, created_at ASC, id ASC
+      `
+    )
+    .all(projectId, ...statuses) as Array<{ id: string }>;
+  const update = database().prepare("UPDATE work_items SET sort_order = ? WHERE id = ?");
+  rows.forEach((row, index) => update.run((index + 1) * SORT_ORDER_GAP, row.id));
+}
+
+function workItemSortStatuses(status: WorkItem["status"]): WorkItem["status"][] {
+  if (status === "done") {
+    return ["done"];
+  }
+  if (status === "archived") {
+    return ["archived"];
+  }
+  return ["active", "paused"];
+}
+
 function getItemsWithLatest(projectId: string, status: "active" | "done"): WorkItemWithLatest[] {
   const statusFilter = status === "active" ? "wi.status IN ('active', 'paused')" : "wi.status = 'done'";
   return database()
@@ -628,7 +747,7 @@ function getItemsWithLatest(projectId: string, status: "active" | "done"): WorkI
         ) AS latest_created_at
       FROM work_items wi
       WHERE wi.project_id = ? AND ${statusFilter}
-      ORDER BY wi.updated_at DESC
+      ORDER BY COALESCE(wi.sort_order, ${SORT_ORDER_FALLBACK}) ASC, wi.updated_at DESC, wi.created_at ASC, wi.id ASC
       `
     )
     .all(projectId) as WorkItemWithLatest[];
@@ -644,7 +763,7 @@ export function listActiveProjects(): ProjectListItem[] {
         ON wi.project_id = p.id AND wi.status IN ('active', 'paused')
       WHERE p.status = 'active'
       GROUP BY p.id
-      ORDER BY p.updated_at DESC
+      ORDER BY COALESCE(p.sort_order, ${SORT_ORDER_FALLBACK}) ASC, p.updated_at DESC, p.created_at ASC, p.id ASC
       `
     )
     .all() as ProjectListItem[];
@@ -657,6 +776,7 @@ export function createProject(input: CreateProjectInput): Project {
     name: requireText(input.name, "Project name"),
     description: cleanOptional(input.description),
     status: "active",
+    sort_order: nextProjectSortOrder("active"),
     created_at: now,
     updated_at: now,
     archived_at: null
@@ -666,9 +786,9 @@ export function createProject(input: CreateProjectInput): Project {
     .prepare(
       `
       INSERT INTO projects
-        (id, name, description, status, created_at, updated_at, archived_at)
+        (id, name, description, status, sort_order, created_at, updated_at, archived_at)
       VALUES
-        (@id, @name, @description, @status, @created_at, @updated_at, @archived_at)
+        (@id, @name, @description, @status, @sort_order, @created_at, @updated_at, @archived_at)
       `
     )
     .run(project);
@@ -701,6 +821,36 @@ export function archiveProject(id: string): Project {
       `
     )
     .run(now, now, id);
+  return getProject(id);
+}
+
+export function moveProject(id: string, direction: SortMoveDirection): Project {
+  const moveDirection = normalizeMoveDirection(direction);
+  const transaction = database().transaction(() => {
+    const project = getProject(id);
+    normalizeProjectSortOrders(project.status);
+    const rows = database()
+      .prepare(
+        `
+        SELECT id, sort_order
+        FROM projects
+        WHERE status = ?
+        ORDER BY sort_order ASC, updated_at DESC, created_at ASC, id ASC
+        `
+      )
+      .all(project.status) as Array<{ id: string; sort_order: number }>;
+    const currentIndex = rows.findIndex((row) => row.id === id);
+    const targetIndex = moveDirection === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= rows.length) {
+      return;
+    }
+    const current = rows[currentIndex];
+    const target = rows[targetIndex];
+    const update = database().prepare("UPDATE projects SET sort_order = ? WHERE id = ?");
+    update.run(target.sort_order, current.id);
+    update.run(current.sort_order, target.id);
+  });
+  transaction();
   return getProject(id);
 }
 
@@ -1036,6 +1186,7 @@ export function createWorkItem(input: CreateWorkItemInput): WorkItem {
     title: requireText(input.title, "Work item title"),
     description: cleanOptional(input.description),
     status: "active",
+    sort_order: nextWorkItemSortOrder(input.projectId),
     created_at: now,
     updated_at: now,
     completed_at: null,
@@ -1054,9 +1205,9 @@ export function createWorkItem(input: CreateWorkItemInput): WorkItem {
       .prepare(
         `
         INSERT INTO work_items
-          (id, project_id, title, description, status, created_at, updated_at, completed_at, archived_at)
+          (id, project_id, title, description, status, sort_order, created_at, updated_at, completed_at, archived_at)
         VALUES
-          (@id, @project_id, @title, @description, @status, @created_at, @updated_at, @completed_at, @archived_at)
+          (@id, @project_id, @title, @description, @status, @sort_order, @created_at, @updated_at, @completed_at, @archived_at)
         `
       )
       .run(item);
@@ -1125,6 +1276,38 @@ export function completeWorkItem(id: string): WorkItem {
   database()
     .prepare("UPDATE projects SET updated_at = ? WHERE id = ?")
     .run(now, item.project_id);
+  return getWorkItem(id);
+}
+
+export function moveWorkItem(id: string, direction: SortMoveDirection): WorkItem {
+  const moveDirection = normalizeMoveDirection(direction);
+  const transaction = database().transaction(() => {
+    const item = getWorkItem(id);
+    const statuses = workItemSortStatuses(item.status);
+    normalizeWorkItemSortOrders(item.project_id, statuses);
+    const placeholders = statuses.map(() => "?").join(", ");
+    const rows = database()
+      .prepare(
+        `
+        SELECT id, sort_order
+        FROM work_items
+        WHERE project_id = ? AND status IN (${placeholders})
+        ORDER BY sort_order ASC, updated_at DESC, created_at ASC, id ASC
+        `
+      )
+      .all(item.project_id, ...statuses) as Array<{ id: string; sort_order: number }>;
+    const currentIndex = rows.findIndex((row) => row.id === id);
+    const targetIndex = moveDirection === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= rows.length) {
+      return;
+    }
+    const current = rows[currentIndex];
+    const target = rows[targetIndex];
+    const update = database().prepare("UPDATE work_items SET sort_order = ? WHERE id = ?");
+    update.run(target.sort_order, current.id);
+    update.run(current.sort_order, target.id);
+  });
+  transaction();
   return getWorkItem(id);
 }
 
@@ -1297,7 +1480,7 @@ export function getTodayOverview(): TodayOverview {
       SELECT p.*
       FROM projects p
       WHERE p.status = 'active'
-      ORDER BY p.updated_at DESC
+      ORDER BY COALESCE(p.sort_order, ${SORT_ORDER_FALLBACK}) ASC, p.updated_at DESC, p.created_at ASC, p.id ASC
       `
     )
     .all() as Project[];
@@ -1718,6 +1901,7 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
         p.created_at AS project_created_at,
         p.updated_at AS project_updated_at,
         p.archived_at AS project_archived_at,
+        p.sort_order AS project_sort_order,
         (
           SELECT latest.content
           FROM (
@@ -1784,7 +1968,7 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
       WHERE p.status = 'active'
         AND wi.status <> 'archived'
         AND (wi.status IN ('active', 'paused') OR today_entry.id IS NOT NULL)
-      ORDER BY p.updated_at DESC, wi.updated_at DESC
+      ORDER BY COALESCE(p.sort_order, ${SORT_ORDER_FALLBACK}) ASC, COALESCE(wi.sort_order, ${SORT_ORDER_FALLBACK}) ASC, p.updated_at DESC, wi.updated_at DESC, wi.created_at ASC, wi.id ASC
       `
     )
     .all(journalDate) as Array<
@@ -1796,6 +1980,7 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
       project_created_at: string;
       project_updated_at: string;
       project_archived_at: string | null;
+      project_sort_order: number;
     }
   >;
 
@@ -1808,7 +1993,8 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
       status: item.project_status,
       created_at: item.project_created_at,
       updated_at: item.project_updated_at,
-      archived_at: item.project_archived_at
+      archived_at: item.project_archived_at,
+      sort_order: item.project_sort_order
     };
     const group =
       groupMap.get(project.id) ??
@@ -1839,7 +2025,7 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
   }
 
   const projects = connection
-    .prepare("SELECT * FROM projects WHERE status = 'active' ORDER BY updated_at DESC")
+    .prepare(`SELECT * FROM projects WHERE status = 'active' ORDER BY COALESCE(sort_order, ${SORT_ORDER_FALLBACK}) ASC, updated_at DESC, created_at ASC, id ASC`)
     .all() as Project[];
 
   const entriesToday = connection
@@ -3194,96 +3380,12 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
         dwe.today_progress,
         dwe.next_step,
         dwe.blocker,
-        dwe.status_for_today,
-        CASE
-          WHEN wins.id IS NOT NULL
-            AND TRIM(COALESCE(wins.content_markdown, '')) <> ''
-            AND COALESCE(
-              (
-                SELECT previous.content_markdown
-                FROM work_item_note_snapshots previous
-                WHERE previous.work_item_id = wins.work_item_id
-                  AND previous.snapshot_date < wins.snapshot_date
-                ORDER BY previous.snapshot_date DESC
-                LIMIT 1
-              ),
-              ''
-            ) <> COALESCE(wins.content_markdown, '')
-            THEN wins.content_markdown
-          WHEN wins.id IS NULL
-            AND COALESCE(dj.status, 'draft') <> 'closed'
-            AND date(win.updated_at, 'localtime') = dwe.journal_date
-            AND TRIM(COALESCE(win.content_markdown, '')) <> ''
-            THEN win.content_markdown
-          ELSE NULL
-        END AS work_item_note_content
+        dwe.status_for_today
       FROM daily_work_item_entries dwe
-      LEFT JOIN daily_journals dj ON dj.journal_date = dwe.journal_date
-      LEFT JOIN work_item_note_snapshots wins
-        ON wins.work_item_id = dwe.work_item_id
-        AND wins.snapshot_date = dwe.journal_date
-      LEFT JOIN work_item_notes win ON win.work_item_id = dwe.work_item_id
       WHERE dwe.journal_date BETWEEN ? AND ?
-      UNION ALL
-      SELECT
-        wins.snapshot_date AS journal_date,
-        wi.project_id,
-        wins.work_item_id,
-        NULL AS today_progress,
-        NULL AS next_step,
-        NULL AS blocker,
-        'in_progress' AS status_for_today,
-        wins.content_markdown AS work_item_note_content
-      FROM work_item_note_snapshots wins
-      JOIN work_items wi ON wi.id = wins.work_item_id
-      WHERE wins.snapshot_date BETWEEN ? AND ?
-        AND TRIM(COALESCE(wins.content_markdown, '')) <> ''
-        AND COALESCE(
-          (
-            SELECT previous.content_markdown
-            FROM work_item_note_snapshots previous
-            WHERE previous.work_item_id = wins.work_item_id
-              AND previous.snapshot_date < wins.snapshot_date
-            ORDER BY previous.snapshot_date DESC
-            LIMIT 1
-          ),
-          ''
-        ) <> COALESCE(wins.content_markdown, '')
-        AND NOT EXISTS (
-          SELECT 1
-          FROM daily_work_item_entries existing
-          WHERE existing.journal_date = wins.snapshot_date
-            AND existing.work_item_id = wins.work_item_id
-        )
-      UNION ALL
-      SELECT
-        date(win.updated_at, 'localtime') AS journal_date,
-        wi.project_id,
-        win.work_item_id,
-        NULL AS today_progress,
-        NULL AS next_step,
-        NULL AS blocker,
-        'in_progress' AS status_for_today,
-        win.content_markdown AS work_item_note_content
-      FROM work_item_notes win
-      JOIN work_items wi ON wi.id = win.work_item_id
-      WHERE date(win.updated_at, 'localtime') BETWEEN ? AND ?
-        AND TRIM(COALESCE(win.content_markdown, '')) <> ''
-        AND NOT EXISTS (
-          SELECT 1
-          FROM daily_work_item_entries existing
-          WHERE existing.journal_date = date(win.updated_at, 'localtime')
-            AND existing.work_item_id = win.work_item_id
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM work_item_note_snapshots snapshot
-          WHERE snapshot.snapshot_date = date(win.updated_at, 'localtime')
-            AND snapshot.work_item_id = win.work_item_id
-        )
       `
     )
-    .all(startDate, endDate, startDate, endDate, startDate, endDate) as Array<{
+    .all(startDate, endDate) as Array<{
     journal_date: string;
     project_id: string;
     work_item_id: string;
@@ -3291,7 +3393,6 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
     next_step: string | null;
     blocker: string | null;
     status_for_today: DailyWorkItemStatus;
-    work_item_note_content: string | null;
   }>;
 
   const rowsByDate = new Map<string, typeof dailyRows>();
@@ -3330,9 +3431,8 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
     for (const entry of entries) {
       projectIds.add(entry.project_id);
       const dailyFields = [entry.today_progress, entry.next_step, entry.blocker];
-      const metricFields = [...dailyFields, entry.work_item_note_content];
       const filledFieldCount = dailyFields.filter((value) => Boolean(value?.trim())).length;
-      const entryTextLength = characterCount(...metricFields);
+      const entryTextLength = characterCount(...dailyFields);
       const hasText = entryTextLength > 0;
       const entryScore = textDepthScore(entryTextLength) + (filledFieldCount > 0 ? filledFieldCount : 0);
 

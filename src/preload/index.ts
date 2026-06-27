@@ -12,6 +12,7 @@ import type {
   LanguagePreference,
   PeriodReportType,
   SaveAttachmentAsInput,
+  SortMoveDirection,
   SaveDailyEntryAttachmentInput,
   SaveWorkItemNoteAttachmentInput,
   SaveMemoAttachmentInput,
@@ -69,6 +70,7 @@ const api: WorkJournalApi = {
     listActive: () => ipcRenderer.invoke("projects:list-active"),
     create: (input: CreateProjectInput) => ipcRenderer.invoke("projects:create", input),
     update: (input: UpdateProjectInput) => ipcRenderer.invoke("projects:update", input),
+    move: (id: string, direction: SortMoveDirection) => ipcRenderer.invoke("projects:move", id, direction),
     archive: (id: string) => ipcRenderer.invoke("projects:archive", id),
     getDetail: (id: string) => ipcRenderer.invoke("projects:get-detail", id),
     getDeleteSummary: (id: string) => ipcRenderer.invoke("projects:get-delete-summary", id),
@@ -77,6 +79,7 @@ const api: WorkJournalApi = {
   workItems: {
     create: (input: CreateWorkItemInput) => ipcRenderer.invoke("work-items:create", input),
     update: (input: UpdateWorkItemInput) => ipcRenderer.invoke("work-items:update", input),
+    move: (id: string, direction: SortMoveDirection) => ipcRenderer.invoke("work-items:move", id, direction),
     complete: (id: string) => ipcRenderer.invoke("work-items:complete", id),
     getDeleteSummary: (id: string) => ipcRenderer.invoke("work-items:get-delete-summary", id),
     delete: (id: string) => ipcRenderer.invoke("work-items:delete", id)
