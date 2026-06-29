@@ -1,7 +1,7 @@
 import { app, nativeTheme, safeStorage } from "electron";
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { access } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, parse, resolve } from "node:path";
 import type { AiConfig, AiProvider, AppConfig, EffectiveTheme, LanguagePreference, SettingsInfo, ThemePreference } from "../shared/types";
 
 const configFileName = "app-config.json";
@@ -142,6 +142,7 @@ export function saveConfig(nextConfig: AppConfig): AppConfig {
 }
 
 function assertDirectoryAccessible(directory: string): void {
+  assertDataDirectorySafe(directory);
   const stat = statSync(directory);
   if (!stat.isDirectory()) {
     throw new Error("配置的数据目录不是文件夹。");
@@ -151,6 +152,39 @@ function assertDirectoryAccessible(directory: string): void {
 
 function accessSyncForDirectory(directory: string): void {
   accessSync(directory, constants.R_OK | constants.W_OK);
+}
+
+function safeAppPath(name: Parameters<typeof app.getPath>[0]): string | null {
+  try {
+    return app.getPath(name);
+  } catch {
+    return null;
+  }
+}
+
+function protectedDataDirectoryRoots(): string[] {
+  const home = safeAppPath("home");
+  return [
+    home,
+    home ? resolve(home, "..") : null,
+    safeAppPath("desktop"),
+    safeAppPath("documents"),
+    safeAppPath("downloads"),
+    process.env.ProgramData ? resolve(process.env.ProgramData) : null
+  ].filter((path): path is string => Boolean(path));
+}
+
+export function assertDataDirectorySafe(directory: string): void {
+  const resolved = resolve(directory);
+  const root = parse(resolved).root;
+  if (pathsEqual(resolved, root)) {
+    throw new Error("不能把数据目录设置为磁盘根目录。");
+  }
+  for (const protectedRoot of protectedDataDirectoryRoots()) {
+    if (pathsEqual(resolved, protectedRoot)) {
+      throw new Error("请选择一个具体的流梭数据文件夹，不要直接使用用户目录、桌面、文档、下载或 ProgramData。");
+    }
+  }
 }
 
 export function resolveDataDirectory(): {
@@ -245,6 +279,7 @@ export function getAiConfig(): AiConfig {
 }
 
 export async function ensureDirectoryWritable(directory: string): Promise<void> {
+  assertDataDirectorySafe(directory);
   const stat = statSync(directory);
   if (!stat.isDirectory()) {
     throw new Error("所选路径不是文件夹。");
@@ -253,6 +288,9 @@ export async function ensureDirectoryWritable(directory: string): Promise<void> 
 }
 
 export function setDataDirectory(directory: string | null): AppConfig {
+  if (directory) {
+    assertDataDirectorySafe(directory);
+  }
   return saveConfig({ ...loadConfig(), dataDirectory: directory });
 }
 

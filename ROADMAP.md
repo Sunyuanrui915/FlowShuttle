@@ -6,10 +6,20 @@
 
 ### 已发布
 
-#### v0.2.0
+#### v0.2.1
 
 当前公开版本。重点包含：
 
+* 修复编辑器回车后新输入内容可能不可见的问题；
+* 修复任务列表、有序列表、引用等工具栏操作的选择范围问题；
+* 修复无实际修改时保存工作项仍可能新增项目时间线记录的问题；
+* 将项目详情页进行中 / 已完成工作项改为页签切换；
+* 优化工作项删除按钮和输入框默认提示文字显示；
+* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
+
+#### v0.2.0
+
+重点包含：
 * 修复热力图和总记录字数在无有效今日变更摘要时异常升高的问题；
 * 优化上一工作日参考、编辑器换行、搜索和单实例运行体验；
 * 从今日记录编辑页返回 Today 时保持离开前的滚动位置；
@@ -113,10 +123,20 @@
 
 ### Released
 
-#### v0.2.0
+#### v0.2.1
 
 Current public release. Highlights:
 
+* Fixed an issue where newly entered text after pressing Enter could become hidden below the editor area;
+* Fixed formatting command selection scope for task lists, ordered lists, quotes, and related toolbar actions;
+* Fixed project timeline records being created when saving a work item without real changes;
+* Changed active and completed work items in project details to tabs;
+* Improved delete button alignment and placeholder text colors;
+* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
+
+#### v0.2.0
+
+Highlights:
 * Fixed heatmap and total text length inflation when no valid change summary exists;
 * Improved previous workday references, editor line breaks, search, and single-instance behavior;
 * Preserved the Today scroll position when returning from a work item editor;

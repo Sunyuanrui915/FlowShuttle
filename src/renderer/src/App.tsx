@@ -59,6 +59,7 @@ import type {
   AiSettingsInfo,
   AppUpdateStatus,
   DailyAutoReportEvent,
+  DailyAutoReportRequest,
   DailyWorkItemEntry,
   LanguagePreference,
   MarkdownPayload,
@@ -100,6 +101,7 @@ type View =
   | "user-guide";
 type UserGuideReturnView = Exclude<View, "user-guide">;
 type ReportTab = "daily" | "weekly" | "monthly";
+type ProjectWorkItemTab = "active" | "completed";
 type ReportTimeFilter = "all" | "today" | "last7" | "last30" | "thisMonth" | "lastMonth";
 type ReportItem = MarkdownPayload & {
   id: string;
@@ -257,6 +259,7 @@ const emptyQuickForm: QuickProgressForm = {
 const CREATE_PROJECT_OPTION = "__create_project__";
 const CREATE_WORK_ITEM_OPTION = "__create_work_item__";
 const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
+const PROJECT_WORK_ITEM_TABS: readonly ProjectWorkItemTab[] = ["active", "completed"];
 
 function localeFor(language: LanguagePreference): string {
   if (language === "en") {
@@ -489,6 +492,75 @@ function blockHasChangeSummary(block: DailyWorkItemBlock): boolean {
   return dailyEntryHasChangeSummary(block.entry);
 }
 
+function normalizeDailyFormText(value: string | null | undefined): string {
+  return (value ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function dailyFormBaselineForBlock(block: DailyWorkItemBlock): DailyEntryForm {
+  return {
+    workItemNoteContent: block.workItemNote.content_markdown ?? "",
+    todayProgress: block.entry?.today_progress ?? "",
+    nextStep: block.entry ? block.entry.next_step ?? "" : block.previousEntry?.next_step ?? "",
+    blocker: block.entry ? block.entry.blocker ?? "" : block.previousEntry?.blocker ?? "",
+    statusForToday: block.entry?.status_for_today ?? "in_progress"
+  };
+}
+
+function dailyFormStorageBaselineForBlock(block: DailyWorkItemBlock): DailyEntryForm {
+  return {
+    workItemNoteContent: block.workItemNote.content_markdown ?? "",
+    todayProgress: block.entry?.today_progress ?? "",
+    nextStep: block.entry?.next_step ?? "",
+    blocker: block.entry?.blocker ?? "",
+    statusForToday: block.entry?.status_for_today ?? "in_progress"
+  };
+}
+
+function dailyFormHasMeaningfulDailyContent(form: DailyEntryForm): boolean {
+  return Boolean(
+    normalizeDailyFormText(form.todayProgress).trim() ||
+      normalizeDailyFormText(form.nextStep).trim() ||
+      normalizeDailyFormText(form.blocker).trim() ||
+      form.statusForToday !== "in_progress"
+  );
+}
+
+function dailyFormPayloadForBlock(block: DailyWorkItemBlock, form: DailyEntryForm): DailyEntryForm {
+  if (block.entry) {
+    return form;
+  }
+  const displayBaseline = dailyFormBaselineForBlock(block);
+  return {
+    workItemNoteContent: form.workItemNoteContent,
+    todayProgress: form.todayProgress,
+    nextStep:
+      normalizeDailyFormText(form.nextStep) === normalizeDailyFormText(displayBaseline.nextStep)
+        ? ""
+        : form.nextStep,
+    blocker:
+      normalizeDailyFormText(form.blocker) === normalizeDailyFormText(displayBaseline.blocker)
+        ? ""
+        : form.blocker,
+    statusForToday: form.statusForToday
+  };
+}
+
+function dailyFormDailyFieldsEqual(a: DailyEntryForm, b: DailyEntryForm): boolean {
+  return (
+    normalizeDailyFormText(a.todayProgress) === normalizeDailyFormText(b.todayProgress) &&
+    normalizeDailyFormText(a.nextStep) === normalizeDailyFormText(b.nextStep) &&
+    normalizeDailyFormText(a.blocker) === normalizeDailyFormText(b.blocker) &&
+    a.statusForToday === b.statusForToday
+  );
+}
+
+function hasDailyDisplayFieldChange(block: DailyWorkItemBlock, form: DailyEntryForm): boolean {
+  return !dailyFormDailyFieldsEqual(form, dailyFormBaselineForBlock(block));
+}
+
+function hasDailyStoredFieldChange(block: DailyWorkItemBlock, form: DailyEntryForm): boolean {
+  return !dailyFormDailyFieldsEqual(form, dailyFormStorageBaselineForBlock(block));
+}
 function updateDailyViewAfterEntrySave(
   dailyView: DailyJournalView,
   workItemId: string,
@@ -864,6 +936,9 @@ function App() {
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const confirmResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
   const currentEditorSaveRef = useRef<(options?: EditorSaveOptions) => Promise<boolean>>(async () => false);
+  const currentViewRef = useRef<View>(view);
+  const dailyEditorTargetRef = useRef<DailyEntryEditorTarget | null>(dailyEditorTarget);
+  const dailyViewRef = useRef<DailyJournalView | null>(dailyView);
   const saveInFlightRef = useRef(false);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const todayScrollPositionsRef = useRef<Record<string, number>>({});
@@ -876,6 +951,12 @@ function App() {
     setToast({ ...toastValue, message: compactToastMessage(toastValue.message) });
     window.setTimeout(() => setToast(null), 2600);
   };
+
+  useEffect(() => {
+    currentViewRef.current = view;
+    dailyEditorTargetRef.current = dailyEditorTarget;
+    dailyViewRef.current = dailyView;
+  });
 
   const requestConfirm = (options: AppConfirmOptions): Promise<boolean> => {
     if (confirmResolveRef.current) {
@@ -1094,9 +1175,37 @@ function App() {
             });
           })
         : () => undefined;
+    const unsubscribeAutoReportRequest =
+      typeof window.workJournal.daily.onAutoReportRequest === "function"
+        ? window.workJournal.daily.onAutoReportRequest(async (request: DailyAutoReportRequest) => {
+            let ok = true;
+            let errorMessage: string | undefined;
+            try {
+              const target = dailyEditorTargetRef.current;
+              const currentDailyView = dailyViewRef.current;
+              if (
+                currentViewRef.current === "daily-entry-editor" &&
+                target?.journalDate === request.journalDate &&
+                currentDailyView?.journal.status !== "closed"
+              ) {
+                ok = await requestCurrentEditorSave({ refresh: false, showSuccess: false });
+              }
+            } catch (error) {
+              ok = false;
+              errorMessage = error instanceof Error ? error.message : String(error);
+            } finally {
+              window.workJournal.daily.completeAutoReportRequest({
+                requestId: request.requestId,
+                ok,
+                ...(errorMessage ? { error: errorMessage } : {})
+              });
+            }
+          })
+        : () => undefined;
     return () => {
       unsubscribe();
       unsubscribeAutoReport();
+      unsubscribeAutoReportRequest();
     };
   }, []);
 
@@ -1590,50 +1699,48 @@ function App() {
     };
 
   const getDailyFormForBlock = (block: DailyWorkItemBlock): DailyEntryForm =>
-    dailyForms[block.workItem.id] ?? {
-      workItemNoteContent: block.workItemNote.content_markdown ?? "",
-      todayProgress: block.entry?.today_progress ?? "",
-      nextStep: block.entry ? block.entry.next_step ?? "" : block.previousEntry?.next_step ?? "",
-      blocker: block.entry ? block.entry.blocker ?? "" : block.previousEntry?.blocker ?? "",
-      statusForToday: block.entry?.status_for_today ?? "in_progress"
-    };
+    dailyForms[block.workItem.id] ?? dailyFormBaselineForBlock(block);
 
   const saveDailyEntryBlock = async (block: DailyWorkItemBlock, options: EditorSaveOptions = {}): Promise<boolean> => {
     if (!dailyView) {
       return false;
     }
     const form = getDailyFormForBlock(block);
-    const dailyFieldsEmpty =
-      !form.todayProgress.trim() &&
-      !form.nextStep.trim() &&
-      !form.blocker.trim() &&
-      form.statusForToday === "in_progress";
-    const noteChanged = form.workItemNoteContent !== (block.workItemNote.content_markdown ?? "");
-    if (dailyFieldsEmpty && !form.workItemNoteContent.trim() && !noteChanged) {
-      if (!options.skipEmpty) {
-        showToast({ kind: "error", message: t("fillProgressRequired") });
+    const displayDailyChanged = hasDailyDisplayFieldChange(block, form);
+    const storedDailyChanged = hasDailyStoredFieldChange(block, form);
+    const noteChanged = normalizeDailyFormText(form.workItemNoteContent) !== normalizeDailyFormText(block.workItemNote.content_markdown);
+    const payloadDailyForm = dailyFormPayloadForBlock(block, form);
+    const hasDailyContent = dailyFormHasMeaningfulDailyContent(payloadDailyForm);
+    const dailyChanged = Boolean(block.entry) ? storedDailyChanged : displayDailyChanged && hasDailyContent;
+
+    if (!dailyChanged && !noteChanged) {
+      if (options.skipUnchanged) {
+        return false;
       }
-      return false;
+      if (options.showSuccess ?? true) {
+        showToast({ kind: "info", message: t("dailyEntryNoChanges") });
+      }
+      return true;
     }
-    if (
-      options.skipUnchanged &&
-      form.todayProgress === (block.entry?.today_progress ?? "") &&
-      form.nextStep === (block.entry?.next_step ?? "") &&
-      form.blocker === (block.entry?.blocker ?? "") &&
-      form.statusForToday === (block.entry?.status_for_today ?? "in_progress") &&
-      form.workItemNoteContent === (block.workItemNote.content_markdown ?? "")
-    ) {
-      return false;
+
+    if (!noteChanged && !hasDailyContent && !block.entry) {
+      if (options.skipEmpty) {
+        return false;
+      }
+      if (options.showSuccess ?? true) {
+        showToast({ kind: "info", message: t("dailyEntryNoChanges") });
+      }
+      return true;
     }
     try {
       const result = await window.workJournal.daily.upsertWorkItemEntry({
         journalDate: dailyView.journalDate,
         projectId: block.project.id,
         workItemId: block.workItem.id,
-        todayProgress: form.todayProgress,
-        nextStep: form.nextStep,
-        blocker: form.blocker,
-        statusForToday: form.statusForToday,
+        todayProgress: payloadDailyForm.todayProgress,
+        nextStep: payloadDailyForm.nextStep,
+        blocker: payloadDailyForm.blocker,
+        statusForToday: payloadDailyForm.statusForToday,
         workItemNoteContentMarkdown: form.workItemNoteContent
       });
       setDailyView((current) =>
@@ -1641,13 +1748,21 @@ function App() {
           ? updateDailyViewAfterEntrySave(current, block.workItem.id, result.entry, result.workItemNote)
           : current
       );
-      updateDailyForm(block.workItem.id, {
-        workItemNoteContent: result.workItemNote.content_markdown ?? "",
-        todayProgress: result.entry?.today_progress ?? "",
-        nextStep: result.entry?.next_step ?? "",
-        blocker: result.entry?.blocker ?? "",
-        statusForToday: result.entry?.status_for_today ?? form.statusForToday
-      });
+      const nextForm = result.entry
+        ? {
+            workItemNoteContent: result.workItemNote.content_markdown ?? "",
+            todayProgress: result.entry.today_progress ?? "",
+            nextStep: result.entry.next_step ?? "",
+            blocker: result.entry.blocker ?? "",
+            statusForToday: result.entry.status_for_today
+          }
+        : dailyChanged
+          ? dailyFormBaselineForBlock({ ...block, entry: null, workItemNote: result.workItemNote })
+          : {
+              ...form,
+              workItemNoteContent: result.workItemNote.content_markdown ?? ""
+            };
+      updateDailyForm(block.workItem.id, nextForm);
       if (options.refresh ?? true) {
         await refreshActiveView();
       }
@@ -1660,12 +1775,22 @@ function App() {
       return false;
     }
   };
-
   const handleSaveDailyEntry = async (block: DailyWorkItemBlock): Promise<boolean> =>
     saveDailyEntryBlock(block, { refresh: true, showSuccess: true });
 
   const handleSaveDailyEntryAndReturn = async (block: DailyWorkItemBlock) => {
     const saved = await saveDailyEntryBlock(block, { refresh: true, showSuccess: true });
+    if (saved) {
+      setView(dailyEditorReturnView);
+    }
+  };
+
+  const handleBackDailyEntry = async (block: DailyWorkItemBlock) => {
+    if (dailyView?.journal.status === "closed") {
+      setView(dailyEditorReturnView);
+      return;
+    }
+    const saved = await saveDailyEntryBlock(block, { refresh: true, showSuccess: false });
     if (saved) {
       setView(dailyEditorReturnView);
     }
@@ -2181,7 +2306,7 @@ function App() {
               theme={effectiveTheme}
               aiSettings={settingsInfo?.ai ?? null}
               t={t}
-              onBack={() => setView(dailyEditorReturnView)}
+              onBack={() => handleBackDailyEntry(dailyEditorBlock)}
               onUpdate={(patch) => updateDailyForm(dailyEditorBlock.workItem.id, patch)}
               onSave={() => handleSaveDailyEntry(dailyEditorBlock)}
               onViewHistory={() => handleViewWorkItemHistory(dailyEditorBlock)}
@@ -5874,6 +5999,7 @@ function ProjectDetailPage({
   onOpenMemo: () => void;
 }) {
   const [projectActionsOpen, setProjectActionsOpen] = useState(false);
+  const [workItemTab, setWorkItemTab] = useState<ProjectWorkItemTab>("active");
   const projectActionsMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -5900,6 +6026,14 @@ function ProjectDetailPage({
     };
   }, [projectActionsOpen]);
 
+  useEffect(() => {
+    setWorkItemTab("active");
+  }, [detail.project.id]);
+
+  const isActiveWorkItemTab = workItemTab === "active";
+  const visibleWorkItems = isActiveWorkItemTab ? detail.activeItems : detail.completedItems;
+  const emptyWorkItemTitle = isActiveWorkItemTab ? t("noActiveWorkItemsTitle") : t("noCompletedItemsTitle");
+  const emptyWorkItemBody = isActiveWorkItemTab ? t("noActiveWorkItemsBody") : t("noCompletedItemsBody");
   return (
     <section className="page detail-page">
       <header className="project-detail-topbar">
@@ -6010,78 +6144,78 @@ function ProjectDetailPage({
       </header>
 
       <div className="detail-workbench">
-        <section className="detail-section active-work-section">
-          <header className="detail-section-header">
-            <h2>
-              {t("activeWorkItems")}
-              <span>{detail.activeItems.length}</span>
-            </h2>
+        <section className="detail-section project-work-items-section">
+          <header className="detail-section-header work-item-tabs-header">
+            <div
+              className="work-item-tabs"
+              role="tablist"
+              aria-label={t("workItem")}
+              onKeyDown={(event) => handleSegmentedKeyDown<ProjectWorkItemTab>(event, PROJECT_WORK_ITEM_TABS, workItemTab, setWorkItemTab)}
+            >
+              {PROJECT_WORK_ITEM_TABS.map((tab) => {
+                const label = tab === "active" ? t("activeWorkItems") : t("completedWorkItems");
+                const count = tab === "active" ? detail.activeItems.length : detail.completedItems.length;
+                const selected = workItemTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    id={`work-item-tab-${tab}`}
+                    className={`work-item-tab-button ${selected ? "active" : ""}`.trim()}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-controls="work-item-tab-panel"
+                    tabIndex={selected ? 0 : -1}
+                    data-tab-id={tab}
+                    onClick={() => setWorkItemTab(tab)}
+                  >
+                    <span>{label}</span>
+                    <span className="work-item-tab-count">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
           </header>
-          {detail.activeItems.length === 0 ? (
-            <EmptyState title={t("noActiveWorkItemsTitle")} body={t("noActiveWorkItemsBody")} />
-          ) : (
-            <div className="project-workitem-table">
-              <div className="project-workitem-table-head" aria-hidden="true">
-                <span />
-                <span>{t("workItem")}</span>
-                <span>{t("workItemStatus")}</span>
-                <span>{t("workItemRecentRecord")}</span>
-                <span>{t("workItemUpdatedAt")}</span>
-                <span>{t("workItemActions")}</span>
+          <div
+            id="work-item-tab-panel"
+            className="work-item-tab-panel"
+            role="tabpanel"
+            aria-labelledby={`work-item-tab-${workItemTab}`}
+          >
+            {visibleWorkItems.length === 0 ? (
+              <EmptyState title={emptyWorkItemTitle} body={emptyWorkItemBody} />
+            ) : (
+              <div className="project-workitem-table">
+                <div className="project-workitem-table-head" aria-hidden="true">
+                  <span />
+                  <span>{t("workItem")}</span>
+                  <span>{t("workItemStatus")}</span>
+                  <span>{t("workItemRecentRecord")}</span>
+                  <span>{t("workItemUpdatedAt")}</span>
+                  <span>{t("workItemActions")}</span>
+                </div>
+                {visibleWorkItems.map((item, index) => (
+                  <WorkItemRow
+                    key={item.id}
+                    item={item}
+                    mode="detail"
+                    language={language}
+                    onRecordProgress={() => onRecordProgress(detail.project.id, item.id)}
+                    onComplete={isActiveWorkItemTab ? () => onComplete(item.id) : undefined}
+                    onMoveUp={() => onMoveWorkItem(item, "up", index > 0)}
+                    onMoveDown={() => onMoveWorkItem(item, "down", index < visibleWorkItems.length - 1)}
+                    canMoveUp={index > 0}
+                    canMoveDown={index < visibleWorkItems.length - 1}
+                    onEdit={() => onEditWorkItem(item)}
+                    onDelete={() => onDeleteWorkItem(item)}
+                    t={t}
+                  />
+                ))}
               </div>
-              {detail.activeItems.map((item, index) => (
-                <WorkItemRow
-                  key={item.id}
-                  item={item}
-                  mode="detail"
-                  language={language}
-                  onRecordProgress={() => onRecordProgress(detail.project.id, item.id)}
-                  onComplete={() => onComplete(item.id)}
-                  onMoveUp={() => onMoveWorkItem(item, "up", index > 0)}
-                  onMoveDown={() => onMoveWorkItem(item, "down", index < detail.activeItems.length - 1)}
-                  canMoveUp={index > 0}
-                  canMoveDown={index < detail.activeItems.length - 1}
-                  onEdit={() => onEditWorkItem(item)}
-                  onDelete={() => onDeleteWorkItem(item)}
-                  t={t}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-        <section className="detail-section completed-work-section">
-          <header className="detail-section-header">
-            <h2>
-              {t("completedWorkItems")}
-              <span>{detail.completedItems.length}</span>
-            </h2>
-          </header>
-          {detail.completedItems.length === 0 ? (
-            <EmptyState title={t("noCompletedItemsTitle")} body={t("noCompletedItemsBody")} />
-          ) : (
-            <div className="completed-work-list">
-              {detail.completedItems.map((item, index) => (
-                <WorkItemRow
-                  key={item.id}
-                  item={item}
-                  mode="detail"
-                  compact
-                  language={language}
-                  onRecordProgress={() => onRecordProgress(detail.project.id, item.id)}
-                  onMoveUp={() => onMoveWorkItem(item, "up", index > 0)}
-                  onMoveDown={() => onMoveWorkItem(item, "down", index < detail.completedItems.length - 1)}
-                  canMoveUp={index > 0}
-                  canMoveDown={index < detail.completedItems.length - 1}
-                  onEdit={() => onEditWorkItem(item)}
-                  onDelete={() => onDeleteWorkItem(item)}
-                  t={t}
-                />
-              ))}
-            </div>
-          )}
+            )}
+          </div>
         </section>
       </div>
-
       <section className="timeline-section">
         <header className="detail-section-header">
           <h2>{t("timelineTitle")}</h2>

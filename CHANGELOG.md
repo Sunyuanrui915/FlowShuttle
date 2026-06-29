@@ -4,6 +4,26 @@
 
 * 暂无。
 
+## v0.2.1 - 2026-06-29
+
+### Fixed
+
+* 修复编辑器中回车后，新输入内容可能出现在输入区域下方不可见的问题。
+* Fixed an issue where newly entered text after pressing Enter could become hidden below the editor area.
+* 修复任务列表、有序列表、引用等工具栏操作可能错误作用于多行内容的问题。
+* Fixed an issue where task lists, ordered lists, quotes, and related formatting commands could incorrectly affect multiple lines.
+* 修复没有实际修改内容时，保存工作项仍可能在项目进展时间线新增记录的问题。
+* Fixed an issue where saving a work item without real changes could still create a project timeline record.
+
+### Improved
+
+* 项目详情页中，进行中工作项和已完成工作项改为页签切换。
+* Changed the project detail work item layout from side-by-side sections to tabs for active and completed work items.
+* 修复工作项删除按钮超出卡片边界的问题。
+* Fixed the delete button overflowing outside work item cards.
+* 优化输入框默认提示文字颜色，降低对正文编辑的干扰。
+* Lightened placeholder text colors across inputs and editors.
+
 ## v0.2.0 - 2026-06-27
 
 ### Fixed

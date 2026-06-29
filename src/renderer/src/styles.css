@@ -23,6 +23,7 @@
   --text-heading: #111827;
   --text-secondary: #667085;
   --text-muted: #7a8495;
+  --text-placeholder: #aab4c3;
   --border-subtle: #dce4ef;
   --border-muted: #edf1f6;
   --border-strong: #d8e0eb;
@@ -74,6 +75,7 @@
   --text-heading: #f3f6fb;
   --text-secondary: #aab4c3;
   --text-muted: #8995a7;
+  --text-placeholder: #727e90;
   --border-subtle: #333c4e;
   --border-muted: #2b3445;
   --border-strong: #3a465a;
@@ -135,6 +137,13 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.56;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-placeholder);
+  font-weight: 400;
+  opacity: 1;
 }
 
 body {
@@ -2535,7 +2544,7 @@ button.today-reminder-item:focus-visible {
   padding: 22px 24px;
 }
 
-@media (max-width: 1040px) {
+@media (max-width: 860px) {
   .daily-entry-editor-layout,
   .daily-entry-editor-layout.reference-sidebar-collapsed {
     grid-template-columns: 1fr;
@@ -2788,7 +2797,7 @@ button.today-reminder-item:focus-visible {
 .work-item-row,
 .project-workitem-table-head {
   display: grid;
-  grid-template-columns: 24px minmax(150px, 1.35fr) 88px minmax(110px, 1fr) 82px 284px;
+  grid-template-columns: 24px minmax(124px, 0.92fr) 84px minmax(220px, 1.62fr) 88px 284px;
   gap: 10px;
   align-items: center;
   min-width: 0;
@@ -2841,7 +2850,9 @@ button.today-reminder-item:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -2907,6 +2918,8 @@ button.today-reminder-item:focus-visible {
 
 .work-item-actions .work-item-delete-button {
   width: 30px;
+  max-width: 30px;
+  height: 30px;
   flex: 0 0 30px;
   min-width: 30px;
   min-height: 30px;
@@ -2915,6 +2928,7 @@ button.today-reminder-item:focus-visible {
   justify-content: center;
   gap: 0;
   padding: 0;
+  overflow: hidden;
   opacity: 0.42;
   white-space: nowrap;
   transition:
@@ -3325,8 +3339,8 @@ button.today-reminder-item:focus-visible {
 }
 
 .reports-search-box input::placeholder {
-  color: var(--text-muted);
-  opacity: 0.72;
+  color: var(--text-placeholder);
+  opacity: 1;
 }
 
 .reports-search-box input::-webkit-search-decoration,
@@ -4887,7 +4901,7 @@ button.today-reminder-item:focus-visible {
 
 .detail-workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(300px, 24vw, 360px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: stretch;
   min-width: 0;
@@ -4907,9 +4921,6 @@ button.today-reminder-item:focus-visible {
   padding: 15px 16px;
 }
 
-.active-work-section .detail-section-header {
-  padding-bottom: 0;
-}
 
 .detail-section-header h2 {
   position: relative;
@@ -4920,20 +4931,7 @@ button.today-reminder-item:focus-visible {
   font-size: 17px;
 }
 
-.active-work-section .detail-section-header h2 {
-  padding-bottom: 13px;
-}
 
-.active-work-section .detail-section-header h2::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--accent);
-  content: "";
-}
 
 .detail-section-header h2 span {
   display: inline-flex;
@@ -4949,48 +4947,96 @@ button.today-reminder-item:focus-visible {
   font-weight: 800;
 }
 
-.project-workitem-table,
-.completed-work-list {
+.project-workitem-table {
   min-width: 0;
 }
 
-.completed-work-section {
-  align-self: stretch;
-  background: color-mix(in srgb, var(--bg-surface) 86%, var(--bg-surface-muted));
+.project-work-items-section {
+  min-width: 0;
 }
 
-.completed-work-section .empty-state {
-  min-height: 320px;
-}
-
-.completed-work-list .work-item-row {
-  grid-template-columns: 22px minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
-  padding: 13px 14px;
-}
-
-.completed-work-list .work-item-title-cell,
-.completed-work-list .work-item-status-pill,
-.completed-work-list .work-item-recent-wrap,
-.completed-work-list .work-item-updated,
-.completed-work-list .work-item-actions {
-  grid-column: 2;
-}
-
-.completed-work-list .work-item-status-pill {
-  margin-top: 2px;
-}
-
-.completed-work-list .work-item-recent {
-  white-space: normal;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.completed-work-list .work-item-actions {
+.work-item-tabs-header {
   justify-content: flex-start;
+  overflow: visible;
+  padding-bottom: 0;
+}
+
+.work-item-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+  min-width: 0;
+  gap: 8px 24px;
+  overflow: visible;
+}
+
+.work-item-tab-button {
+  position: relative;
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0 0 13px;
+  font-size: 17px;
+  font-weight: 800;
+  text-align: left;
+  white-space: normal;
+}
+
+.work-item-tab-button::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: transparent;
+  content: "";
+}
+
+.work-item-tab-button:hover,
+.work-item-tab-button:focus-visible {
+  color: var(--text-primary);
+  outline: none;
+}
+
+.work-item-tab-button:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.work-item-tab-button.active {
+  color: var(--text-primary);
+}
+
+.work-item-tab-button.active::after {
+  background: var(--accent);
+}
+
+.work-item-tab-count {
+  display: inline-flex;
+  min-width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-hover) 72%, var(--bg-surface));
+  color: inherit;
+  padding: 0 7px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.work-item-tab-panel {
+  min-width: 0;
+}
+
+.work-item-tab-panel .empty-state {
+  min-height: 220px;
 }
 
 .timeline {
@@ -5112,13 +5158,13 @@ button.today-reminder-item:focus-visible {
 }
 
 @media (max-width: 1360px) {
-  .active-work-section .work-item-row,
+  .project-workitem-table .work-item-row,
   .project-workitem-table-head {
-    grid-template-columns: 24px minmax(132px, 1.2fr) 74px minmax(96px, 1fr) 84px 248px;
+    grid-template-columns: 24px minmax(112px, 0.78fr) 74px minmax(176px, 1.45fr) 84px 248px;
     gap: 8px;
   }
 
-  .active-work-section .work-item-record-button {
+  .project-workitem-table .work-item-record-button {
     min-width: 90px;
     padding-inline: 8px;
   }
@@ -5138,12 +5184,9 @@ button.today-reminder-item:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .completed-work-section .empty-state {
-    min-height: 220px;
-  }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1060px) {
   .project-detail-actions {
     justify-content: flex-start;
   }
@@ -5152,21 +5195,21 @@ button.today-reminder-item:focus-visible {
     display: none;
   }
 
-  .active-work-section .work-item-row {
+  .project-workitem-table .work-item-row {
     grid-template-columns: 22px minmax(0, 1fr);
     gap: 10px;
     align-items: start;
   }
 
-  .active-work-section .work-item-title-cell,
-  .active-work-section .work-item-status-pill,
-  .active-work-section .work-item-recent-wrap,
-  .active-work-section .work-item-updated,
-  .active-work-section .work-item-actions {
+  .project-workitem-table .work-item-title-cell,
+  .project-workitem-table .work-item-status-pill,
+  .project-workitem-table .work-item-recent-wrap,
+  .project-workitem-table .work-item-updated,
+  .project-workitem-table .work-item-actions {
     grid-column: 2;
   }
 
-  .active-work-section .work-item-actions {
+  .project-workitem-table .work-item-actions {
     justify-content: flex-start;
   }
 
@@ -5403,21 +5446,25 @@ button.today-reminder-item:focus-visible {
   overscroll-behavior: contain;
   background: var(--input-bg);
   color: var(--text-primary);
-  padding: 30px 24px 32px;
+  padding: 30px 24px 64px;
   font: inherit;
   font-size: 14px;
   font-weight: 400;
   line-height: 1.78;
   outline: none;
   white-space: pre-wrap;
+  scroll-padding: 24px 24px 64px;
+  caret-color: var(--text-primary);
 }
 
 .markdown-wysiwyg-editor.compact .markdown-editor-content {
-  padding: 18px 16px 20px;
+  padding: 18px 16px 56px;
+  scroll-padding: 18px 16px 56px;
 }
 
 .editor-workspace .markdown-editor-content {
-  padding: 22px 24px;
+  padding: 22px 24px 64px;
+  scroll-padding: 22px 24px 64px;
   line-height: 1.75;
 }
 
@@ -5426,7 +5473,7 @@ button.today-reminder-item:focus-visible {
 }
 
 .markdown-editor-content p {
-  margin: 0 0 10px;
+  margin: 0;
 }
 
 .markdown-editor-content h1,
@@ -5477,8 +5524,8 @@ button.today-reminder-item:focus-visible {
 .markdown-editor-content ul[data-type="taskList"] {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin: 8px 0 12px;
+  gap: 0;
+  margin: 4px 0 6px;
   padding-left: 0;
   list-style: none;
 }
@@ -5487,8 +5534,8 @@ button.today-reminder-item:focus-visible {
 .markdown-editor-content li[data-type="taskItem"] {
   display: flex;
   align-items: flex-start;
-  gap: 9px;
-  margin: 4px 0;
+  gap: 8px;
+  margin: 1px 0;
   padding-left: 0;
   list-style: none;
 }
@@ -5514,7 +5561,7 @@ button.today-reminder-item:focus-visible {
 
 .markdown-editor-content ul[data-type="taskList"] > li > div > p,
 .markdown-editor-content li[data-type="taskItem"] > div > p {
-  margin: 0 0 4px;
+  margin: 0;
 }
 
 .markdown-editor-content ul[data-type="taskList"] input[type="checkbox"],
@@ -5549,7 +5596,7 @@ button.today-reminder-item:focus-visible {
   content: attr(data-placeholder);
   float: left;
   height: 0;
-  color: var(--text-muted);
+  color: var(--text-placeholder);
   pointer-events: none;
 }
 
@@ -5558,7 +5605,7 @@ button.today-reminder-item:focus-visible {
   top: 62px;
   left: 24px;
   right: 24px;
-  color: var(--text-muted);
+  color: var(--text-placeholder);
   font-size: 14px;
   line-height: 1.6;
   pointer-events: none;
@@ -6227,6 +6274,7 @@ textarea {
   border-radius: 8px;
   background: var(--input-bg);
   color: var(--text-primary);
+  font-weight: 400;
   outline: 0;
 }
 
@@ -6949,7 +6997,7 @@ textarea:focus {
   grid-column: 1 / -1;
 }
 
-@media (max-width: 1040px) {
+@media (max-width: 860px) {
   .settings-grid.two-column {
     grid-template-columns: 1fr;
   }

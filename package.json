@@ -1,6 +1,6 @@
 {
   "name": "flowshuttle",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local-first personal work progress journal",
   "main": "out/main/index.js",
   "author": "Flow Shuttle",

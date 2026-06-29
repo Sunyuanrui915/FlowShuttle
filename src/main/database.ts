@@ -439,6 +439,31 @@ const migrations = [
           ON work_items(project_id, status, sort_order);
       `);
     }
+  },
+  {
+    version: 9,
+    name: "work_item_note_attachments_schema",
+    up(database: SqliteDatabase) {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS work_item_note_attachments (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          work_item_id TEXT NOT NULL,
+          file_name TEXT NOT NULL,
+          relative_path TEXT NOT NULL,
+          mime_type TEXT NOT NULL,
+          size_bytes INTEGER,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+          FOREIGN KEY (work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_work_item_note_attachments_work_item
+          ON work_item_note_attachments(work_item_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_work_item_note_attachments_project
+          ON work_item_note_attachments(project_id, created_at);
+      `);
+    }
   }
 ];
 
@@ -488,16 +513,41 @@ function attachmentsDirectory(dataDirectory = getCurrentDataDirectory()): string
   return resolve(dataDirectory, "attachments");
 }
 
+function requireSafeAttachmentSegment(value: string, fieldName: string): string {
+  const segment = value.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(segment) || segment === "." || segment === "..") {
+    throw new Error(`Invalid ${fieldName}.`);
+  }
+  return segment;
+}
+
+function requireJournalDate(value: string): string {
+  const journalDate = requireSafeAttachmentSegment(value, "journal date");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(journalDate)) {
+    throw new Error("Invalid journal date.");
+  }
+  const parsed = new Date(`${journalDate}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== journalDate) {
+    throw new Error("Invalid journal date.");
+  }
+  return journalDate;
+}
+
 function projectMemoAttachmentsDirectory(projectId: string, dataDirectory = getCurrentDataDirectory()): string {
-  return resolve(attachmentsDirectory(dataDirectory), "project-memos", projectId);
+  return resolve(attachmentsDirectory(dataDirectory), "project-memos", requireSafeAttachmentSegment(projectId, "project id"));
 }
 
 function dailyEntryAttachmentsDirectory(journalDate: string, workItemId: string, dataDirectory = getCurrentDataDirectory()): string {
-  return resolve(attachmentsDirectory(dataDirectory), "daily-entries", journalDate, workItemId);
+  return resolve(
+    attachmentsDirectory(dataDirectory),
+    "daily-entries",
+    requireJournalDate(journalDate),
+    requireSafeAttachmentSegment(workItemId, "work item id")
+  );
 }
 
 function workItemNoteAttachmentsDirectory(workItemId: string, dataDirectory = getCurrentDataDirectory()): string {
-  return resolve(attachmentsDirectory(dataDirectory), "work-item-notes", workItemId);
+  return resolve(attachmentsDirectory(dataDirectory), "work-item-notes", requireSafeAttachmentSegment(workItemId, "work item id"));
 }
 
 async function copyAttachmentsDirectory(sourceDataDirectory: string, targetDataDirectory: string): Promise<boolean> {
@@ -514,10 +564,25 @@ async function copyAttachmentsDirectory(sourceDataDirectory: string, targetDataD
 }
 
 function assertInside(baseDirectory: string, targetPath: string): void {
+  if (!isInsideDirectory(resolve(targetPath), resolve(baseDirectory))) {
+    throw new Error("Invalid attachment path.");
+  }
+}
+
+function removeDirectoryInside(baseDirectory: string, targetPath: string, errorMessage: string): void {
   const base = resolve(baseDirectory);
   const target = resolve(targetPath);
-  if (target !== base && !target.startsWith(`${base}\\`) && !target.startsWith(`${base}/`)) {
-    throw new Error("Invalid attachment path.");
+  assertInside(base, target);
+  if (pathsEqual(base, target)) {
+    throw new Error("Refusing to delete attachment root.");
+  }
+  if (!existsSync(target)) {
+    return;
+  }
+  try {
+    rmSync(target, { recursive: true, force: true });
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : errorMessage);
   }
 }
 
@@ -617,6 +682,16 @@ function getWorkItem(id: string): WorkItem {
 const SORT_ORDER_GAP = 1000;
 const SORT_ORDER_FALLBACK = 2147483647;
 
+function meaningfulDailyEntrySql(alias?: string): string {
+  const prefix = alias ? `${alias}.` : "";
+  return `(
+    TRIM(COALESCE(${prefix}today_progress, '')) <> ''
+    OR TRIM(COALESCE(${prefix}next_step, '')) <> ''
+    OR TRIM(COALESCE(${prefix}blocker, '')) <> ''
+    OR ${prefix}status_for_today IN ('done_today', 'paused')
+  )`;
+}
+
 function normalizeMoveDirection(direction: SortMoveDirection): SortMoveDirection {
   if (direction !== "up" && direction !== "down") {
     throw new Error("Unsupported move direction.");
@@ -692,6 +767,7 @@ function getItemsWithLatest(projectId: string, status: "active" | "done"): WorkI
             SELECT dwe.today_progress AS content, dwe.updated_at AS updated_at
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
+              AND ${meaningfulDailyEntrySql("dwe")}
             UNION ALL
             SELECT pe.content AS content, pe.created_at AS updated_at
             FROM progress_entries pe
@@ -707,6 +783,7 @@ function getItemsWithLatest(projectId: string, status: "active" | "done"): WorkI
             SELECT dwe.next_step AS next_step, dwe.updated_at AS updated_at
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
+              AND ${meaningfulDailyEntrySql("dwe")}
             UNION ALL
             SELECT pe.next_step AS next_step, pe.created_at AS updated_at
             FROM progress_entries pe
@@ -722,6 +799,7 @@ function getItemsWithLatest(projectId: string, status: "active" | "done"): WorkI
             SELECT dwe.blocker AS blocker, dwe.updated_at AS updated_at
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
+              AND ${meaningfulDailyEntrySql("dwe")}
             UNION ALL
             SELECT pe.blocker AS blocker, pe.created_at AS updated_at
             FROM progress_entries pe
@@ -737,6 +815,7 @@ function getItemsWithLatest(projectId: string, status: "active" | "done"): WorkI
             SELECT dwe.updated_at AS updated_at
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
+              AND ${meaningfulDailyEntrySql("dwe")}
             UNION ALL
             SELECT pe.created_at AS updated_at
             FROM progress_entries pe
@@ -1006,11 +1085,12 @@ export async function saveDailyWorkItemAttachment(
     throw new Error("Work item does not belong to the selected project.");
   }
   getProject(input.projectId);
+  const journalDate = requireJournalDate(input.journalDate);
   const extension = extensionForMimeType(input.mimeType);
   const id = randomUUID();
   const fileName = `${id}.${extension}`;
-  const relativePath = `attachments/daily-entries/${input.journalDate}/${workItem.id}/${fileName}`;
-  const targetDirectory = dailyEntryAttachmentsDirectory(input.journalDate, workItem.id);
+  const relativePath = `attachments/daily-entries/${journalDate}/${workItem.id}/${fileName}`;
+  const targetDirectory = dailyEntryAttachmentsDirectory(journalDate, workItem.id);
   const targetPath = resolve(getCurrentDataDirectory(), relativePath);
   assertInside(attachmentsDirectory(), targetPath);
   const buffer = Buffer.from(input.data);
@@ -1026,7 +1106,7 @@ export async function saveDailyWorkItemAttachment(
     id,
     project_id: input.projectId,
     work_item_id: workItem.id,
-    journal_date: input.journalDate,
+    journal_date: journalDate,
     file_name: fileName,
     relative_path: relativePath,
     mime_type: input.mimeType,
@@ -1046,7 +1126,7 @@ export async function saveDailyWorkItemAttachment(
 
   return {
     attachment,
-    markdownUrl: `attachment://daily-entries/${input.journalDate}/${workItem.id}/${fileName}`
+    markdownUrl: `attachment://daily-entries/${journalDate}/${workItem.id}/${fileName}`
   };
 }
 
@@ -1084,6 +1164,16 @@ export async function saveWorkItemNoteAttachment(
     size_bytes: buffer.length,
     created_at: getTimestamp()
   };
+  database()
+    .prepare(
+      `
+      INSERT INTO work_item_note_attachments
+        (id, project_id, work_item_id, file_name, relative_path, mime_type, size_bytes, created_at)
+      VALUES
+        (@id, @project_id, @work_item_id, @file_name, @relative_path, @mime_type, @size_bytes, @created_at)
+      `
+    )
+    .run(attachment);
 
   return {
     attachment,
@@ -1141,35 +1231,18 @@ export function deleteProject(id: string): void {
       .run(id);
     database().prepare("DELETE FROM work_items WHERE project_id = ?").run(id);
     database().prepare("DELETE FROM daily_entry_attachments WHERE project_id = ?").run(id);
+    database().prepare("DELETE FROM work_item_note_attachments WHERE project_id = ?").run(id);
     database().prepare("DELETE FROM memo_attachments WHERE project_id = ?").run(id);
     database().prepare("DELETE FROM project_memos WHERE project_id = ?").run(id);
     database().prepare("DELETE FROM projects WHERE id = ?").run(id);
   });
   transaction();
-  if (existsSync(attachmentDirectory)) {
-    try {
-      rmSync(attachmentDirectory, { recursive: true, force: true });
-    } catch (error) {
-      throw new Error(error instanceof Error ? error.message : "Project memo attachments deletion failed.");
-    }
-  }
+  removeDirectoryInside(attachmentsDirectory(), attachmentDirectory, "Project memo attachments deletion failed.");
   for (const directory of dailyAttachmentDirectories) {
-    if (existsSync(directory)) {
-      try {
-        rmSync(directory, { recursive: true, force: true });
-      } catch (error) {
-        throw new Error(error instanceof Error ? error.message : "Daily entry attachments deletion failed.");
-      }
-    }
+    removeDirectoryInside(attachmentsDirectory(), directory, "Daily entry attachments deletion failed.");
   }
   for (const directory of workItemNoteAttachmentDirectories) {
-    if (existsSync(directory)) {
-      try {
-        rmSync(directory, { recursive: true, force: true });
-      } catch (error) {
-        throw new Error(error instanceof Error ? error.message : "Work item note attachments deletion failed.");
-      }
-    }
+    removeDirectoryInside(attachmentsDirectory(), directory, "Work item note attachments deletion failed.");
   }
 }
 
@@ -1341,26 +1414,15 @@ export function deleteWorkItem(id: string): void {
     database().prepare("DELETE FROM work_item_note_snapshots WHERE work_item_id = ?").run(id);
     database().prepare("DELETE FROM work_item_notes WHERE work_item_id = ?").run(id);
     database().prepare("DELETE FROM daily_entry_attachments WHERE work_item_id = ?").run(id);
+    database().prepare("DELETE FROM work_item_note_attachments WHERE work_item_id = ?").run(id);
     database().prepare("DELETE FROM work_items WHERE id = ?").run(id);
     database().prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(now, item.project_id);
   });
   transaction();
   for (const directory of dailyAttachmentDirectories) {
-    if (existsSync(directory)) {
-      try {
-        rmSync(directory, { recursive: true, force: true });
-      } catch (error) {
-        throw new Error(error instanceof Error ? error.message : "Daily entry attachments deletion failed.");
-      }
-    }
+    removeDirectoryInside(attachmentsDirectory(), directory, "Daily entry attachments deletion failed.");
   }
-  if (existsSync(noteAttachmentDirectory)) {
-    try {
-      rmSync(noteAttachmentDirectory, { recursive: true, force: true });
-    } catch (error) {
-      throw new Error(error instanceof Error ? error.message : "Work item note attachments deletion failed.");
-    }
-  }
+  removeDirectoryInside(attachmentsDirectory(), noteAttachmentDirectory, "Work item note attachments deletion failed.");
 }
 
 export function createProgress(input: CreateProgressInput): ProgressEntry {
@@ -1543,6 +1605,7 @@ export function getPreviousWorkDate(journalDate: string): string | null {
       SELECT MAX(journal_date) AS journal_date
       FROM daily_work_item_entries
       WHERE journal_date < ?
+        AND ${meaningfulDailyEntrySql()}
       `
     )
     .get(journalDate) as { journal_date: string | null };
@@ -1572,6 +1635,7 @@ function getLatestDailyEntryBefore(journalDate: string, workItemId: string): Dai
         FROM daily_work_item_entries
         WHERE work_item_id = ?
           AND journal_date < ?
+          AND ${meaningfulDailyEntrySql()}
         ORDER BY journal_date DESC, updated_at DESC
         LIMIT 1
         `
@@ -1908,6 +1972,7 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
             SELECT dwe.today_progress AS content, dwe.updated_at AS updated_at
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
+              AND ${meaningfulDailyEntrySql("dwe")}
             UNION ALL
             SELECT pe.content AS content, pe.created_at AS updated_at
             FROM progress_entries pe
@@ -1923,6 +1988,7 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
             SELECT dwe.next_step AS next_step, dwe.updated_at AS updated_at
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
+              AND ${meaningfulDailyEntrySql("dwe")}
             UNION ALL
             SELECT pe.next_step AS next_step, pe.created_at AS updated_at
             FROM progress_entries pe
@@ -1938,6 +2004,7 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
             SELECT dwe.blocker AS blocker, dwe.updated_at AS updated_at
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
+              AND ${meaningfulDailyEntrySql("dwe")}
             UNION ALL
             SELECT pe.blocker AS blocker, pe.created_at AS updated_at
             FROM progress_entries pe
@@ -1953,6 +2020,7 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
             SELECT dwe.updated_at AS updated_at
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
+              AND ${meaningfulDailyEntrySql("dwe")}
             UNION ALL
             SELECT pe.created_at AS updated_at
             FROM progress_entries pe
@@ -1964,7 +2032,9 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
       FROM work_items wi
       JOIN projects p ON p.id = wi.project_id
       LEFT JOIN daily_work_item_entries today_entry
-        ON today_entry.work_item_id = wi.id AND today_entry.journal_date = ?
+        ON today_entry.work_item_id = wi.id
+       AND today_entry.journal_date = ?
+       AND ${meaningfulDailyEntrySql("today_entry")}
       WHERE p.status = 'active'
         AND wi.status <> 'archived'
         AND (wi.status IN ('active', 'paused') OR today_entry.id IS NOT NULL)
@@ -2034,6 +2104,7 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
       SELECT COUNT(*) AS count
       FROM daily_work_item_entries
       WHERE journal_date = ?
+        AND ${meaningfulDailyEntrySql()}
       `
     )
     .get(journalDate) as { count: number };
@@ -2076,24 +2147,31 @@ export function upsertDailyWorkItemEntry(input: UpsertDailyWorkItemEntryInput): 
     throw new Error("Archived projects cannot receive daily work entries.");
   }
 
-  const todayProgress = cleanDailyText(input.todayProgress);
-  const nextStep = cleanDailyText(input.nextStep);
-  const blocker = cleanDailyText(input.blocker);
-  const statusForToday = normalizeDailyStatus(input.statusForToday);
+  const journalDate = requireJournalDate(input.journalDate);
+  const existing = getDailyEntry(journalDate, input.workItemId);
+  const hasTodayProgress = Object.prototype.hasOwnProperty.call(input, "todayProgress");
+  const hasNextStep = Object.prototype.hasOwnProperty.call(input, "nextStep");
+  const hasBlocker = Object.prototype.hasOwnProperty.call(input, "blocker");
+  const hasStatusForToday = Object.prototype.hasOwnProperty.call(input, "statusForToday");
+  const todayProgress = hasTodayProgress ? cleanDailyText(input.todayProgress) : existing?.today_progress ?? null;
+  const nextStep = hasNextStep ? cleanDailyText(input.nextStep) : existing?.next_step ?? null;
+  const blocker = hasBlocker ? cleanDailyText(input.blocker) : existing?.blocker ?? null;
+  const statusForToday = hasStatusForToday
+    ? normalizeDailyStatus(input.statusForToday)
+    : existing?.status_for_today ?? "in_progress";
   const noteContentProvided = Object.prototype.hasOwnProperty.call(input, "workItemNoteContentMarkdown");
   const shouldWriteDailyEntry = Boolean(todayProgress || nextStep || blocker || statusForToday !== "in_progress");
-  if (!shouldWriteDailyEntry && !noteContentProvided) {
+  if (!shouldWriteDailyEntry && !noteContentProvided && !existing) {
     throw new Error("Fill at least one of today's progress, next step, blocker, or change today's status.");
   }
 
   const now = getTimestamp();
   const currentNote = getOrCreateWorkItemNote(input.workItemId);
   const noteContentMarkdown = input.workItemNoteContentMarkdown ?? currentNote.content_markdown ?? "";
-  const existing = getDailyEntry(input.journalDate, input.workItemId);
   const entry: DailyWorkItemEntry | null = shouldWriteDailyEntry
     ? {
         id: existing?.id ?? randomUUID(),
-        journal_date: input.journalDate,
+        journal_date: journalDate,
         project_id: input.projectId,
         work_item_id: input.workItemId,
         today_progress: todayProgress,
@@ -2104,9 +2182,31 @@ export function upsertDailyWorkItemEntry(input: UpsertDailyWorkItemEntryInput): 
         updated_at: now
       }
     : null;
+  const noteContentChanged = noteContentProvided && noteContentMarkdown !== (currentNote.content_markdown ?? "");
+  const dailyEntryChanged = entry
+    ? !existing ||
+      existing.project_id !== entry.project_id ||
+      existing.today_progress !== entry.today_progress ||
+      existing.next_step !== entry.next_step ||
+      existing.blocker !== entry.blocker ||
+      existing.status_for_today !== entry.status_for_today
+    : Boolean(existing);
+  const shouldCompleteWorkItem = dailyEntryChanged && entry?.status_for_today === "done_today";
+  const shouldRestoreWorkItemActive =
+    dailyEntryChanged &&
+    existing?.status_for_today === "done_today" &&
+    entry?.status_for_today !== "done_today" &&
+    workItem.status === "done";
+
+  if (!noteContentChanged && !dailyEntryChanged) {
+    return {
+      entry: existing,
+      workItemNote: currentNote
+    };
+  }
 
   const transaction = database().transaction(() => {
-    if (noteContentProvided) {
+    if (noteContentChanged) {
       database()
         .prepare(
           `
@@ -2118,8 +2218,8 @@ export function upsertDailyWorkItemEntry(input: UpsertDailyWorkItemEntryInput): 
         )
         .run(noteContentMarkdown, now, currentNote.id);
     }
-    if (entry) {
-      getOrCreateDailyJournal(input.journalDate);
+    if (dailyEntryChanged && entry) {
+      getOrCreateDailyJournal(journalDate);
       database()
         .prepare(
           `
@@ -2139,14 +2239,14 @@ export function upsertDailyWorkItemEntry(input: UpsertDailyWorkItemEntryInput): 
         .run(entry);
       database()
         .prepare("UPDATE daily_journals SET updated_at = ? WHERE journal_date = ?")
-        .run(now, input.journalDate);
-    } else if (existing) {
+        .run(now, journalDate);
+    } else if (dailyEntryChanged && existing) {
       database()
         .prepare("DELETE FROM daily_work_item_entries WHERE journal_date = ? AND work_item_id = ?")
-        .run(input.journalDate, input.workItemId);
+        .run(journalDate, input.workItemId);
       database()
         .prepare("UPDATE daily_journals SET updated_at = ? WHERE journal_date = ?")
-        .run(now, input.journalDate);
+        .run(now, journalDate);
     }
     database()
       .prepare("UPDATE work_items SET updated_at = ? WHERE id = ?")
@@ -2154,7 +2254,7 @@ export function upsertDailyWorkItemEntry(input: UpsertDailyWorkItemEntryInput): 
     database()
       .prepare("UPDATE projects SET updated_at = ? WHERE id = ?")
       .run(now, input.projectId);
-    if (statusForToday === "done_today") {
+    if (shouldCompleteWorkItem) {
       database()
         .prepare(
           `
@@ -2166,16 +2266,27 @@ export function upsertDailyWorkItemEntry(input: UpsertDailyWorkItemEntryInput): 
           `
         )
         .run(now, now, input.workItemId);
+    } else if (shouldRestoreWorkItemActive) {
+      database()
+        .prepare(
+          `
+          UPDATE work_items
+          SET status = 'active',
+              completed_at = NULL,
+              updated_at = ?
+          WHERE id = ? AND status = 'done'
+          `
+        )
+        .run(now, input.workItemId);
     }
   });
   transaction();
 
   return {
-    entry: getDailyEntry(input.journalDate, input.workItemId),
+    entry: getDailyEntry(journalDate, input.workItemId),
     workItemNote: getOrCreateWorkItemNote(input.workItemId)
   };
 }
-
 export function reopenDailyJournal(journalDate: string): DailyJournal {
   const now = getTimestamp();
   getOrCreateDailyJournal(journalDate);
@@ -2210,6 +2321,7 @@ function listDailyEntriesForReport(journalDate: string) {
       JOIN projects p ON p.id = dwe.project_id
       JOIN work_items wi ON wi.id = dwe.work_item_id
       WHERE dwe.journal_date = ?
+        AND ${meaningfulDailyEntrySql("dwe")}
       ORDER BY p.name COLLATE NOCASE ASC, wi.title COLLATE NOCASE ASC
       `
     )
@@ -2414,6 +2526,7 @@ function periodRows(periodStart: string, periodEnd: string): PeriodEntryRow[] {
       JOIN projects p ON p.id = dwe.project_id
       JOIN work_items wi ON wi.id = dwe.work_item_id
       WHERE dwe.journal_date BETWEEN ? AND ?
+        AND ${meaningfulDailyEntrySql("dwe")}
         AND dj.status = 'closed'
         AND dj.report_markdown IS NOT NULL
         AND TRIM(dj.report_markdown) <> ''
@@ -3383,6 +3496,7 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
         dwe.status_for_today
       FROM daily_work_item_entries dwe
       WHERE dwe.journal_date BETWEEN ? AND ?
+        AND ${meaningfulDailyEntrySql("dwe")}
       `
     )
     .all(startDate, endDate) as Array<{
@@ -3405,10 +3519,17 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
   const legacyRows = database()
     .prepare(
       `
-      SELECT entry_date, COUNT(*) AS legacyEntryCount
-      FROM progress_entries
-      WHERE entry_date BETWEEN ? AND ?
-      GROUP BY entry_date
+      SELECT pe.entry_date, COUNT(*) AS legacyEntryCount
+      FROM progress_entries pe
+      WHERE pe.entry_date BETWEEN ? AND ?
+        AND NOT EXISTS (
+          SELECT 1
+          FROM daily_work_item_entries dwe
+          WHERE dwe.journal_date = pe.entry_date
+            AND dwe.work_item_id = pe.work_item_id
+            AND ${meaningfulDailyEntrySql("dwe")}
+        )
+      GROUP BY pe.entry_date
       `
     )
     .all(startDate, endDate) as Array<{ entry_date: string; legacyEntryCount: number }>;
@@ -3530,6 +3651,7 @@ export function getProjectDetail(id: string): ProjectDetail {
       JOIN projects p ON p.id = dwe.project_id
       JOIN work_items wi ON wi.id = dwe.work_item_id
       WHERE dwe.project_id = ?
+        AND ${meaningfulDailyEntrySql("dwe")}
       ORDER BY dwe.journal_date DESC, dwe.updated_at DESC
       `
     )
@@ -3561,6 +3683,7 @@ export function getProjectDetail(id: string): ProjectDetail {
           FROM daily_work_item_entries dwe
           WHERE dwe.journal_date = pe.entry_date
             AND dwe.work_item_id = pe.work_item_id
+            AND ${meaningfulDailyEntrySql("dwe")}
         )
       ORDER BY pe.created_at DESC
       `
@@ -3681,9 +3804,16 @@ function searchLegacy(term: string): SearchResult[] {
         FROM progress_entries pe
         JOIN projects p ON p.id = pe.project_id
         LEFT JOIN work_items wi ON wi.id = pe.work_item_id
-        WHERE pe.content LIKE ?
+        WHERE (pe.content LIKE ?
           OR pe.next_step LIKE ?
-          OR pe.blocker LIKE ?
+          OR pe.blocker LIKE ?)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM daily_work_item_entries dwe
+            WHERE dwe.journal_date = pe.entry_date
+              AND dwe.work_item_id = pe.work_item_id
+              AND ${meaningfulDailyEntrySql("dwe")}
+          )
         ORDER BY pe.created_at DESC
         LIMIT 20
         `
@@ -3790,9 +3920,10 @@ export function search(term: string): SearchResult[] {
         FROM daily_work_item_entries dwe
         JOIN projects p ON p.id = dwe.project_id
         JOIN work_items wi ON wi.id = dwe.work_item_id
-        WHERE dwe.today_progress LIKE ?
+        WHERE (dwe.today_progress LIKE ?
           OR dwe.next_step LIKE ?
-          OR dwe.blocker LIKE ?
+          OR dwe.blocker LIKE ?)
+          AND ${meaningfulDailyEntrySql("dwe")}
         ORDER BY dwe.updated_at DESC
         LIMIT 20
         `
@@ -3917,9 +4048,16 @@ export function search(term: string): SearchResult[] {
         FROM progress_entries pe
         JOIN projects p ON p.id = pe.project_id
         LEFT JOIN work_items wi ON wi.id = pe.work_item_id
-        WHERE pe.content LIKE ?
+        WHERE (pe.content LIKE ?
           OR pe.next_step LIKE ?
-          OR pe.blocker LIKE ?
+          OR pe.blocker LIKE ?)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM daily_work_item_entries dwe
+            WHERE dwe.journal_date = pe.entry_date
+              AND dwe.work_item_id = pe.work_item_id
+              AND ${meaningfulDailyEntrySql("dwe")}
+          )
         ORDER BY pe.created_at DESC
         LIMIT 20
         `
@@ -4025,29 +4163,73 @@ export async function writeMarkdownFile(input: ExportMarkdownInput, filePath: st
 function validateDatabaseFile(filePath: string): void {
   const validationDb = new Database(filePath, { readonly: true });
   try {
+    const integrityRow = validationDb.prepare("PRAGMA integrity_check").get() as Record<string, string> | undefined;
+    const integrity = integrityRow ? Object.values(integrityRow)[0] : null;
+    if (integrity !== "ok") {
+      throw new Error("数据库文件完整性校验失败。");
+    }
+
     const rows = validationDb
       .prepare(
         `
         SELECT name
         FROM sqlite_master
-        WHERE type = 'table' AND name IN ('projects', 'work_items', 'progress_entries')
+        WHERE type = 'table'
         `
       )
       .all() as Array<{ name: string }>;
     const tableNames = new Set(rows.map((row) => row.name));
-    for (const tableName of ["projects", "work_items", "progress_entries"]) {
+    const requiredTables = ["schema_migrations", "projects", "work_items", "progress_entries", "daily_journals", "daily_work_item_entries"];
+    for (const tableName of requiredTables) {
       if (!tableNames.has(tableName)) {
         throw new Error(`迁移后的数据库缺少 ${tableName} 表。`);
       }
     }
+
+    const migrations = validationDb
+      .prepare("SELECT version, name FROM schema_migrations")
+      .all() as Array<{ version: number; name: string }>;
+    if (!migrations.some((migration) => migration.version === 1 && migration.name === "initial_schema")) {
+      throw new Error("数据库缺少 Flow Shuttle schema_migrations 标记。");
+    }
+
+    const requiredColumns: Record<string, string[]> = {
+      projects: ["id", "name", "status", "created_at", "updated_at"],
+      work_items: ["id", "project_id", "title", "status", "created_at", "updated_at"],
+      progress_entries: ["id", "project_id", "work_item_id", "entry_date", "content", "created_at", "updated_at"],
+      daily_journals: ["id", "journal_date", "status", "report_markdown", "created_at", "updated_at"],
+      daily_work_item_entries: [
+        "id",
+        "journal_date",
+        "project_id",
+        "work_item_id",
+        "today_progress",
+        "next_step",
+        "blocker",
+        "status_for_today",
+        "created_at",
+        "updated_at"
+      ]
+    };
+    for (const [tableName, columns] of Object.entries(requiredColumns)) {
+      const columnRows = validationDb.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+      const columnNames = new Set(columnRows.map((row) => row.name));
+      for (const columnName of columns) {
+        if (!columnNames.has(columnName)) {
+          throw new Error(`迁移后的数据库 ${tableName} 表缺少 ${columnName} 字段。`);
+        }
+      }
+    }
+
     validationDb.prepare("SELECT COUNT(*) AS count FROM projects").get();
     validationDb.prepare("SELECT COUNT(*) AS count FROM work_items").get();
     validationDb.prepare("SELECT COUNT(*) AS count FROM progress_entries").get();
+    validationDb.prepare("SELECT COUNT(*) AS count FROM daily_journals").get();
+    validationDb.prepare("SELECT COUNT(*) AS count FROM daily_work_item_entries").get();
   } finally {
     validationDb.close();
   }
 }
-
 async function switchToExistingDatabaseDirectory(targetDirectory: string): Promise<MigrationResult> {
   const previousDirectory = resolveDataDirectory().configuredDataDirectory;
   try {
@@ -4159,7 +4341,7 @@ export async function migrateDatabaseToDirectory(
     }
     if (attachmentsCopied) {
       try {
-        rmSync(attachmentsDirectory(targetDirectory), { recursive: true, force: true });
+        removeDirectoryInside(targetDirectory, attachmentsDirectory(targetDirectory), "Attachments rollback deletion failed.");
       } catch {
         // The original attachments remain untouched; report the migration failure below.
       }

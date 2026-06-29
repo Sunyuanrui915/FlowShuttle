@@ -1,4 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, protocol, session, shell } from "electron";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
@@ -81,7 +82,8 @@ import type {
   SaveDailyEntryAttachmentInput,
   SaveWorkItemNoteAttachmentInput,
   SaveProjectMemoInput,
-  DailyAutoReportEvent
+  DailyAutoReportEvent,
+  DailyAutoReportRequestResult
 } from "../shared/types";
 
 const appDisplayName = "Flow Shuttle";
@@ -128,6 +130,37 @@ function sendDailyAutoReportEvent(event: DailyAutoReportEvent): void {
   }
 }
 
+function requestRendererBeforeDailyAutoReport(journalDate: string): Promise<void> {
+  const window = mainWindowRef ?? BrowserWindow.getAllWindows()[0] ?? null;
+  if (!window || window.isDestroyed()) {
+    return Promise.resolve();
+  }
+
+  const requestId = randomUUID();
+  return new Promise((resolveRequest, rejectRequest) => {
+    const timeout = setTimeout(() => {
+      ipcMain.removeListener("daily:auto-report-request-result", handleResult);
+      rejectRequest(new Error("Daily auto report was canceled because the editor did not confirm saving in time."));
+    }, 15_000);
+
+    const handleResult = (_event: Electron.IpcMainEvent, result: DailyAutoReportRequestResult) => {
+      if (!result || result.requestId !== requestId) {
+        return;
+      }
+      clearTimeout(timeout);
+      ipcMain.removeListener("daily:auto-report-request-result", handleResult);
+      if (!result.ok) {
+        rejectRequest(new Error(result.error || "Daily editor save failed before auto report."));
+        return;
+      }
+      resolveRequest();
+    };
+
+    ipcMain.on("daily:auto-report-request-result", handleResult);
+    window.webContents.send("daily:auto-report-request", { requestId, journalDate });
+  });
+}
+
 function scheduleDailyAutoReport(now = new Date()): void {
   if (dailyAutoReportTimer) {
     clearTimeout(dailyAutoReportTimer);
@@ -139,16 +172,19 @@ function scheduleDailyAutoReport(now = new Date()): void {
 
   dailyAutoReportTimer = setTimeout(() => {
     dailyAutoReportTimer = null;
-    try {
-      const payload = generateDailyReport(journalDate);
-      sendDailyAutoReportEvent({ success: true, ...payload });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Daily auto report generation failed.";
-      sendDailyAutoReportEvent({ success: false, date: journalDate, error: message });
-      console.error(message);
-    } finally {
-      scheduleDailyAutoReport();
-    }
+    void (async () => {
+      try {
+        await requestRendererBeforeDailyAutoReport(journalDate);
+        const payload = generateDailyReport(journalDate);
+        sendDailyAutoReportEvent({ success: true, ...payload });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Daily auto report generation failed.";
+        sendDailyAutoReportEvent({ success: false, date: journalDate, error: message });
+        console.error(message);
+      } finally {
+        scheduleDailyAutoReport();
+      }
+    })();
   }, delay);
 }
 
@@ -183,6 +219,28 @@ function resolveWindowIconPath(): string | undefined {
   return candidates.find((candidate) => existsSync(candidate));
 }
 
+function isAllowedExternalUrl(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "github.com" &&
+      (url.pathname === "/Sunyuanrui915/FlowShuttle/releases" ||
+        url.pathname === "/Sunyuanrui915/FlowShuttle/releases/latest" ||
+        url.pathname.startsWith("/Sunyuanrui915/FlowShuttle/releases/tag/"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function openAllowedExternalUrl(url: string): Promise<void> {
+  if (!isAllowedExternalUrl(url)) {
+    throw new Error("External URL is not allowed.");
+  }
+  await shell.openExternal(url);
+}
+
 function createWindow(): void {
   const windowIconPath = resolveWindowIconPath();
   const mainWindow = new BrowserWindow({
@@ -199,7 +257,7 @@ function createWindow(): void {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
   mainWindowRef = mainWindow;
@@ -216,8 +274,20 @@ function createWindow(): void {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isAllowedExternalUrl(url)) {
+      openAllowedExternalUrl(url).catch((error: unknown) => console.error("Failed to open external URL.", error));
+    }
     return { action: "deny" };
+  });
+
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url === mainWindow.webContents.getURL()) {
+      return;
+    }
+    event.preventDefault();
+    if (isAllowedExternalUrl(url)) {
+      openAllowedExternalUrl(url).catch((error: unknown) => console.error("Failed to open external URL.", error));
+    }
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -273,14 +343,14 @@ function registerIpc(): void {
   ipcMain.handle("app:get-version", () => app.getVersion());
   ipcMain.handle("app:check-for-updates", () => checkForAppUpdates());
   ipcMain.handle("app:open-releases-page", async () => {
-    await shell.openExternal(getReleaseDetailsUrl() ?? releasesLatestUrl);
+    await openAllowedExternalUrl(getReleaseDetailsUrl() ?? releasesLatestUrl);
   });
   ipcMain.handle("updates:get-status", () => getUpdateStatus());
   ipcMain.handle("updates:check", () => checkForAppUpdates());
   ipcMain.handle("updates:download", () => downloadAppUpdate());
   ipcMain.handle("updates:quit-and-install", () => quitAndInstallAppUpdate());
   ipcMain.handle("updates:open-release-page", async () => {
-    await shell.openExternal(getReleaseDetailsUrl() ?? releasesLatestUrl);
+    await openAllowedExternalUrl(getReleaseDetailsUrl() ?? releasesLatestUrl);
   });
 
   ipcMain.handle("projects:list-active", () => listActiveProjects());

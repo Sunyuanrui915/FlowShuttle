@@ -1,3 +1,4 @@
+import HardBreak from "@tiptap/extension-hard-break";
 import Highlight from "@tiptap/extension-highlight";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -6,6 +7,7 @@ import TaskList from "@tiptap/extension-task-list";
 import { Markdown } from "@tiptap/markdown";
 import { Extension } from "@tiptap/core";
 import { EditorContent, useEditor, type Editor as TiptapEditor } from "@tiptap/react";
+import type { Node as ProseMirrorNode, Slice } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -114,37 +116,61 @@ function isMarkdownStructuralLine(line: string): boolean {
   return (
     /^#{1,6}\s/.test(trimmed) ||
     /^>\s?/.test(trimmed) ||
-    /^[-*+]\s/.test(trimmed) ||
     /^[-*+]\s\[[ xX]\]\s/.test(trimmed) ||
+    /^[-*+]\s/.test(trimmed) ||
     /^\d+[.)]\s/.test(trimmed) ||
     /^(```|~~~)/.test(trimmed) ||
+    /^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed) ||
+    /^\|.*\|$/.test(trimmed) ||
+    /^(?: {4}|\t)\S/.test(line) ||
     /^!\[[^\]]*\]\([^)]*\)$/.test(trimmed)
   );
 }
 
-function normalizeMarkdownForImport(value: string): string {
-  return normalizePlainText(value);
-}
+function normalizeLegacyHardBreaksForImport(value: string): string {
+  const lines = value.split("\n");
+  const normalizedLines: string[] = [];
+  let fenceMarker: "```" | "~~~" | null = null;
 
-function shouldSplitPastedTextIntoBlocks(text: string): boolean {
-  const lines = normalizePlainText(text).split("\n").filter((line) => line.trim().length > 0);
-  return lines.length > 1 && lines.every((line) => !isMarkdownStructuralLine(line));
-}
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    const fenceMatch = trimmed.match(/^(```|~~~)/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1] as "```" | "~~~";
+      fenceMarker = fenceMarker === marker ? null : fenceMarker ?? marker;
+      normalizedLines.push(line);
+      return;
+    }
 
-function plainTextToHardBreakContent(text: string): Array<{ type: "text"; text: string } | { type: "hardBreak" }> {
-  const content: Array<{ type: "text"; text: string } | { type: "hardBreak" }> = [];
-  const lines = normalizePlainText(text).split("\n");
-  lines.forEach((line, index) => {
-    const trimmedLine = line.trimEnd();
-    if (trimmedLine) {
-      content.push({ type: "text", text: trimmedLine });
+    if (!fenceMarker && / {2,}$/.test(line)) {
+      normalizedLines.push(line.replace(/ {2,}$/, ""));
+      normalizedLines.push("");
+      return;
     }
-    if (index < lines.length - 1) {
-      content.push({ type: "hardBreak" });
-    }
+
+    normalizedLines.push(line);
   });
-  return content;
+
+  return normalizedLines.join("\n");
 }
+
+function normalizeMarkdownForImport(value: string): string {
+  const normalized = normalizeLegacyHardBreaksForImport(normalizePlainText(value));
+  if (/\\\n|<br\s*\/?>(?!\n)/i.test(normalized)) {
+    return normalized;
+  }
+
+  const lines = normalized.split("\n");
+  const meaningfulLines = lines.filter((line) => line.trim().length > 0);
+  if (meaningfulLines.length > 1 && meaningfulLines.every((line) => !isMarkdownStructuralLine(line))) {
+    return lines.join("\n\n").replace(/\n{3,}/g, "\n\n");
+  }
+  return normalized;
+}
+
+const FlowShuttleHardBreak = HardBreak.extend({
+  renderMarkdown: () => "\\\n"
+});
 
 function markdownImage(src: string, altText = "image"): string {
   const safeAlt = altText.replace(/[\[\]\n\r]/g, " ").trim() || "image";
@@ -184,6 +210,128 @@ function getEditorMarkdown(editor: TiptapEditor): string {
   return normalizePlainText(editorWithMarkdown.getMarkdown?.() ?? "").replace(/\n+$/g, "");
 }
 
+const pendingSelectionScrollFrames = new WeakMap<TiptapEditor, number>();
+
+function cancelSelectionIntoView(editor: TiptapEditor): void {
+  const pendingFrame = pendingSelectionScrollFrames.get(editor);
+  if (pendingFrame) {
+    window.cancelAnimationFrame(pendingFrame);
+    pendingSelectionScrollFrames.delete(editor);
+  }
+}
+
+function requestSelectionIntoView(editor: TiptapEditor): void {
+  if (typeof window === "undefined" || !editor.isFocused || !editor.state.selection.empty) {
+    return;
+  }
+
+  cancelSelectionIntoView(editor);
+
+  const frame = window.requestAnimationFrame(() => {
+    pendingSelectionScrollFrames.delete(editor);
+    const { view } = editor;
+    const scrollHost = view.dom.closest<HTMLElement>(".markdown-editor-content") ?? view.dom.parentElement;
+    if (!scrollHost) {
+      return;
+    }
+
+    try {
+      const cursorRect = view.coordsAtPos(editor.state.selection.head);
+      const hostRect = scrollHost.getBoundingClientRect();
+      const topPadding = 24;
+      const bottomPadding = 56;
+
+      if (cursorRect.bottom > hostRect.bottom - bottomPadding) {
+        scrollHost.scrollTop += cursorRect.bottom - hostRect.bottom + bottomPadding;
+      } else if (cursorRect.top < hostRect.top + topPadding) {
+        scrollHost.scrollTop -= hostRect.top + topPadding - cursorRect.top;
+      }
+    } catch {
+      // coordsAtPos can fail while a transaction is still settling; the next input will retry.
+    }
+  });
+
+  pendingSelectionScrollFrames.set(editor, frame);
+}
+function inlinePlainText(node: ProseMirrorNode): string {
+  if (node.isText) {
+    return node.text ?? "";
+  }
+  if (node.type.name === "hardBreak") {
+    return "\n";
+  }
+  if (node.type.name === "image") {
+    const alt = typeof node.attrs.alt === "string" ? node.attrs.alt.trim() : "";
+    return alt ? `[${alt}]` : "[image]";
+  }
+
+  const parts: string[] = [];
+  node.forEach((child) => {
+    parts.push(inlinePlainText(child));
+  });
+  return parts.join("");
+}
+
+function blockPlainText(node: ProseMirrorNode): string[] {
+  if (node.type.name === "paragraph" || /^heading$/.test(node.type.name)) {
+    return [inlinePlainText(node)];
+  }
+  if (node.type.name === "blockquote") {
+    return nodeToPlainTextLines(node).map((line) => (line ? `> ${line}` : ">"));
+  }
+  if (node.type.name === "bulletList") {
+    const lines: string[] = [];
+    node.forEach((child) => {
+      lines.push(...blockPlainText(child).map((line, index) => (index === 0 ? `- ${line}` : `  ${line}`)));
+    });
+    return lines;
+  }
+  if (node.type.name === "orderedList") {
+    const start = Number.parseInt(String(node.attrs.start ?? "1"), 10);
+    const firstNumber = Number.isFinite(start) ? start : 1;
+    const lines: string[] = [];
+    node.forEach((child, _offset, index) => {
+      const prefix = `${firstNumber + index}. `;
+      lines.push(...blockPlainText(child).map((line, lineIndex) => (lineIndex === 0 ? `${prefix}${line}` : `${" ".repeat(prefix.length)}${line}`)));
+    });
+    return lines;
+  }
+  if (node.type.name === "listItem") {
+    return nodeToPlainTextLines(node);
+  }
+  if (node.type.name === "taskList") {
+    const lines: string[] = [];
+    node.forEach((child) => {
+      lines.push(...blockPlainText(child));
+    });
+    return lines;
+  }
+  if (node.type.name === "taskItem") {
+    const checked = node.attrs.checked ? "x" : " ";
+    return nodeToPlainTextLines(node).map((line, index) => (index === 0 ? `- [${checked}] ${line}` : `  ${line}`));
+  }
+  if (node.type.name === "codeBlock") {
+    return [node.textContent];
+  }
+
+  return nodeToPlainTextLines(node);
+}
+
+function nodeToPlainTextLines(node: ProseMirrorNode): string[] {
+  const lines: string[] = [];
+  node.forEach((child) => {
+    lines.push(...blockPlainText(child));
+  });
+  return lines.length > 0 ? lines : [inlinePlainText(node)];
+}
+
+function clipboardPlainText(slice: Slice): string {
+  const lines: string[] = [];
+  slice.content.forEach((node) => {
+    lines.push(...blockPlainText(node));
+  });
+  return lines.join("\n");
+}
 function getActiveBlockType(editor: TiptapEditor | null): BlockType {
   if (!editor) {
     return "paragraph";
@@ -220,12 +368,17 @@ function insertPlainText(editor: TiptapEditor, text: string): void {
     return;
   }
 
-  if (shouldSplitPastedTextIntoBlocks(normalized)) {
-    editor.chain().focus().insertContent(plainTextToHardBreakContent(normalized)).run();
-    return;
+  const lines = normalized.split("\n");
+  if (lines.length === 1) {
+    editor.chain().focus().insertContent({ type: "text", text: normalized }).run();
+  } else {
+    editor
+      .chain()
+      .focus()
+      .insertContent(lines.map((line) => ({ type: "paragraph", content: line ? [{ type: "text", text: line }] : undefined })))
+      .run();
   }
-
-  editor.chain().focus().insertContent(normalized).run();
+  requestSelectionIntoView(editor);
 }
 
 async function uploadAndInsertImages(editor: TiptapEditor, files: Array<File | Blob>, upload: (file: File | Blob) => Promise<string>): Promise<boolean> {
@@ -277,20 +430,6 @@ const FlowShuttleKeyboardExtension = Extension.create({
 
   addKeyboardShortcuts() {
     return {
-      Enter: () => {
-        const { editor } = this;
-        if (
-          editor.isActive("codeBlock") ||
-          editor.isActive("bulletList") ||
-          editor.isActive("orderedList") ||
-          editor.isActive("taskList") ||
-          editor.isActive("heading")
-        ) {
-          return false;
-        }
-
-        return editor.chain().focus().setHardBreak().run();
-      },
       Backspace: () => {
         const { editor } = this;
         if (!editor.isActive("blockquote")) {
@@ -348,7 +487,7 @@ function Toolbar({
       return;
     }
     const { selection } = editor.state;
-    if (!selection.$from.parent.isTextblock && !selection.$to.parent.isTextblock) {
+    if (!selection.$from.parent.isTextblock || !selection.$to.parent.isTextblock) {
       toolbarSelectionRef.current = null;
       return;
     }
@@ -379,8 +518,11 @@ function Toolbar({
       return;
     }
     restoreToolbarSelection();
+    const didRun = command();
     toolbarSelectionRef.current = null;
-    command();
+    if (didRun) {
+      requestSelectionIntoView(editor);
+    }
   };
 
   const button = (
@@ -420,9 +562,9 @@ function Toolbar({
         {headings.map(([key, label, title, action]) => button(key, label, action, title))}
       </div>
       <span className="markdown-editor-toolbar-divider" />
-      {button("bullet", "•", () => editor?.chain().focus().toggleBulletList().run() ?? false, labels.bulletedList, "markdown-editor-icon-button")}
+      {button("bullet", "\u2022", () => editor?.chain().focus().toggleBulletList().run() ?? false, labels.bulletedList, "markdown-editor-icon-button")}
       {button("number", "1.", () => editor?.chain().focus().toggleOrderedList().run() ?? false, labels.numberedList, "markdown-editor-icon-button")}
-      {button("check", "☑", () => editor?.chain().focus().toggleTaskList().run() ?? false, labels.taskList, "markdown-editor-icon-button")}
+      {button("check", "\u2611", () => editor?.chain().focus().toggleTaskList().run() ?? false, labels.taskList, "markdown-editor-icon-button")}
       <span className="markdown-editor-toolbar-divider" />
       {button("quote", "66", () => editor?.chain().focus().toggleBlockquote().run() ?? false, labels.quote, "markdown-editor-icon-button")}
       {button("code", "CB", () => editor?.chain().focus().toggleCodeBlock().run() ?? false, labels.codeBlock, "markdown-editor-icon-button")}
@@ -469,8 +611,10 @@ export function MarkdownWysiwygEditor({
     () => [
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4, 5, 6] },
+        hardBreak: false,
         link: false
       }),
+      FlowShuttleHardBreak,
       FlowShuttleKeyboardExtension,
       TaskList,
       TaskItem.configure({ nested: true }),
@@ -490,7 +634,7 @@ export function MarkdownWysiwygEditor({
       }),
       Markdown.configure({
         markedOptions: {
-          breaks: true,
+          breaks: false,
           gfm: true
         }
       })
@@ -509,6 +653,7 @@ export function MarkdownWysiwygEditor({
         class: "markdown-editor-content",
         spellcheck: "false"
       },
+      clipboardTextSerializer: clipboardPlainText,
       handlePaste: (_view, event) => {
         const currentEditor = editorRef.current;
         if (!currentEditor || disabled) {
@@ -541,12 +686,6 @@ export function MarkdownWysiwygEditor({
           return true;
         }
 
-        if (shouldSplitPastedTextIntoBlocks(text)) {
-          event.preventDefault();
-          insertPlainText(currentEditor, text);
-          return true;
-        }
-
         return false;
       }
     },
@@ -562,11 +701,15 @@ export function MarkdownWysiwygEditor({
         lastMarkdownRef.current = markdown;
         onChange(markdown);
       }
+      requestSelectionIntoView(updatedEditor);
     },
     onSelectionUpdate: ({ editor: updatedEditor }) => {
       editorRef.current = updatedEditor;
     },
     onDestroy: () => {
+      if (editorRef.current) {
+        cancelSelectionIntoView(editorRef.current);
+      }
       editorRef.current = null;
     }
   });

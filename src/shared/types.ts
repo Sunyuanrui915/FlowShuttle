@@ -401,6 +401,17 @@ export type DailyAutoReportEvent =
       error: string;
     };
 
+export interface DailyAutoReportRequest {
+  requestId: string;
+  journalDate: string;
+}
+
+export interface DailyAutoReportRequestResult {
+  requestId: string;
+  ok: boolean;
+  error?: string;
+}
+
 export interface ExportMarkdownInput {
   date: string;
   markdown: string;
@@ -651,6 +662,8 @@ export interface WorkJournalApi {
     reopenJournal: (date: string) => Promise<DailyJournal>;
     getPreviousWorkDate: (date: string) => Promise<string | null>;
     onAutoReportGenerated: (callback: (event: DailyAutoReportEvent) => void) => () => void;
+    onAutoReportRequest: (callback: (request: DailyAutoReportRequest) => void) => () => void;
+    completeAutoReportRequest: (result: DailyAutoReportRequestResult) => void;
   };
   search: {
     query: (term: string) => Promise<SearchResult[]>;

@@ -3,6 +3,8 @@ import type {
   AiDraftDailyChangeInput,
   AppUpdateStatus,
   DailyAutoReportEvent,
+  DailyAutoReportRequest,
+  DailyAutoReportRequestResult,
   AiRefineReportInput,
   AiSaveSettingsInput,
   CreateProgressInput,
@@ -115,6 +117,18 @@ const api: WorkJournalApi = {
       return () => {
         ipcRenderer.removeListener("daily:auto-report-generated", listener);
       };
+    },
+    onAutoReportRequest: (callback: (request: DailyAutoReportRequest) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: DailyAutoReportRequest) => {
+        callback(request);
+      };
+      ipcRenderer.on("daily:auto-report-request", listener);
+      return () => {
+        ipcRenderer.removeListener("daily:auto-report-request", listener);
+      };
+    },
+    completeAutoReportRequest: (result: DailyAutoReportRequestResult) => {
+      ipcRenderer.send("daily:auto-report-request-result", result);
     }
   },
   search: {
