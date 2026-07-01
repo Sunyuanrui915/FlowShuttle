@@ -3179,6 +3179,98 @@ function releaseNotesToReadableMarkdown(value: string): string {
   return looksLikeHtml(trimmed) ? htmlToReadableMarkdown(trimmed) : trimmed;
 }
 
+const releaseSummarySkipHeadings = new Set([
+  "中文",
+  "简体中文",
+  "繁體中文",
+  "English",
+  "修复",
+  "修復",
+  "优化",
+  "優化",
+  "Fixed",
+  "Improved",
+  "Release Notes",
+  "Release notes"
+]);
+
+function markdownLineToSummaryText(line: string): string {
+  return line
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|\u00a0/g, " ")
+    .replace(/[`*_~]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function releaseNotesLinesForLanguage(markdown: string, language: LanguagePreference): string[] {
+  const lines = markdown.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const headingIndexes = lines
+    .map((line, index) => ({ index, match: /^#{1,6}\s+(.+?)\s*$/.exec(line.trim()) }))
+    .filter((item): item is { index: number; match: RegExpExecArray } => Boolean(item.match));
+  const wantedHeadings = language === "en" ? ["English"] : ["中文", "简体中文", "繁體中文"];
+  const startHeading = headingIndexes.find((item) => wantedHeadings.includes(item.match[1].trim()));
+
+  if (!startHeading) {
+    if (language !== "en") {
+      const englishHeading = headingIndexes.find((item) => item.match[1].trim() === "English");
+      return englishHeading ? lines.slice(0, englishHeading.index) : lines;
+    }
+    return lines;
+  }
+
+  const endHeading = headingIndexes.find(
+    (item) => item.index > startHeading.index && item.match[0].trim().startsWith("## ")
+  );
+  return lines.slice(startHeading.index + 1, endHeading?.index ?? lines.length);
+}
+
+function truncateReleaseSummary(value: string, maxLength = 210): string {
+  const chars = Array.from(value);
+  if (chars.length <= maxLength) {
+    return value;
+  }
+  return chars.slice(0, Math.max(0, maxLength - 1)).join("").trimEnd() + "…";
+}
+
+function firstReleaseSummarySentence(value: string): string {
+  const match = /^(.+?[。！？.!?])(?:\s|$)/.exec(value);
+  return match?.[1] ?? value;
+}
+
+function releaseNotesToSummary(value: string, language: LanguagePreference, t: Translator): string {
+  const readable = releaseNotesToReadableMarkdown(value);
+  const candidate = releaseNotesLinesForLanguage(readable, language)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^[-*_]{3,}$/.test(line))
+    .find((line) => {
+      if (/^\s*[-*+]\s+/.test(line) || /^\s*\d+[.)]\s+/.test(line)) {
+        return false;
+      }
+      const headingMatch = /^#{1,6}\s+(.+?)\s*$/.exec(line);
+      const plainHeading = headingMatch?.[1]?.trim();
+      if (plainHeading && (releaseSummarySkipHeadings.has(plainHeading) || /release notes/i.test(plainHeading))) {
+        return false;
+      }
+      if (headingMatch) {
+        return false;
+      }
+      const text = markdownLineToSummaryText(line);
+      return Boolean(text && !releaseSummarySkipHeadings.has(text) && !/release notes/i.test(text));
+    });
+
+  if (!candidate) {
+    return t("updateReleaseSummaryFallback");
+  }
+  const summary = firstReleaseSummarySentence(markdownLineToSummaryText(candidate));
+  if (language !== "en" && !/[\u3400-\u9fff]/.test(summary)) {
+    return t("updateReleaseSummaryFallback");
+  }
+  return truncateReleaseSummary(summary);
+}
+
 function parseMarkdownImageLine(line: string): { alt: string; src: string } | null {
   const match = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$/.exec(line.trim());
   if (!match) {
@@ -6566,19 +6658,6 @@ function updatePanelDescription(status: AppUpdateStatus, t: Translator): string 
   return t("updateIdleDescription");
 }
 
-function themeLabel(theme: ThemePreference, t: Translator): string {
-  if (theme === "light") {
-    return t("themeLight");
-  }
-  if (theme === "dark") {
-    return t("themeDark");
-  }
-  return t("themeSystem");
-}
-
-function effectiveThemeLabel(theme: "light" | "dark", t: Translator): string {
-  return theme === "dark" ? t("themeDark") : t("themeLight");
-}
 
 function SettingsPage({
   settings,
@@ -6632,6 +6711,7 @@ function SettingsPage({
   const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus | null>(null);
   const [updateAction, setUpdateAction] = useState<"check" | "download" | "install" | null>(null);
   const [updateMessage, setUpdateMessage] = useState<Toast | null>(null);
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
 
   useEffect(() => {
     setAiForm({
@@ -6791,7 +6871,10 @@ function SettingsPage({
     : t("updateUnknownVersion");
   const releaseDateDisplay = formatUpdateReleaseDate(displayedUpdateStatus.releaseDate, settings.language, t);
   const releaseNotes = displayedUpdateStatus.releaseNotes?.trim();
-  const readableReleaseNotes = releaseNotes ? releaseNotesToReadableMarkdown(releaseNotes) : "";
+  const releaseSummary = releaseNotes ? releaseNotesToSummary(releaseNotes, settings.language, t) : "";
+  const shouldShowReleaseSummary = Boolean(
+    releaseNotes && releaseSummary && displayedUpdateStatus.status !== "error" && displayedUpdateStatus.status !== "development"
+  );
 
   const aiKeyStatus = settings.ai.apiKeyConfigured
     ? `${t("aiApiKeyConfigured")} ${settings.ai.apiKeyPreview}`
@@ -6833,10 +6916,6 @@ function SettingsPage({
                   </button>
                 ))}
               </div>
-              <p className="settings-note compact">
-                {t("settingsCurrentSelection")}：{themeLabel(settings.theme, t)} · {t("settingsCurrentUse")}：
-                {effectiveThemeLabel(settings.effectiveTheme, t)}
-              </p>
             </section>
 
             <section className="settings-preference-group">
@@ -7068,6 +7147,25 @@ function SettingsPage({
           </div>
         </section>
 
+        <section className="settings-card settings-about-card" id="settings-about-flow-shuttle">
+          <header className="settings-card-header">
+            <div className="settings-icon">
+              <ExternalLink size={20} />
+            </div>
+            <div>
+              <h2>{t("aboutFlowShuttleTitle")}</h2>
+              <p>{t("aboutFlowShuttleDescription")}</p>
+            </div>
+          </header>
+
+          <div className="settings-actions">
+            <button className="secondary-button" type="button" onClick={() => setIsAboutModalOpen(true)}>
+              <ExternalLink size={17} />
+              {t("openAboutFlowShuttle")}
+            </button>
+          </div>
+        </section>
+
         <section className="settings-card" id="settings-version-updates">
           <header className="settings-card-header">
             <div className="settings-icon">
@@ -7114,14 +7212,12 @@ function SettingsPage({
             </div>
           )}
 
-          <div className="update-release-notes">
-            <strong>{t("updateReleaseNotes")}</strong>
-            {readableReleaseNotes ? (
-              <ReadableMarkdown content={readableReleaseNotes} compact />
-            ) : (
-              <p>{t("updateReleaseNotesUnavailable")}</p>
-            )}
-          </div>
+          {shouldShowReleaseSummary && (
+            <div className="update-release-summary">
+              <strong>{t("updateReleaseSummary")}</strong>
+              <p>{releaseSummary}</p>
+            </div>
+          )}
 
           <p className="settings-note compact">{t("updateDataSafetyNote")}</p>
           {updateMessage && <div className={`inline-message ${updateMessage.kind}`}>{updateMessage.message}</div>}
@@ -7160,7 +7256,86 @@ function SettingsPage({
           </div>
         </section>
       </div>
+
+      {isAboutModalOpen && <AboutFlowShuttleModal t={t} onClose={() => setIsAboutModalOpen(false)} />}
     </section>
+  );
+}
+
+function AboutFlowShuttleModal({ t, onClose }: { t: Translator; onClose: () => void }) {
+  const modalRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      trapModalFocus(event, modalRef.current);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    const focusFrame = window.requestAnimationFrame(() => {
+      getFocusableElements(modalRef.current)[0]?.focus();
+    });
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.cancelAnimationFrame(focusFrame);
+    };
+  }, [onClose]);
+
+  const links = [
+    { label: t("aboutPersonalWebsite"), value: "https://www.sunyuanrui.com/", href: "https://www.sunyuanrui.com/" },
+    { label: t("aboutFlowShuttlePage"), value: "https://www.sunyuanrui.com/flow-shuttle/", href: "https://www.sunyuanrui.com/flow-shuttle/" }
+  ];
+  const textRows = [
+    { label: t("aboutOfficialAccount"), value: "睿见产品" },
+    { label: t("aboutXiaohongshu"), value: "7930978517" }
+  ];
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section ref={modalRef} className="form-modal about-modal" role="dialog" aria-modal="true" aria-label={t("aboutFlowShuttleModalTitle")} tabIndex={-1}>
+        <header className="modal-header">
+          <div>
+            <h2>{t("aboutFlowShuttleModalTitle")}</h2>
+            <p className="modal-description">{t("aboutFlowShuttleModalDescription")}</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label={t("close")}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="about-link-list">
+          {links.map((link) => (
+            <a className="about-link-row" key={link.href} href={link.href} target="_blank" rel="noreferrer">
+              <span>{link.label}</span>
+              <code>{link.value}</code>
+              <ExternalLink size={15} />
+            </a>
+          ))}
+          {textRows.map((row) => (
+            <div className="about-link-row text-only" key={row.label}>
+              <span>{row.label}</span>
+              <code>{row.value}</code>
+            </div>
+          ))}
+        </div>
+
+        <footer className="modal-actions">
+          <button className="primary-button" type="button" onClick={onClose}>
+            {t("close")}
+          </button>
+        </footer>
+      </section>
+    </div>
   );
 }
 

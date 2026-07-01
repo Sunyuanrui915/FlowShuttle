@@ -4,6 +4,24 @@
 
 * 暂无。
 
+## v0.2.2 - 2026-07-01
+
+### Fixed
+
+* 修复今日记录编辑器和项目备忘录中，内部空行在保存并重新打开后可能被压缩或丢失的问题。
+* Fixed an issue where internal blank lines in daily editors and project memos could be compressed or lost after saving and reopening.
+* 修复设置页“版本与更新”直接展示完整 Release Notes、中文界面可能混入英文说明的问题。
+* Fixed the Version & Updates card showing full Release Notes and potentially mixing English notes into Chinese UI.
+
+### Improved
+
+* 设置页“版本与更新”改为展示当前语言的一句更新摘要。
+* The Version & Updates card now shows a one-sentence release summary in the current UI language.
+* 设置页新增“关于流梭 / 作者与反馈”入口。
+* Added an About Flow Shuttle / Author & Feedback entry in Settings.
+* 移除 Settings 外观显示模式下方“当前选择 / 当前使用”的状态提示文字。
+* Removed the extra current theme status text under the appearance selector in Settings.
+
 ## v0.2.1 - 2026-06-29
 
 ### Fixed

@@ -6,9 +6,19 @@
 
 ### 已发布
 
-#### v0.2.1
+#### v0.2.2
 
 当前公开版本。重点包含：
+
+* 修复今日记录编辑器和项目备忘录内部空行保存后可能被压缩或丢失的问题；
+* 设置页“版本与更新”改为只显示当前语言的一句更新摘要；
+* 新增“关于流梭 / 作者与反馈”入口，方便查看个人网站、流梭页面和反馈信息；
+* 移除 Settings 外观显示模式下方“当前选择 / 当前使用”的状态提示文字；
+* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
+
+#### v0.2.1
+
+重点包含：
 
 * 修复编辑器回车后新输入内容可能不可见的问题；
 * 修复任务列表、有序列表、引用等工具栏操作的选择范围问题；
@@ -123,9 +133,19 @@
 
 ### Released
 
-#### v0.2.1
+#### v0.2.2
 
 Current public release. Highlights:
+
+* Fixed internal blank lines in daily editors and project memos being compressed or lost after saving and reopening;
+* Changed Version & Updates in Settings to show only a one-sentence release summary in the current UI language;
+* Added an About Flow Shuttle / Author & Feedback entry for the personal website, Flow Shuttle page, and feedback information;
+* Removed the extra current theme status text under the appearance selector in Settings;
+* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
+
+#### v0.2.1
+
+Highlights:
 
 * Fixed an issue where newly entered text after pressing Enter could become hidden below the editor area;
 * Fixed formatting command selection scope for task lists, ordered lists, quotes, and related toolbar actions;

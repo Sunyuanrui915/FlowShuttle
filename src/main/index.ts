@@ -219,16 +219,23 @@ function resolveWindowIconPath(): string | undefined {
   return candidates.find((candidate) => existsSync(candidate));
 }
 
+const allowedFlowShuttleSitePaths = new Set(["/", "/flow-shuttle/"]);
+
 function isAllowedExternalUrl(urlString: string): boolean {
   try {
     const url = new URL(urlString);
-    return (
-      url.protocol === "https:" &&
+    if (url.protocol !== "https:") {
+      return false;
+    }
+    if (
       url.hostname === "github.com" &&
       (url.pathname === "/Sunyuanrui915/FlowShuttle/releases" ||
         url.pathname === "/Sunyuanrui915/FlowShuttle/releases/latest" ||
         url.pathname.startsWith("/Sunyuanrui915/FlowShuttle/releases/tag/"))
-    );
+    ) {
+      return true;
+    }
+    return url.hostname === "www.sunyuanrui.com" && allowedFlowShuttleSitePaths.has(url.pathname);
   } catch {
     return false;
   }

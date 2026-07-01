@@ -6608,16 +6608,19 @@ textarea:focus {
   padding: 18px;
 }
 
-.settings-user-guide-card {
+.settings-user-guide-card,
+.settings-about-card {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
 }
 
-.settings-user-guide-card .settings-card-header {
+.settings-user-guide-card .settings-card-header,
+.settings-about-card .settings-card-header {
   min-width: 0;
 }
 
-.settings-user-guide-card .settings-actions {
+.settings-user-guide-card .settings-actions,
+.settings-about-card .settings-actions {
   justify-content: flex-end;
 }
 
@@ -6716,27 +6719,76 @@ textarea:focus {
   transition: width 0.18s ease;
 }
 
-.update-release-notes {
+.update-release-summary {
   display: grid;
   gap: 6px;
   min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border-muted) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-surface-muted) 48%, transparent);
+  padding: 11px 12px;
 }
 
-.update-release-notes strong {
+.update-release-summary strong {
   color: var(--text-primary);
   font-size: 13px;
 }
 
-.update-release-notes p {
-  display: -webkit-box;
-  overflow: hidden;
+.update-release-summary p {
   margin: 0;
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.6;
-  white-space: pre-line;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+}
+
+.about-link-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.about-link-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border-muted) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-surface-muted) 50%, transparent);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  text-decoration: none;
+}
+
+.about-link-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border-muted));
+  background: color-mix(in srgb, var(--accent-soft) 30%, var(--bg-surface));
+}
+
+.about-link-row.text-only:hover {
+  border-color: color-mix(in srgb, var(--border-muted) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-surface-muted) 50%, transparent);
+}
+
+.about-link-row span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.about-link-row code {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family:
+    "Cascadia Mono",
+    "SFMono-Regular",
+    Consolas,
+    monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-icon {
@@ -7116,13 +7168,20 @@ textarea:focus {
 }
 
 @media (max-width: 860px) {
-  .settings-user-guide-card {
+  .settings-user-guide-card,
+  .settings-about-card {
     grid-template-columns: 1fr;
     align-items: stretch;
   }
 
-  .settings-user-guide-card .settings-actions {
+  .settings-user-guide-card .settings-actions,
+  .settings-about-card .settings-actions {
     justify-content: flex-start;
+  }
+
+  .about-link-row {
+    grid-template-columns: 1fr;
+    gap: 5px;
   }
 
   .settings-preference-grid,

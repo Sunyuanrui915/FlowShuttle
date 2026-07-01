@@ -162,8 +162,13 @@ function normalizeMarkdownForImport(value: string): string {
 
   const lines = normalized.split("\n");
   const meaningfulLines = lines.filter((line) => line.trim().length > 0);
-  if (meaningfulLines.length > 1 && meaningfulLines.every((line) => !isMarkdownStructuralLine(line))) {
-    return lines.join("\n\n").replace(/\n{3,}/g, "\n\n");
+  const hasBlankLine = lines.some((line) => line.trim().length === 0);
+
+  // Legacy plain-text records used single newlines for separate visible lines.
+  // If blank lines already exist, leave them intact so the Markdown parser can
+  // restore empty paragraphs instead of flattening the user's spacing.
+  if (!hasBlankLine && meaningfulLines.length > 1 && meaningfulLines.every((line) => !isMarkdownStructuralLine(line))) {
+    return lines.join("\n\n");
   }
   return normalized;
 }
