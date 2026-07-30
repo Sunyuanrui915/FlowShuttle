@@ -26,6 +26,7 @@ import {
   getTodayJournal,
   getTodayOverview,
   listActiveProjects,
+  listArchivedProjects,
   listDailyReports,
   listPeriodReports,
   listTodayProgress,
@@ -45,6 +46,7 @@ import {
   getWorkItemDeleteSummary,
   getOrCreateProjectMemo,
   upsertDailyWorkItemEntry,
+  unarchiveProject,
   updateProject,
   updateWorkItem,
   useExistingDatabaseDirectory,
@@ -361,10 +363,12 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("projects:list-active", () => listActiveProjects());
+  ipcMain.handle("projects:list-archived", () => listArchivedProjects());
   ipcMain.handle("projects:create", (_event, input: CreateProjectInput) => createProject(input));
   ipcMain.handle("projects:update", (_event, input: UpdateProjectInput) => updateProject(input));
   ipcMain.handle("projects:move", (_event, id: string, direction: SortMoveDirection) => moveProject(id, direction));
   ipcMain.handle("projects:archive", (_event, id: string) => archiveProject(id));
+  ipcMain.handle("projects:unarchive", (_event, id: string) => unarchiveProject(id));
   ipcMain.handle("projects:get-detail", (_event, id: string) => getProjectDetail(id));
   ipcMain.handle("projects:get-delete-summary", (_event, id: string) => getProjectDeleteSummary(id));
   ipcMain.handle("projects:delete", (_event, id: string) => deleteProject(id));

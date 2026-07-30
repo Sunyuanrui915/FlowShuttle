@@ -1,8 +1,28 @@
 # Changelog
 
-## Unreleased
+## v0.2.3 - 2026-07-30
 
-* 暂无。
+### Fixed
+
+* 修复上一工作日参考将 Markdown 内部段落误显示为多条分隔线，并在复制时产生多余空行的问题。
+* Fixed previous workday references showing Markdown paragraphs as repeated separators and producing extra blank lines when copied.
+* 修复上一工作日参考中代码围栏和首行缩进内容的显示与复制失真问题。
+* Fixed display and copy fidelity for fenced code and leading indentation in previous workday references.
+* 修复项目归档后未显示在归档页面的问题。
+* Fixed archived projects not appearing on the Archive page.
+* 修复归档项目详情的无效操作、返回来源和列表刷新问题。
+* Fixed invalid actions, return navigation, and list refresh behavior in archived project details.
+* 修复从归档页重复打开同一项目时，项目详情可能显示白屏的问题。
+* Fixed a blank project detail view when reopening the same project from Archive.
+* 修复切换已有数据目录后旧项目选择可能造成的误报失败。
+* Fixed stale project selection causing a false failure after switching data directories.
+
+### Improved
+
+* 优化今日记录编辑页的工作项状态选择框，移除 hover / focus 时叠加的蓝色外框。
+* Refined the work item status selector by removing the duplicated blue hover / focus ring.
+* 归档项目详情的“更多操作”中新增“取消归档”，可将项目恢复到项目列表，并让未完成工作项重新出现在 Today 页。
+* Added an Unarchive Project action to archived project details, restoring the project to Projects and its open work items to Today.
 
 ## v0.2.2 - 2026-07-01
 

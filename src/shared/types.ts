@@ -626,10 +626,12 @@ export interface WorkJournalApi {
   };
   projects: {
     listActive: () => Promise<ProjectListItem[]>;
+    listArchived: () => Promise<ProjectListItem[]>;
     create: (input: CreateProjectInput) => Promise<Project>;
     update: (input: UpdateProjectInput) => Promise<Project>;
     move: (id: string, direction: SortMoveDirection) => Promise<Project>;
     archive: (id: string) => Promise<Project>;
+    unarchive: (id: string) => Promise<Project>;
     getDetail: (id: string) => Promise<ProjectDetail>;
     getDeleteSummary: (id: string) => Promise<ProjectDeleteSummary>;
     delete: (id: string) => Promise<void>;

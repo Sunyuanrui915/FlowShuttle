@@ -70,10 +70,12 @@ const api: WorkJournalApi = {
   },
   projects: {
     listActive: () => ipcRenderer.invoke("projects:list-active"),
+    listArchived: () => ipcRenderer.invoke("projects:list-archived"),
     create: (input: CreateProjectInput) => ipcRenderer.invoke("projects:create", input),
     update: (input: UpdateProjectInput) => ipcRenderer.invoke("projects:update", input),
     move: (id: string, direction: SortMoveDirection) => ipcRenderer.invoke("projects:move", id, direction),
     archive: (id: string) => ipcRenderer.invoke("projects:archive", id),
+    unarchive: (id: string) => ipcRenderer.invoke("projects:unarchive", id),
     getDetail: (id: string) => ipcRenderer.invoke("projects:get-detail", id),
     getDeleteSummary: (id: string) => ipcRenderer.invoke("projects:get-delete-summary", id),
     delete: (id: string) => ipcRenderer.invoke("projects:delete", id)

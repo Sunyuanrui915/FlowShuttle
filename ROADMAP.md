@@ -6,9 +6,22 @@
 
 ### 已发布
 
+#### v0.2.3
+
+当前公开版本。本轮重点包含：
+
+* 修复上一工作日参考中重复分隔线和复制后多余空行的问题；
+* 修复已归档项目未显示在归档页面的问题；
+* 修复归档项目详情中的无效操作、返回来源和列表刷新问题；
+* 修复从归档页重复打开同一项目时可能出现的详情白屏；
+* 增加归档项目取消归档能力；
+* 修复切换已有数据目录后旧项目选择可能造成的误报失败；
+* 优化工作项状态选择框的 hover / focus 外框显示；
+* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
+
 #### v0.2.2
 
-当前公开版本。重点包含：
+上一公开版本。重点包含：
 
 * 修复今日记录编辑器和项目备忘录内部空行保存后可能被压缩或丢失的问题；
 * 设置页“版本与更新”改为只显示当前语言的一句更新摘要；
@@ -133,9 +146,22 @@
 
 ### Released
 
+#### v0.2.3
+
+Current public release. This iteration focuses on:
+
+* Fixing repeated separators and extra blank lines when copying previous workday references;
+* Fixing archived projects not appearing on the Archive page;
+* Fixing invalid actions, return navigation, and stale list content in archived project details;
+* Fixing a blank project detail view when reopening the same project from Archive;
+* Adding the ability to unarchive archived projects;
+* Fixing stale project selection causing a false failure after switching data directories;
+* Refining the hover / focus ring of the work item status selector;
+* Continuing the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
+
 #### v0.2.2
 
-Current public release. Highlights:
+Previous public release. Highlights:
 
 * Fixed internal blank lines in daily editors and project memos being compressed or lost after saving and reopening;
 * Changed Version & Updates in Settings to show only a one-sentence release summary in the current UI language;

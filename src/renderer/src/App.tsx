@@ -1,5 +1,6 @@
 import {
   Archive,
+  ArchiveRestore,
   ArrowDown,
   ArrowUp,
   AlertTriangle,
@@ -53,6 +54,12 @@ import userGuideEn from "./content/user-guide.en.md?raw";
 import userGuideZhCn from "./content/user-guide.zh-CN.md?raw";
 import { createTranslator, languageOptions, type Translator } from "./i18n";
 import { MarkdownWysiwygEditor, type MarkdownEditorLabels } from "./MarkdownWysiwygEditor";
+import {
+  isMarkdownFenceClosing,
+  normalizeReferenceMarkdownSpacing,
+  parseMarkdownFenceOpening,
+  type MarkdownFence
+} from "./referenceMarkdown";
 import type {
   AiOperationResult,
   AiSaveSettingsInput,
@@ -882,6 +889,7 @@ function App() {
   const [dailyEditorTarget, setDailyEditorTarget] = useState<DailyEntryEditorTarget | null>(null);
   const [dailyEditorReturnView, setDailyEditorReturnView] = useState<"today" | "project-detail">("today");
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  const [archivedProjects, setArchivedProjects] = useState<ProjectListItem[]>([]);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [dailyReports, setDailyReports] = useState<DailyReportListItem[]>([]);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
@@ -896,6 +904,7 @@ function App() {
   const [todayHeatmapFailed, setTodayHeatmapFailed] = useState(false);
   const [selectedHeatmapDate, setSelectedHeatmapDate] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectDetailReturnView, setProjectDetailReturnView] = useState<"projects" | "archive">("projects");
   const [projectMemo, setProjectMemo] = useState<ProjectMemo | null>(null);
   const [projectMemoContent, setProjectMemoContent] = useState("");
   const [projectMemoReturnView, setProjectMemoReturnView] = useState<"today" | "project-detail">("project-detail");
@@ -937,6 +946,8 @@ function App() {
   const confirmResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
   const currentEditorSaveRef = useRef<(options?: EditorSaveOptions) => Promise<boolean>>(async () => false);
   const currentViewRef = useRef<View>(view);
+  const selectedProjectIdRef = useRef<string | null>(selectedProjectId);
+  const detailLoadRequestRef = useRef(0);
   const dailyEditorTargetRef = useRef<DailyEntryEditorTarget | null>(dailyEditorTarget);
   const dailyViewRef = useRef<DailyJournalView | null>(dailyView);
   const saveInFlightRef = useRef(false);
@@ -954,6 +965,7 @@ function App() {
 
   useEffect(() => {
     currentViewRef.current = view;
+    selectedProjectIdRef.current = selectedProjectId;
     dailyEditorTargetRef.current = dailyEditorTarget;
     dailyViewRef.current = dailyView;
   });
@@ -1033,6 +1045,10 @@ function App() {
     setProjects(await window.workJournal.projects.listActive());
   };
 
+  const loadArchivedProjects = async () => {
+    setArchivedProjects(await window.workJournal.projects.listArchived());
+  };
+
   const loadReports = async () => {
     const [reports, weekly, monthly] = await Promise.all([
       window.workJournal.reports.listDaily(),
@@ -1076,7 +1092,20 @@ function App() {
   };
 
   const loadDetail = async (id: string) => {
-    setDetail(await window.workJournal.projects.getDetail(id));
+    const requestId = ++detailLoadRequestRef.current;
+    try {
+      const nextDetail = await window.workJournal.projects.getDetail(id);
+      if (detailLoadRequestRef.current !== requestId || selectedProjectIdRef.current !== id) {
+        return false;
+      }
+      setDetail(nextDetail);
+      return true;
+    } catch (error) {
+      if (detailLoadRequestRef.current !== requestId || selectedProjectIdRef.current !== id) {
+        return false;
+      }
+      throw error;
+    }
   };
 
   const applyEffectiveTheme = (settings: SettingsInfo) => {
@@ -1091,10 +1120,10 @@ function App() {
     return settings;
   };
 
-  const refreshActiveView = async () => {
+  const refreshActiveView = async (projectId: string | null = selectedProjectId) => {
     await Promise.all([loadToday(), loadProjects(), loadReports(), loadHeatmap()]);
-    if (selectedProjectId) {
-      await loadDetail(selectedProjectId);
+    if (projectId) {
+      await loadDetail(projectId);
     }
   };
 
@@ -1145,7 +1174,7 @@ function App() {
   }, [view, dailyView]);
 
   useEffect(() => {
-    refreshActiveView().catch((error) =>
+    Promise.all([refreshActiveView(), loadArchivedProjects()]).catch((error) =>
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("loadFailed") })
     );
     loadSettings().catch((error) =>
@@ -1254,15 +1283,6 @@ function App() {
   }, [view, settingsScrollTarget]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
-      return;
-    }
-    loadDetail(selectedProjectId).catch((error) =>
-      showToast({ kind: "error", message: error instanceof Error ? error.message : t("projectLoadFailed") })
-    );
-  }, [selectedProjectId]);
-
-  useEffect(() => {
     loadHeatmap(heatmapYear, heatmapMonth).catch((error) =>
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("loadFailed") })
     );
@@ -1300,10 +1320,27 @@ function App() {
 
   const quickWorkItems = allQuickItems.filter((item) => item.project_id === quickForm.projectId);
 
-  const openProjectDetail = (projectId: string) => {
+  const openProjectDetail = (projectId: string, returnView: "projects" | "archive" = "projects") => {
+    setDetail(null);
+    selectedProjectIdRef.current = projectId;
     setSelectedProjectId(projectId);
+    setProjectDetailReturnView(returnView);
     setDetailQuickCollapsed(true);
+    currentViewRef.current = "project-detail";
     setView("project-detail");
+    void loadDetail(projectId).catch((error) => {
+      if (selectedProjectIdRef.current !== projectId) {
+        return;
+      }
+      selectedProjectIdRef.current = null;
+      setSelectedProjectId(null);
+      setDetail(null);
+      if (currentViewRef.current === "project-detail") {
+        currentViewRef.current = returnView;
+        setView(returnView);
+      }
+      showToast({ kind: "error", message: error instanceof Error ? error.message : t("projectLoadFailed") });
+    });
   };
 
   const openProjectMemo = async (projectId: string, returnView: "today" | "project-detail" = "project-detail") => {
@@ -1312,6 +1349,7 @@ function App() {
         window.workJournal.projects.getDetail(projectId),
         window.workJournal.memos.getProjectMemo(projectId)
       ]);
+      selectedProjectIdRef.current = projectId;
       setSelectedProjectId(projectId);
       setDetail(nextDetail);
       setProjectMemo(memo);
@@ -1403,7 +1441,10 @@ function App() {
     try {
       await window.workJournal.projects.update({ id: detail.project.id, ...projectForm });
       setEditProjectOpen(false);
-      await refreshActiveView();
+      await Promise.all([
+        refreshActiveView(),
+        detail.project.status === "archived" ? loadArchivedProjects() : Promise.resolve()
+      ]);
       showToast({ kind: "success", message: t("projectUpdateSuccess") });
     } catch (error) {
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("projectUpdateFailed") });
@@ -1427,12 +1468,56 @@ function App() {
     try {
       await window.workJournal.projects.archive(detail.project.id);
       setView("projects");
+      selectedProjectIdRef.current = null;
       setSelectedProjectId(null);
       setDetail(null);
-      await refreshActiveView();
+      await Promise.all([refreshActiveView(null), loadArchivedProjects()]);
       showToast({ kind: "success", message: t("projectArchiveSuccess") });
     } catch (error) {
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("projectArchiveFailed") });
+    }
+  };
+
+  const handleUnarchiveProject = async () => {
+    if (!detail || detail.project.status !== "archived") {
+      return;
+    }
+    const confirmed = await requestConfirm({
+      title: t("unarchiveProjectConfirmTitle"),
+      body: t("unarchiveProjectConfirmBody"),
+      objectName: detail.project.name,
+      primaryLabel: t("unarchiveProject"),
+      tone: "info"
+    });
+    if (!confirmed) {
+      return;
+    }
+    const projectId = detail.project.id;
+    const activeItemCount = detail.activeItems.length;
+    let unarchivedProject: Project;
+    try {
+      unarchivedProject = await window.workJournal.projects.unarchive(projectId);
+    } catch (error) {
+      showToast({ kind: "error", message: error instanceof Error ? error.message : t("projectUnarchiveFailed") });
+      return;
+    }
+
+    setProjects((current) => [
+      ...current.filter((project) => project.id !== projectId),
+      { ...unarchivedProject, active_item_count: activeItemCount }
+    ]);
+    setArchivedProjects((current) => current.filter((project) => project.id !== projectId));
+    currentViewRef.current = "projects";
+    setView("projects");
+    selectedProjectIdRef.current = null;
+    setSelectedProjectId(null);
+    setDetail(null);
+
+    try {
+      await Promise.all([refreshActiveView(null), loadArchivedProjects()]);
+      showToast({ kind: "success", message: t("projectUnarchiveSuccess") });
+    } catch {
+      showToast({ kind: "warning", message: t("projectUnarchiveRefreshFailed") });
     }
   };
 
@@ -1485,14 +1570,15 @@ function App() {
     try {
       await window.workJournal.projects.delete(detail.project.id);
       setProjectDeleteSummary(null);
+      selectedProjectIdRef.current = null;
       setSelectedProjectId(null);
       setDetail(null);
       setProjectMemo(null);
       setProjectMemoContent("");
-      setView("projects");
+      setView(projectDetailReturnView);
       setSearchTerm("");
       setSearchResults([]);
-      await Promise.all([loadToday(), loadProjects()]);
+      await Promise.all([loadToday(), loadProjects(), loadArchivedProjects()]);
       showToast({ kind: "success", message: t("deleteSuccess") });
     } catch (error) {
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("deleteFailed") });
@@ -1568,6 +1654,8 @@ function App() {
     if (!editWorkItemTarget) {
       return;
     }
+    const shouldRefreshArchivedProjects =
+      detail?.project.status === "archived" && detail.project.id === editWorkItemTarget.project_id;
     try {
       await window.workJournal.workItems.update({
         id: editWorkItemTarget.id,
@@ -1576,7 +1664,10 @@ function App() {
         status: workItemEditStatus
       });
       setEditWorkItemTarget(null);
-      await refreshActiveView();
+      await Promise.all([
+        refreshActiveView(),
+        shouldRefreshArchivedProjects ? loadArchivedProjects() : Promise.resolve()
+      ]);
       showToast({ kind: "success", message: t("workItemUpdateSuccess") });
     } catch (error) {
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("workItemUpdateFailed") });
@@ -1596,12 +1687,17 @@ function App() {
     if (!workItemDeleteTarget) {
       return;
     }
+    const shouldRefreshArchivedProjects =
+      detail?.project.status === "archived" && detail.project.id === workItemDeleteTarget.item.project_id;
     try {
       await window.workJournal.workItems.delete(workItemDeleteTarget.item.id);
       setWorkItemDeleteTarget(null);
       setSearchTerm("");
       setSearchResults([]);
-      await refreshActiveView();
+      await Promise.all([
+        refreshActiveView(),
+        shouldRefreshArchivedProjects ? loadArchivedProjects() : Promise.resolve()
+      ]);
       showToast({ kind: "success", message: t("deleteSuccess") });
     } catch (error) {
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("deleteFailed") });
@@ -1961,12 +2057,15 @@ function App() {
   };
 
   const refreshAfterDataDirectoryChange = async () => {
-    await Promise.all([refreshActiveView(), loadSettings()]);
-    if (view === "project-memo" && selectedProjectId) {
-      const memo = await window.workJournal.memos.getProjectMemo(selectedProjectId);
-      setProjectMemo(memo);
-      setProjectMemoContent(memo.content_markdown ?? "");
-    }
+    selectedProjectIdRef.current = null;
+    setSelectedProjectId(null);
+    setDetail(null);
+    setProjectMemo(null);
+    setProjectMemoContent("");
+    setDailyEditorTarget(null);
+    setProjectDetailReturnView("projects");
+    setQuickForm((current) => ({ ...current, projectId: "", workItemId: "" }));
+    await Promise.all([refreshActiveView(null), loadArchivedProjects(), loadSettings()]);
     setSearchTerm("");
     setSearchResults([]);
   };
@@ -2069,6 +2168,7 @@ function App() {
       window.workJournal.projects
         .getDetail(result.projectId)
         .then((nextDetail) => {
+          selectedProjectIdRef.current = result.projectId;
           setSelectedProjectId(result.projectId);
           setDetail(nextDetail);
           openDailyEntryEditor(result.projectId as string, result.workItemId as string);
@@ -2365,12 +2465,18 @@ function App() {
             onViewReport={showHeatmapReport}
           />
         )}
-        {view === "project-detail" && detail && (
+        {view === "project-detail" && (!detail || detail.project.id !== selectedProjectId) && (
+          <section className="page detail-page project-detail-loading" role="status" aria-live="polite" aria-busy="true">
+            <span>{t("loading")}</span>
+          </section>
+        )}
+        {view === "project-detail" && detail && detail.project.id === selectedProjectId && (
           <ProjectDetailPage
             detail={detail}
             language={language}
             t={t}
-            onBack={() => setView("projects")}
+            backLabel={t(projectDetailReturnView === "archive" ? "detailBackToArchive" : "detailBackToProjects")}
+            onBack={() => setView(projectDetailReturnView)}
             onRecordProgress={(projectId, workItemId) => openDailyEntryEditor(projectId, workItemId, undefined, "project-detail")}
             onMoveProject={(direction) => handleMoveProject(detail.project.id, direction)}
             onComplete={handleCompleteWorkItem}
@@ -2389,6 +2495,7 @@ function App() {
               setEditProjectOpen(true);
             }}
             onArchiveProject={handleArchiveProject}
+            onUnarchiveProject={handleUnarchiveProject}
             onDeleteProject={handleRequestDeleteProject}
             onOpenMemo={() => openProjectMemo(detail.project.id)}
           />
@@ -2409,10 +2516,10 @@ function App() {
         )}
         {view === "archive" && (
           <ArchivePage
-            projects={projects.filter((project) => project.status === "archived")}
+            projects={archivedProjects}
             language={language}
             t={t}
-            onOpenProject={openProjectDetail}
+            onOpenProject={(projectId) => openProjectDetail(projectId, "archive")}
           />
         )}
         {view === "settings" && settingsInfo && (
@@ -3305,10 +3412,11 @@ function ReadableMarkdownImage({ src, alt }: { src: string; alt: string }) {
 }
 
 function ReadableMarkdown({ content, compact = false }: { content: string; compact?: boolean }) {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const readableContent = compact ? normalizeReferenceMarkdownSpacing(content) : content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = readableContent.split("\n");
   const elements: ReactNode[] = [];
   let codeLines: string[] = [];
-  let inCodeBlock = false;
+  let activeFence: MarkdownFence | null = null;
 
   const flushCodeBlock = (key: string) => {
     elements.push(
@@ -3320,22 +3428,24 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
   };
 
   lines.forEach((line, index) => {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("```")) {
-      if (inCodeBlock) {
+    if (activeFence) {
+      if (isMarkdownFenceClosing(line, activeFence)) {
         flushCodeBlock(`code-${index}`);
-        inCodeBlock = false;
+        activeFence = null;
       } else {
-        inCodeBlock = true;
-        codeLines = [];
+        codeLines.push(line);
       }
       return;
     }
 
-    if (inCodeBlock) {
-      codeLines.push(line);
+    const openingFence = parseMarkdownFenceOpening(line);
+    if (openingFence) {
+      activeFence = openingFence;
+      codeLines = [];
       return;
     }
+
+    const trimmed = line.trim();
 
     if (!trimmed) {
       elements.push(<div className="readable-markdown-space" key={`space-${index}`} />);
@@ -3389,7 +3499,7 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
     );
   });
 
-  if (inCodeBlock || codeLines.length > 0) {
+  if (activeFence || codeLines.length > 0) {
     flushCodeBlock("code-end");
   }
 
@@ -4148,12 +4258,12 @@ function DailyEntryEditorPage({
     }
   };
   const copyReferenceText = async (value: string | null | undefined) => {
-    const text = value?.trim();
-    if (!text) {
+    const text = value ?? "";
+    if (!text.trim()) {
       return;
     }
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(normalizeReferenceMarkdownSpacing(text));
       onToast({ kind: "success", message: t("referenceTextCopied") });
     } catch {
       onToast({ kind: "error", message: t("referenceTextCopyFailed") });
@@ -4267,6 +4377,7 @@ function DailyEntryEditorPage({
           <label className="daily-status-select entry-status-control entry-topbar-status">
             <span>{t("todayStatus")}</span>
             <select
+              aria-label={t("todayStatus")}
               value={form.statusForToday}
               onChange={(event) => onUpdate({ statusForToday: event.target.value as DailyWorkItemStatus })}
               disabled={isClosed}
@@ -4329,12 +4440,13 @@ function DailyEntryEditorPage({
             <div className="reference-detail-scroll">
               <dl className="previous-reference-list">
                 {previousRows.map(([label, value, canCopy, renderMarkdown]) => {
-                  const referenceText = value?.trim();
+                  const referenceText = value ?? "";
+                  const hasReferenceText = Boolean(referenceText.trim());
                   return (
                     <div key={label}>
                       <dt>
                         <span>{label}</span>
-                        {canCopy && referenceText && (
+                        {canCopy && hasReferenceText && (
                           <button
                             className="reference-copy-button"
                             type="button"
@@ -4348,7 +4460,7 @@ function DailyEntryEditorPage({
                         )}
                       </dt>
                       <dd>
-                        {referenceText ? (
+                        {hasReferenceText ? (
                           renderMarkdown ? (
                             <ReadableMarkdown content={referenceText} compact />
                           ) : (
@@ -4536,6 +4648,7 @@ function WorkItemRow({
   mode,
   compact = false,
   language,
+  showCompletionControl = true,
   onRecordProgress,
   onComplete,
   onMoveUp,
@@ -4550,7 +4663,8 @@ function WorkItemRow({
   mode: "today" | "detail";
   compact?: boolean;
   language: LanguagePreference;
-  onRecordProgress: () => void;
+  showCompletionControl?: boolean;
+  onRecordProgress?: () => void;
   onComplete?: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
@@ -4565,15 +4679,19 @@ function WorkItemRow({
 
   return (
     <article className={`work-item-row ${item.status === "done" ? "done" : ""} ${compact ? "compact" : ""}`.trim()}>
-      <button
-        className="check-button"
-        type="button"
-        onClick={onComplete}
-        disabled={item.status === "done" || !onComplete}
-        aria-label={t("completeAria")}
-      >
-        {item.status === "done" && <Check size={15} />}
-      </button>
+      {showCompletionControl ? (
+        <button
+          className="check-button"
+          type="button"
+          onClick={onComplete}
+          disabled={item.status === "done" || !onComplete}
+          aria-label={t("completeAria")}
+        >
+          {item.status === "done" && <Check size={15} />}
+        </button>
+      ) : (
+        <span className="check-button-placeholder" aria-hidden="true" />
+      )}
       <HoverTooltip as="div" className="work-item-title-cell" content={[item.title, item.description].filter(Boolean).join("\n")}>
         <strong>{item.title}</strong>
         {item.description && <p className="description">{item.description}</p>}
@@ -4610,10 +4728,12 @@ function WorkItemRow({
             )}
           </span>
         )}
-        <button className="work-item-record-button" type="button" onClick={onRecordProgress}>
-          <Clock3 size={14} />
-          {t("recordProgress")}
-        </button>
+        {onRecordProgress && (
+          <button className="work-item-record-button" type="button" onClick={onRecordProgress}>
+            <Clock3 size={14} />
+            {t("recordProgress")}
+          </button>
+        )}
         {onEdit && (
           <button
             className="work-item-edit-icon-button"
@@ -4706,7 +4826,7 @@ function ProjectsPage({
                     <FolderOpen size={20} />
                   </span>
                   <span className="project-list-card-title-block">
-                    <span className="project-list-card-title">{project.name}</span>
+                    <span className="project-list-card-title" title={project.name}>{project.name}</span>
                     <span className={`project-list-status ${project.status}`}>
                       {project.status === "archived" ? t("statusArchived") : t("statusActive")}
                     </span>
@@ -4798,7 +4918,7 @@ function ArchivePage({
                     <Archive size={19} />
                   </span>
                   <span className="project-list-card-title-block">
-                    <span className="project-list-card-title">{project.name}</span>
+                    <span className="project-list-card-title" title={project.name}>{project.name}</span>
                     <span className="project-list-status archived">{t("statusArchived")}</span>
                   </span>
                 </header>
@@ -6061,6 +6181,7 @@ function ProjectDetailPage({
   detail,
   language,
   t,
+  backLabel,
   onBack,
   onRecordProgress,
   onMoveProject,
@@ -6071,12 +6192,14 @@ function ProjectDetailPage({
   onCreateWorkItem,
   onEditProject,
   onArchiveProject,
+  onUnarchiveProject,
   onDeleteProject,
   onOpenMemo
 }: {
   detail: ProjectDetail;
   language: LanguagePreference;
   t: Translator;
+  backLabel: string;
   onBack: () => void;
   onRecordProgress: (projectId: string, workItemId: string) => void;
   onMoveProject: (direction: SortMoveDirection) => void;
@@ -6087,6 +6210,7 @@ function ProjectDetailPage({
   onCreateWorkItem: () => void;
   onEditProject: () => void;
   onArchiveProject: () => void;
+  onUnarchiveProject: () => void;
   onDeleteProject: () => void;
   onOpenMemo: () => void;
 }) {
@@ -6123,6 +6247,7 @@ function ProjectDetailPage({
   }, [detail.project.id]);
 
   const isActiveWorkItemTab = workItemTab === "active";
+  const isActiveProject = detail.project.status === "active";
   const visibleWorkItems = isActiveWorkItemTab ? detail.activeItems : detail.completedItems;
   const emptyWorkItemTitle = isActiveWorkItemTab ? t("noActiveWorkItemsTitle") : t("noCompletedItemsTitle");
   const emptyWorkItemBody = isActiveWorkItemTab ? t("noActiveWorkItemsBody") : t("noCompletedItemsBody");
@@ -6134,7 +6259,7 @@ function ProjectDetailPage({
             <button
               className="project-detail-back-icon"
               type="button"
-              aria-label={t("detailBackToProjects")}
+              aria-label={backLabel}
               onClick={onBack}
             >
               <ChevronLeft size={20} />
@@ -6165,30 +6290,34 @@ function ProjectDetailPage({
             </button>
             {projectActionsOpen && (
               <div className="project-more-menu-list" role="menu" aria-label={t("moreActions")}>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setProjectActionsOpen(false);
-                    onMoveProject("up");
-                  }}
-                >
-                  <ArrowUp size={16} />
-                  {t("moveUp")}
-                </button>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setProjectActionsOpen(false);
-                    onMoveProject("down");
-                  }}
-                >
-                  <ArrowDown size={16} />
-                  {t("moveDown")}
-                </button>
+                {isActiveProject && (
+                  <>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProjectActionsOpen(false);
+                        onMoveProject("up");
+                      }}
+                    >
+                      <ArrowUp size={16} />
+                      {t("moveUp")}
+                    </button>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProjectActionsOpen(false);
+                        onMoveProject("down");
+                      }}
+                    >
+                      <ArrowDown size={16} />
+                      {t("moveDown")}
+                    </button>
+                  </>
+                )}
                 <button
                   className="ghost-button"
                   type="button"
@@ -6201,18 +6330,34 @@ function ProjectDetailPage({
                   <SquarePen size={16} />
                   {t("editProject")}
                 </button>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setProjectActionsOpen(false);
-                    onArchiveProject();
-                  }}
-                >
-                  <Archive size={16} />
-                  {t("archiveProject")}
-                </button>
+                {isActiveProject && (
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setProjectActionsOpen(false);
+                      onArchiveProject();
+                    }}
+                  >
+                    <Archive size={16} />
+                    {t("archiveProject")}
+                  </button>
+                )}
+                {!isActiveProject && (
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setProjectActionsOpen(false);
+                      onUnarchiveProject();
+                    }}
+                  >
+                    <ArchiveRestore size={16} />
+                    {t("unarchiveProject")}
+                  </button>
+                )}
                 <button
                   className="ghost-button danger-ghost"
                   type="button"
@@ -6228,10 +6373,12 @@ function ProjectDetailPage({
               </div>
             )}
           </div>
-          <button className="primary-button" type="button" onClick={onCreateWorkItem}>
-            <Plus size={17} />
-            {t("newWorkItem")}
-          </button>
+          {isActiveProject && (
+            <button className="primary-button" type="button" onClick={onCreateWorkItem}>
+              <Plus size={17} />
+              {t("newWorkItem")}
+            </button>
+          )}
         </div>
       </header>
 
@@ -6277,7 +6424,7 @@ function ProjectDetailPage({
             {visibleWorkItems.length === 0 ? (
               <EmptyState title={emptyWorkItemTitle} body={emptyWorkItemBody} />
             ) : (
-              <div className="project-workitem-table">
+              <div className={`project-workitem-table ${isActiveProject ? "" : "archived"}`.trim()}>
                 <div className="project-workitem-table-head" aria-hidden="true">
                   <span />
                   <span>{t("workItem")}</span>
@@ -6292,12 +6439,13 @@ function ProjectDetailPage({
                     item={item}
                     mode="detail"
                     language={language}
-                    onRecordProgress={() => onRecordProgress(detail.project.id, item.id)}
-                    onComplete={isActiveWorkItemTab ? () => onComplete(item.id) : undefined}
-                    onMoveUp={() => onMoveWorkItem(item, "up", index > 0)}
-                    onMoveDown={() => onMoveWorkItem(item, "down", index < visibleWorkItems.length - 1)}
-                    canMoveUp={index > 0}
-                    canMoveDown={index < visibleWorkItems.length - 1}
+                    showCompletionControl={isActiveProject}
+                    onRecordProgress={isActiveProject ? () => onRecordProgress(detail.project.id, item.id) : undefined}
+                    onComplete={isActiveProject && isActiveWorkItemTab ? () => onComplete(item.id) : undefined}
+                    onMoveUp={isActiveProject ? () => onMoveWorkItem(item, "up", index > 0) : undefined}
+                    onMoveDown={isActiveProject ? () => onMoveWorkItem(item, "down", index < visibleWorkItems.length - 1) : undefined}
+                    canMoveUp={isActiveProject && index > 0}
+                    canMoveDown={isActiveProject && index < visibleWorkItems.length - 1}
                     onEdit={() => onEditWorkItem(item)}
                     onDelete={() => onDeleteWorkItem(item)}
                     t={t}

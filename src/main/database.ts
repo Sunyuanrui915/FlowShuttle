@@ -848,6 +848,22 @@ export function listActiveProjects(): ProjectListItem[] {
     .all() as ProjectListItem[];
 }
 
+export function listArchivedProjects(): ProjectListItem[] {
+  return database()
+    .prepare(
+      `
+      SELECT p.*, COUNT(wi.id) AS active_item_count
+      FROM projects p
+      LEFT JOIN work_items wi
+        ON wi.project_id = p.id AND wi.status IN ('active', 'paused')
+      WHERE p.status = 'archived'
+      GROUP BY p.id
+      ORDER BY COALESCE(p.archived_at, p.updated_at) DESC, p.created_at ASC, p.id ASC
+      `
+    )
+    .all() as ProjectListItem[];
+}
+
 export function createProject(input: CreateProjectInput): Project {
   const now = getTimestamp();
   const project: Project = {
@@ -900,6 +916,21 @@ export function archiveProject(id: string): Project {
       `
     )
     .run(now, now, id);
+  return getProject(id);
+}
+
+export function unarchiveProject(id: string): Project {
+  const now = getTimestamp();
+  const sortOrder = nextProjectSortOrder("active");
+  database()
+    .prepare(
+      `
+      UPDATE projects
+      SET status = 'active', sort_order = ?, archived_at = NULL, updated_at = ?
+      WHERE id = ? AND status = 'archived'
+      `
+    )
+    .run(sortOrder, now, id);
   return getProject(id);
 }
 

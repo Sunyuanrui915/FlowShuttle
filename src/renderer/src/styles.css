@@ -1576,7 +1576,7 @@ button.today-reminder-item:focus-visible {
   margin: 0;
 }
 
-.previous-reference-list div {
+.previous-reference-list > div {
   display: grid;
   grid-template-columns: 132px minmax(0, 1fr);
   gap: 10px;
@@ -1617,9 +1617,15 @@ button.today-reminder-item:focus-visible {
   display: none;
 }
 
-.reference-copy-button:hover {
+.reference-copy-button:hover,
+.reference-copy-button:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border-muted));
   background: color-mix(in srgb, var(--accent) 8%, var(--bg-surface));
+}
+
+.reference-copy-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .previous-reference-list dd {
@@ -1979,6 +1985,17 @@ button.today-reminder-item:focus-visible {
   font-weight: 800;
 }
 
+.daily-entry-topbar .entry-topbar-status:has(select:focus-visible) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.daily-entry-topbar .entry-topbar-status select:hover,
+.daily-entry-topbar .entry-topbar-status select:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .daily-entry-topbar .entry-save-button {
   min-width: 92px;
   min-height: 44px;
@@ -2200,7 +2217,7 @@ button.today-reminder-item:focus-visible {
   padding: 0 10px 10px;
 }
 
-.reference-panel-card .previous-reference-list div {
+.reference-panel-card .previous-reference-list > div {
   grid-template-columns: 1fr;
   gap: 5px;
   border: 0;
@@ -2210,7 +2227,7 @@ button.today-reminder-item:focus-visible {
   padding: 10px 2px 0;
 }
 
-.reference-panel-card .previous-reference-list div:first-child {
+.reference-panel-card .previous-reference-list > div:first-child {
   border-top: 0;
 }
 
@@ -2797,10 +2814,14 @@ button.today-reminder-item:focus-visible {
 .work-item-row,
 .project-workitem-table-head {
   display: grid;
-  grid-template-columns: 24px minmax(124px, 0.92fr) 84px minmax(220px, 1.62fr) 88px 284px;
+  grid-template-columns: 24px minmax(124px, 0.92fr) 84px minmax(220px, 1.62fr) 88px var(--work-item-action-column, 284px);
   gap: 10px;
   align-items: center;
   min-width: 0;
+}
+
+.project-workitem-table.archived {
+  --work-item-action-column: 96px;
 }
 
 .project-workitem-table-head {
@@ -2961,6 +2982,12 @@ button.today-reminder-item:focus-visible {
   border-radius: 6px;
   background: var(--input-bg);
   color: var(--accent);
+}
+
+.check-button-placeholder {
+  display: block;
+  width: 20px;
+  height: 20px;
 }
 
 .check-button:not(:disabled):hover {
@@ -3671,6 +3698,21 @@ button.today-reminder-item:focus-visible {
 .readable-markdown-preview h4 {
   margin: 14px 0 6px;
   font-size: 15px;
+}
+
+.readable-markdown-preview.compact h2 {
+  margin: 4px 0 8px;
+  font-size: 17px;
+}
+
+.readable-markdown-preview.compact h3 {
+  margin: 10px 0 6px;
+  font-size: 15px;
+}
+
+.readable-markdown-preview.compact h4 {
+  margin: 8px 0 4px;
+  font-size: 14px;
 }
 
 .readable-markdown-paragraph,
@@ -4716,6 +4758,14 @@ button.today-reminder-item:focus-visible {
   overflow-x: hidden;
 }
 
+.project-detail-loading {
+  display: grid;
+  min-height: min(360px, 50vh);
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
 .detail-page .page-header {
   margin-bottom: 18px;
 }
@@ -5160,7 +5210,7 @@ button.today-reminder-item:focus-visible {
 @media (max-width: 1360px) {
   .project-workitem-table .work-item-row,
   .project-workitem-table-head {
-    grid-template-columns: 24px minmax(112px, 0.78fr) 74px minmax(176px, 1.45fr) 84px 248px;
+    grid-template-columns: 24px minmax(112px, 0.78fr) 74px minmax(176px, 1.45fr) 84px var(--work-item-action-column, 248px);
     gap: 8px;
   }
 
