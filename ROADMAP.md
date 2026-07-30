@@ -10,10 +10,10 @@
 
 当前公开版本。本轮重点包含：
 
-* 修复上一工作日参考中重复分隔线和复制后多余空行的问题；
-* 修复已归档项目未显示在归档页面的问题；
-* 增加归档项目取消归档能力；
-* 优化工作项状态选择框的 hover / focus 外框显示。
+* 修复上一工作日参考将 Markdown 内部段落误显示为多条分隔线，并在复制时产生多余空行的问题。
+* 修复项目归档后未显示在归档页面的问题。
+* 归档项目详情的“更多操作”中新增“取消归档”，可将项目恢复到项目列表，并让未完成工作项重新出现在 Today 页。
+* 优化今日记录编辑页的工作项状态选择框，移除 hover / focus 时叠加的蓝色外框。
 
 #### v0.2.2
 
@@ -146,10 +146,10 @@
 
 Current public release. This iteration focuses on:
 
-* Fixing repeated separators and extra blank lines when copying previous workday references;
-* Fixing archived projects not appearing on the Archive page;
-* Adding the ability to unarchive archived projects;
-* Refining the hover / focus ring of the work item status selector.
+* Fixed previous workday references showing Markdown paragraphs as repeated separators and producing extra blank lines when copied.
+* Fixed archived projects not appearing on the Archive page.
+* Added an Unarchive Project action to archived project details, restoring the project to Projects and its open work items to Today.
+* Refined the work item status selector by removing the duplicated blue hover / focus ring.
 
 #### v0.2.2
 
