@@ -6,9 +6,15 @@
 
 ### 已发布
 
-#### v0.3.0
+#### v0.3.1
 
 当前公开版本。本轮重点包含：
+
+* 优化数据目录选择逻辑：已有数据库时直接加载，没有数据库时创建空白数据库，不再自动迁移当前数据，并加强异常数据库文件的安全校验。
+
+#### v0.3.0
+
+上一公开版本。本轮重点包含：
 
 * 对 Today、项目、报告、热力图、归档与设置页面进行全面 UI 升级，并完善多分辨率适配。
 * Today 页新增星座式工作项概览，通过星点、颜色和动画呈现已填写与阻碍状态。
@@ -152,9 +158,15 @@
 
 ### Released
 
-#### v0.3.0
+#### v0.3.1
 
 Current public release. This iteration focuses on:
+
+* Improved data directory selection: existing databases are loaded directly, blank databases are created when needed, current data is no longer migrated automatically, and invalid database files receive stronger safety checks.
+
+#### v0.3.0
+
+Previous public release. This iteration focuses on:
 
 * Delivered a comprehensive UI upgrade across Today, Projects, Reports, Heatmap, Archive, and Settings, with improved multi-resolution behavior.
 * Added a constellation-style Today overview with star, color, and motion feedback for filled items and blockers.

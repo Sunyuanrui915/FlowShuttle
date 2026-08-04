@@ -31,7 +31,7 @@ import {
   listDailyReports,
   listPeriodReports,
   listTodayProgress,
-  migrateDatabaseToDirectory,
+  selectDatabaseDirectory,
   moveProject,
   moveWorkItem,
   prepareDataDirectoryForCopy,
@@ -526,7 +526,7 @@ function registerIpc(): void {
     notifySettingsChanged();
     return result;
   });
-  ipcMain.handle("settings:choose-and-migrate-data-directory", async () => {
+  ipcMain.handle("settings:choose-data-directory", async () => {
     const result = await dialog.showOpenDialog({
       title: "选择数据目录",
       properties: ["openDirectory", "createDirectory"]
@@ -536,7 +536,7 @@ function registerIpc(): void {
       return { canceled: true };
     }
 
-    const migration = await migrateDatabaseToDirectory(result.filePaths[0], async () => {
+    const selection = await selectDatabaseDirectory(result.filePaths[0], async () => {
       const confirmation = await dialog.showMessageBox({
         type: "warning",
         buttons: ["继续", "取消"],
@@ -550,7 +550,7 @@ function registerIpc(): void {
       return confirmation.response === 0;
     });
     notifySettingsChanged();
-    return migration;
+    return selection;
   });
   ipcMain.handle("settings:use-existing-data-directory", async () => {
     const result = await dialog.showOpenDialog({

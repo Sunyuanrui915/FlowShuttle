@@ -993,13 +993,16 @@ function searchFieldLabel(value: string, t: Translator): string {
 }
 
 function dataDirectoryChangeMessage(operation: string | undefined, t: Translator): string {
+  if (operation === "created") {
+    return t("dataDirectoryCreateSuccess");
+  }
   if (operation === "switched") {
     return t("dataDirectorySwitchSuccess");
   }
   if (operation === "unchanged") {
     return t("dataDirectoryUnchanged");
   }
-  return t("dataDirectoryMigrateSuccess");
+  return t("dataDirectorySwitchSuccess");
 }
 
 function compactToastMessage(message: string): string {
@@ -1088,7 +1091,7 @@ function App() {
   const [appVersion, setAppVersion] = useState<string>("0.1.0");
   const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus | null>(null);
   const [settingsScrollTarget, setSettingsScrollTarget] = useState<string | null>(null);
-  const [isMigratingData, setIsMigratingData] = useState(false);
+  const [isChangingDataDirectory, setIsChangingDataDirectory] = useState(false);
   const [settingsBusyAction, setSettingsBusyAction] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<Toast | null>(null);
   const [projectForm, setProjectForm] = useState({ name: "", description: "" });
@@ -2402,22 +2405,22 @@ function App() {
     setSearchResults([]);
   };
 
-  const handleMigrateDataDirectory = async () => {
+  const handleChooseDataDirectory = async () => {
     const confirmed = await requestConfirm({
       title: t("dataDirectoryChangeConfirmTitle"),
       body: t("dataDirectoryChangeConfirmBody"),
-      primaryLabel: t("migrateDataDirectory"),
+      primaryLabel: t("chooseDataDirectory"),
       tone: "warning",
       calloutBody: t("dataDirectoryChangeConfirmNote")
     });
     if (!confirmed) {
       return;
     }
-    setIsMigratingData(true);
-    setSettingsBusyAction("migrate");
+    setIsChangingDataDirectory(true);
+    setSettingsBusyAction("data-directory");
     setSettingsMessage(null);
     try {
-      const result = await window.workJournal.settings.chooseAndMigrateDataDirectory();
+      const result = await window.workJournal.settings.chooseDataDirectory();
       if (!result.canceled) {
         if (result.settings) {
           setSettingsInfo(result.settings);
@@ -2429,11 +2432,11 @@ function App() {
         showToast({ kind: "success", message });
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : t("dataDirectoryMigrateFailed");
+      const message = error instanceof Error ? error.message : t("dataDirectoryChangeFailed");
       setSettingsMessage({ kind: "error", message });
       showToast({ kind: "error", message });
     } finally {
-      setIsMigratingData(false);
+      setIsChangingDataDirectory(false);
       setSettingsBusyAction(null);
     }
   };
@@ -2892,12 +2895,12 @@ function App() {
             t={t}
             message={settingsMessage}
             onToast={showToast}
-            isMigrating={isMigratingData}
+            isChangingDataDirectory={isChangingDataDirectory}
             busyAction={settingsBusyAction}
             onSetTheme={handleSetTheme}
             onSetLanguage={handleSetLanguage}
             onOpenDataDirectory={handleOpenDataDirectory}
-            onMigrateDataDirectory={handleMigrateDataDirectory}
+            onChooseDataDirectory={handleChooseDataDirectory}
             onReloadDataDirectory={handleReloadDataDirectory}
             onSaveAiSettings={handleSaveAiSettings}
             onClearAiKey={handleClearAiKey}
@@ -9347,7 +9350,7 @@ function SettingsPage({
   t,
   message,
   onToast,
-  isMigrating,
+  isChangingDataDirectory,
   busyAction,
   onSetTheme,
   onSetLanguage,
@@ -9355,7 +9358,7 @@ function SettingsPage({
   onClearAiKey,
   onTestAiConnection,
   onOpenDataDirectory,
-  onMigrateDataDirectory,
+  onChooseDataDirectory,
   onReloadDataDirectory,
   onOpenUserGuide
 }: {
@@ -9363,7 +9366,7 @@ function SettingsPage({
   t: Translator;
   message: Toast | null;
   onToast: (toast: Toast) => void;
-  isMigrating: boolean;
+  isChangingDataDirectory: boolean;
   busyAction: string | null;
   onSetTheme: (theme: ThemePreference) => void;
   onSetLanguage: (language: LanguagePreference) => void;
@@ -9374,7 +9377,7 @@ function SettingsPage({
   onClearAiKey: () => Promise<AiSettingsInfo>;
   onTestAiConnection: () => Promise<AiOperationResult>;
   onOpenDataDirectory: () => void;
-  onMigrateDataDirectory: () => void;
+  onChooseDataDirectory: () => void;
   onReloadDataDirectory: () => void;
   onOpenUserGuide: () => void;
 }) {
@@ -9862,11 +9865,11 @@ function SettingsPage({
                       <button
                         className="primary-button"
                         type="button"
-                        onClick={onMigrateDataDirectory}
-                        disabled={isMigrating || busyAction !== null}
+                        onClick={onChooseDataDirectory}
+                        disabled={isChangingDataDirectory || busyAction !== null}
                       >
                         <HardDrive size={17} />
-                        {isMigrating ? t("migrating") : t("migrateDataDirectory")}
+                        {isChangingDataDirectory ? t("changingDataDirectory") : t("chooseDataDirectory")}
                       </button>
                       <button
                         className="secondary-button"
@@ -9884,7 +9887,6 @@ function SettingsPage({
                     <div className="copy-guidance">
                       <strong>{t("copyGuidanceTitle")}</strong>
                       <p>{t("copyGuidanceSummary")}</p>
-                      <p>{t("copyGuidanceParagraphTwo")}</p>
                       <p>{t("copyGuidanceWarning")}</p>
                     </div>
                   )}
