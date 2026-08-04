@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.3.0 - 2026-08-04
+
+### Added
+
+* 新增日报、周报和月报的应用内编辑与保存能力，并在离开未保存内容时进行确认。
+* Added in-app editing and saving for daily, weekly, and monthly reports, with confirmation before leaving unsaved changes.
+* 新增编辑器背景切换，以及设置页版本信息展开区域。
+* Added editor backgrounds and an expandable version information section in Settings.
+
+### Improved
+
+* 全面更新 Today、项目、报告、热力图、归档与设置页面的视觉层级和多分辨率适配。
+* Refreshed the visual hierarchy and multi-resolution layout across Today, Projects, Reports, Heatmap, Archive, and Settings.
+* Today 页改用星座式工作项概览，并通过颜色、图标和动画区分已填写、阻碍与状态变化。
+* Reworked the Today overview as a constellation with color, icon, and motion feedback for filled items, blockers, and status changes.
+* 热力图改为统一的综合热度口径，通过星座图形和当天摘要呈现记录活跃程度。
+* Unified heatmap activity into one composite scale with constellation graphics and a selected-day summary.
+* 页签切换增加滑动反馈，状态选择菜单和常用提示样式同步优化。
+* Added sliding feedback for tab changes and refined status menus and common prompts.
+* 更新中英双语使用指南，使页面说明与当前界面和交互保持一致。
+* Updated the bilingual user guide to match the current interface and interactions.
+
 ## v0.2.3 - 2026-07-30
 
 ### Fixed

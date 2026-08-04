@@ -46,15 +46,21 @@
 
 ### 截图预览
 
-![Today 页面](./docs/assets/screenshots/v0.1.0/today.png)
+![Today 页面](./docs/assets/screenshots/v0.3.0/today.png)
 
-![项目详情与时间线](./docs/assets/screenshots/v0.1.0/project-detail.png)
+![项目列表](./docs/assets/screenshots/v0.3.0/projects.png)
 
-![报告档案库](./docs/assets/screenshots/v0.1.0/reports.png)
+![项目详情与时间线](./docs/assets/screenshots/v0.3.0/project-detail.png)
 
-![工作活跃度热力图](./docs/assets/screenshots/v0.1.0/heatmap.png)
+![工作项内容编辑](./docs/assets/screenshots/v0.3.0/work-item-editor.png)
 
-![设置与本地数据](./docs/assets/screenshots/v0.1.0/settings.png)
+![报告档案库](./docs/assets/screenshots/v0.3.0/reports.png)
+
+![星座式工作热力图](./docs/assets/screenshots/v0.3.0/heatmap.png)
+
+![归档项目](./docs/assets/screenshots/v0.3.0/archive.png)
+
+![设置与本地数据](./docs/assets/screenshots/v0.3.0/settings.png)
 
 ### 安装与使用
 
@@ -62,7 +68,7 @@
 
 [下载最新版本](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-当前版本为 `v0.2.3`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
+当前版本为 `v0.3.0`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
 
 Flow Shuttle 未进行代码签名，Windows 可能出现安全提示。如果只是日常使用流梭，不需要从源码运行项目。
 
@@ -137,15 +143,21 @@ Flow Shuttle is built to help connect each day’s work into a continuous thread
 
 ### Screenshots
 
-![Today](./docs/assets/screenshots/v0.1.0/today.png)
+![Today](./docs/assets/screenshots/v0.3.0/today.png)
 
-![Project detail and timeline](./docs/assets/screenshots/v0.1.0/project-detail.png)
+![Projects](./docs/assets/screenshots/v0.3.0/projects.png)
 
-![Reports](./docs/assets/screenshots/v0.1.0/reports.png)
+![Project detail and timeline](./docs/assets/screenshots/v0.3.0/project-detail.png)
 
-![Heatmap](./docs/assets/screenshots/v0.1.0/heatmap.png)
+![Work item editor](./docs/assets/screenshots/v0.3.0/work-item-editor.png)
 
-![Settings](./docs/assets/screenshots/v0.1.0/settings.png)
+![Reports](./docs/assets/screenshots/v0.3.0/reports.png)
+
+![Constellation heatmap](./docs/assets/screenshots/v0.3.0/heatmap.png)
+
+![Archived projects](./docs/assets/screenshots/v0.3.0/archive.png)
+
+![Settings](./docs/assets/screenshots/v0.3.0/settings.png)
 
 ### Installation And Usage
 
@@ -153,7 +165,7 @@ Regular users can download the Windows installer from GitHub Releases:
 
 [Download the latest version](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-The current version is `v0.2.3`. Flow Shuttle is still an early public release. It is local-first by default, does not require login, and does not upload your work content by itself.
+The current version is `v0.3.0`. Flow Shuttle is still an early public release. It is local-first by default, does not require login, and does not upload your work content by itself.
 
 Flow Shuttle is not code-signed yet, so Windows may show a security warning. If you only use Flow Shuttle day to day, you do not need to run the project from source.
 

@@ -6,6 +6,8 @@ export type LanguagePreference = "zh-CN" | "zh-TW" | "en";
 export type DailyJournalStatus = "draft" | "closed";
 export type DailyWorkItemStatus = "in_progress" | "done_today" | "paused";
 export type PeriodReportType = "weekly" | "monthly";
+export type ReportType = "daily" | PeriodReportType;
+export type ReportContentVersion = "rule" | "ai";
 export type SortMoveDirection = "up" | "down";
 export type AiProvider = "openai-compatible";
 export type AiRefinementMode = "standard";
@@ -559,6 +561,17 @@ export interface PeriodReportListItem {
   aiIsStale: boolean;
 }
 
+export interface SaveReportMarkdownInput {
+  reportId: string;
+  reportType: ReportType;
+  version: ReportContentVersion;
+  markdown: string;
+}
+
+export interface SaveReportMarkdownResult {
+  updatedAt: string;
+}
+
 export interface HeatmapDay {
   date: string;
   day: number;
@@ -621,6 +634,7 @@ export interface WorkJournalApi {
     downloadUpdate: () => Promise<AppUpdateStatus>;
     quitAndInstall: () => Promise<AppUpdateStatus>;
     openReleasePage: () => Promise<void>;
+    openRepositoryPage: () => Promise<void>;
     onStatus: (callback: (status: AppUpdateStatus) => void) => () => void;
     removeStatusListener: (callback: (status: AppUpdateStatus) => void) => void;
   };
@@ -694,6 +708,7 @@ export interface WorkJournalApi {
   reports: {
     listDaily: () => Promise<DailyReportListItem[]>;
     listPeriod: (type: PeriodReportType) => Promise<PeriodReportListItem[]>;
+    saveMarkdown: (input: SaveReportMarkdownInput) => Promise<SaveReportMarkdownResult>;
   };
   heatmap: {
     getMonthlyHeatmap: (year: number, month: number) => Promise<HeatmapMonth>;

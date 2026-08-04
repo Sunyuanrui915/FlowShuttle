@@ -49,6 +49,8 @@ import type {
   SaveMemoAttachmentInput,
   SaveMemoAttachmentResult,
   SaveProjectMemoInput,
+  SaveReportMarkdownInput,
+  SaveReportMarkdownResult,
   RestoreWorkItemHistoryResult,
   SettingsInfo,
   SearchResult,
@@ -2891,6 +2893,23 @@ export function generateDailyReport(journalDate: string): MarkdownPayload {
   }
 }
 
+export function hasGeneratedDailyReport(journalDate: string): boolean {
+  const row = database()
+    .prepare(
+      `
+      SELECT 1
+      FROM daily_journals
+      WHERE journal_date = ?
+        AND status = 'closed'
+        AND report_markdown IS NOT NULL
+        AND TRIM(report_markdown) <> ''
+      LIMIT 1
+      `
+    )
+    .get(journalDate);
+  return Boolean(row);
+}
+
 export function closeTodayJournal(): MarkdownPayload {
   return generateDailyReport(getLocalDateKey());
 }
@@ -3068,6 +3087,64 @@ export function listPeriodReports(type: PeriodReportType): PeriodReportListItem[
     aiModel: row.aiModel,
     aiIsStale: Boolean(row.aiSourceMarkdownHash && row.aiSourceMarkdownHash !== hashMarkdownContent(row.markdown))
   }));
+}
+
+export function saveReportMarkdown(input: SaveReportMarkdownInput): SaveReportMarkdownResult {
+  if (!input.markdown.trim()) {
+    throw new Error("Report content cannot be empty.");
+  }
+
+  const now = getTimestamp();
+  let changes = 0;
+
+  if (input.reportType === "daily") {
+    if (input.version !== "rule") {
+      throw new Error("Daily reports do not have an AI refinement version.");
+    }
+    changes = database()
+      .prepare(
+        `
+        UPDATE daily_journals
+        SET report_markdown = ?, updated_at = ?
+        WHERE id = ?
+          AND status = 'closed'
+        `
+      )
+      .run(input.markdown, now, input.reportId).changes;
+  } else if (input.reportType === "weekly" || input.reportType === "monthly") {
+    if (input.version === "rule") {
+      changes = database()
+        .prepare(
+          `
+          UPDATE period_reports
+          SET report_markdown = ?, updated_at = ?
+          WHERE id = ?
+            AND report_type = ?
+          `
+        )
+        .run(input.markdown, now, input.reportId, input.reportType).changes;
+    } else {
+      changes = database()
+        .prepare(
+          `
+          UPDATE ai_report_refinements
+          SET refined_markdown = ?, updated_at = ?
+          WHERE period_report_id = ?
+            AND report_type = ?
+            AND refinement_mode = 'standard'
+          `
+        )
+        .run(input.markdown, now, input.reportId, input.reportType).changes;
+    }
+  } else {
+    throw new Error("Invalid report type.");
+  }
+
+  if (changes !== 1) {
+    throw new Error("Report not found.");
+  }
+
+  return { updatedAt: now };
 }
 
 const testProjectPrefix = "[测试]";
