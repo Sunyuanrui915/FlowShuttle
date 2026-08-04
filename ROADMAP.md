@@ -6,9 +6,19 @@
 
 ### 已发布
 
-#### v0.2.3
+#### v0.3.0
 
 当前公开版本。本轮重点包含：
+
+* 对 Today、项目、报告、热力图、归档与设置页面进行全面 UI 升级，并完善多分辨率适配。
+* Today 页新增星座式工作项概览，通过星点、颜色和动画呈现已填写与阻碍状态。
+* 热力图改为统一的综合热度口径，通过星座图形呈现每天的记录活跃程度。
+* 日报、周报和月报支持在应用内编辑并保存，离开未保存内容时会进行确认。
+* 新增编辑器背景切换和设置页版本信息展开区域，并优化页签滑动、状态菜单与常用提示样式。
+
+#### v0.2.3
+
+上一公开版本。本轮重点包含：
 
 * 修复上一工作日参考将 Markdown 内部段落误显示为多条分隔线，并在复制时产生多余空行的问题。
 * 修复项目归档后未显示在归档页面的问题。
@@ -142,9 +152,19 @@
 
 ### Released
 
-#### v0.2.3
+#### v0.3.0
 
 Current public release. This iteration focuses on:
+
+* Delivered a comprehensive UI upgrade across Today, Projects, Reports, Heatmap, Archive, and Settings, with improved multi-resolution behavior.
+* Added a constellation-style Today overview with star, color, and motion feedback for filled items and blockers.
+* Unified heatmap activity into one composite scale and represented daily activity with constellation graphics.
+* Added in-app editing and saving for daily, weekly, and monthly reports, including an unsaved-change confirmation.
+* Added editor backgrounds and an expandable update section in Settings, and refined sliding tabs, status menus, and common prompts.
+
+#### v0.2.3
+
+Previous public release. This iteration focuses on:
 
 * Fixed previous workday references showing Markdown paragraphs as repeated separators and producing extra blank lines when copied.
 * Fixed archived projects not appearing on the Archive page.

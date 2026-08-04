@@ -19,6 +19,7 @@ import type {
   SaveWorkItemNoteAttachmentInput,
   SaveMemoAttachmentInput,
   SaveProjectMemoInput,
+  SaveReportMarkdownInput,
   SettingsInfo,
   ThemePreference,
   UpsertDailyWorkItemEntryInput,
@@ -44,6 +45,7 @@ const api: WorkJournalApi = {
     downloadUpdate: () => ipcRenderer.invoke("updates:download"),
     quitAndInstall: () => ipcRenderer.invoke("updates:quit-and-install"),
     openReleasePage: () => ipcRenderer.invoke("updates:open-release-page"),
+    openRepositoryPage: () => ipcRenderer.invoke("updates:open-repository-page"),
     onStatus: (callback: (status: AppUpdateStatus) => void) => {
       const existingListener = updateStatusListeners.get(callback);
       if (existingListener) {
@@ -159,7 +161,8 @@ const api: WorkJournalApi = {
   },
   reports: {
     listDaily: () => ipcRenderer.invoke("reports:list-daily"),
-    listPeriod: (type: PeriodReportType) => ipcRenderer.invoke("reports:list-period", type)
+    listPeriod: (type: PeriodReportType) => ipcRenderer.invoke("reports:list-period", type),
+    saveMarkdown: (input: SaveReportMarkdownInput) => ipcRenderer.invoke("reports:save-markdown", input)
   },
   heatmap: {
     getMonthlyHeatmap: (year: number, month: number) => ipcRenderer.invoke("heatmap:get-monthly", year, month)

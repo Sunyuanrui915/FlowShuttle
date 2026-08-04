@@ -15,6 +15,7 @@ import {
   deleteWorkItem,
   generateTodayMarkdown,
   generateDailyReport,
+  hasGeneratedDailyReport,
   getCurrentDataDirectory,
   getDailyJournal,
   getMonthlyHeatmap,
@@ -42,6 +43,7 @@ import {
   saveWorkItemNoteAttachment,
   saveProjectMemo,
   saveProjectMemoAttachment,
+  saveReportMarkdown,
   search,
   getWorkItemDeleteSummary,
   getOrCreateProjectMemo,
@@ -84,6 +86,7 @@ import type {
   SaveDailyEntryAttachmentInput,
   SaveWorkItemNoteAttachmentInput,
   SaveProjectMemoInput,
+  SaveReportMarkdownInput,
   DailyAutoReportEvent,
   DailyAutoReportRequestResult
 } from "../shared/types";
@@ -92,6 +95,7 @@ const appDisplayName = "Flow Shuttle";
 const userDataDirectoryName = "Flow Shuttle";
 const appUserModelId = "app.flowshuttle";
 const appIconRelativePath = join("assets", "icons", "flow-shuttle-icon.ico");
+const repositoryUrl = "https://github.com/Sunyuanrui915/FlowShuttle";
 const releasesLatestUrl = "https://github.com/Sunyuanrui915/FlowShuttle/releases/latest";
 const dailyAutoReportHour = 23;
 const dailyAutoReportMinute = 0;
@@ -176,7 +180,13 @@ function scheduleDailyAutoReport(now = new Date()): void {
     dailyAutoReportTimer = null;
     void (async () => {
       try {
+        if (hasGeneratedDailyReport(journalDate)) {
+          return;
+        }
         await requestRendererBeforeDailyAutoReport(journalDate);
+        if (hasGeneratedDailyReport(journalDate)) {
+          return;
+        }
         const payload = generateDailyReport(journalDate);
         sendDailyAutoReportEvent({ success: true, ...payload });
       } catch (error) {
@@ -231,7 +241,8 @@ function isAllowedExternalUrl(urlString: string): boolean {
     }
     if (
       url.hostname === "github.com" &&
-      (url.pathname === "/Sunyuanrui915/FlowShuttle/releases" ||
+      (url.pathname === "/Sunyuanrui915/FlowShuttle" ||
+        url.pathname === "/Sunyuanrui915/FlowShuttle/releases" ||
         url.pathname === "/Sunyuanrui915/FlowShuttle/releases/latest" ||
         url.pathname.startsWith("/Sunyuanrui915/FlowShuttle/releases/tag/"))
     ) {
@@ -361,6 +372,9 @@ function registerIpc(): void {
   ipcMain.handle("updates:open-release-page", async () => {
     await openAllowedExternalUrl(getReleaseDetailsUrl() ?? releasesLatestUrl);
   });
+  ipcMain.handle("updates:open-repository-page", async () => {
+    await openAllowedExternalUrl(repositoryUrl);
+  });
 
   ipcMain.handle("projects:list-active", () => listActiveProjects());
   ipcMain.handle("projects:list-archived", () => listArchivedProjects());
@@ -486,6 +500,7 @@ function registerIpc(): void {
   );
   ipcMain.handle("reports:list-daily", () => listDailyReports());
   ipcMain.handle("reports:list-period", (_event, type: PeriodReportType) => listPeriodReports(type));
+  ipcMain.handle("reports:save-markdown", (_event, input: SaveReportMarkdownInput) => saveReportMarkdown(input));
   ipcMain.handle("heatmap:get-monthly", (_event, year: number, month: number) => getMonthlyHeatmap(year, month));
 
   ipcMain.handle("settings:get", () => getSettingsInfo());

@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowUp,
   AlertTriangle,
+  Bell,
   BookOpenText,
   Bot,
   CalendarDays,
@@ -14,6 +15,8 @@ import {
   ChevronsRight,
   Clock3,
   Clipboard,
+  Circle,
+  Ellipsis,
   ExternalLink,
   FileDown,
   FileText,
@@ -21,10 +24,13 @@ import {
   FolderCog,
   FolderOpen,
   HardDrive,
+  Info,
+  Languages,
   RefreshCw,
   LayoutList,
   Monitor,
   Moon,
+  Orbit,
   PanelRightClose,
   PanelRightOpen,
   Plus,
@@ -33,15 +39,20 @@ import {
   Settings,
   Sparkles,
   SquarePen,
+  Star,
+  StickyNote,
   Sun,
   Trash2,
   Undo2,
+  Wallpaper,
+  Waypoints,
   X
 } from "lucide-react";
 import {
   FormEvent,
   KeyboardEvent,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -49,7 +60,11 @@ import {
   type CSSProperties,
   type ReactNode
 } from "react";
+import { createPortal } from "react-dom";
 import { countTextMetricCharacters } from "../../shared/textMetrics";
+import editorPaperCloudMist from "./assets/editor-paper/cloud-mist.webp";
+import editorPaperForestWhisper from "./assets/editor-paper/forest-whisper.webp";
+import editorPaperNightVoyage from "./assets/editor-paper/night-voyage.webp";
 import userGuideEn from "./content/user-guide.en.md?raw";
 import userGuideZhCn from "./content/user-guide.zh-CN.md?raw";
 import { createTranslator, languageOptions, type Translator } from "./i18n";
@@ -84,6 +99,7 @@ import type {
   DailyReportListItem,
   DailyWorkItemBlock,
   DailyWorkItemStatus,
+  EffectiveTheme,
   HeatmapDay,
   HeatmapMonth,
   PeriodReportType,
@@ -110,6 +126,29 @@ type UserGuideReturnView = Exclude<View, "user-guide">;
 type ReportTab = "daily" | "weekly" | "monthly";
 type ProjectWorkItemTab = "active" | "completed";
 type ReportTimeFilter = "all" | "today" | "last7" | "last30" | "thisMonth" | "lastMonth";
+type EditorWallpaper = "clean" | "cloud" | "forest" | "night";
+
+const EDITOR_WALLPAPER_STORAGE_KEY = "flow-shuttle:editor-wallpaper";
+const EDITOR_WALLPAPER_OPTIONS: readonly EditorWallpaper[] = ["clean", "cloud", "forest", "night"];
+
+function readEditorWallpaperPreference(): EditorWallpaper {
+  if (typeof window === "undefined") {
+    return "cloud";
+  }
+  try {
+    const stored = window.localStorage.getItem(EDITOR_WALLPAPER_STORAGE_KEY);
+    if (stored === "flow") {
+      return "cloud";
+    }
+    if (stored === "orbit") {
+      return "night";
+    }
+    return EDITOR_WALLPAPER_OPTIONS.includes(stored as EditorWallpaper) ? (stored as EditorWallpaper) : "cloud";
+  } catch {
+    return "cloud";
+  }
+}
+
 type ReportItem = MarkdownPayload & {
   id: string;
   reportKind: "daily" | "weekly" | "monthly";
@@ -146,6 +185,29 @@ interface DailyEntryForm {
 
 interface DailyEntryEditorTarget {
   journalDate: string;
+  projectId: string;
+  workItemId: string;
+}
+
+interface TodayVisualPulse {
+  id: number;
+  journalDate: string;
+  projectId: string;
+  workItemId: string;
+}
+
+type TodayConstellationTransitionKind = "exit" | "enter";
+
+interface TodayConstellationTransition {
+  id: number;
+  journalDate: string;
+  projectId: string;
+  workItemId: string;
+  kind: TodayConstellationTransitionKind;
+  node: TodayConstellationNode | null;
+}
+
+interface TodayConstellationRefreshTarget {
   projectId: string;
   workItemId: string;
 }
@@ -242,6 +304,54 @@ function handleSegmentedKeyDown<T extends string>(
       .find((button) => button.dataset.tabId === nextItem)
       ?.focus();
   });
+}
+
+function SlidingTabIndicator({ activeItem }: { activeItem: string }) {
+  const indicatorRef = useRef<HTMLSpanElement | null>(null);
+
+  useLayoutEffect(() => {
+    const indicator = indicatorRef.current;
+    const tablist = indicator?.parentElement;
+    if (!indicator || !tablist) {
+      return;
+    }
+
+    let readyFrame = 0;
+    const buttons = Array.from(tablist.querySelectorAll<HTMLButtonElement>("button[data-tab-id]"));
+    const updateIndicator = () => {
+      const activeButton = buttons.find((button) => button.dataset.tabId === activeItem);
+      if (!activeButton) {
+        indicator.style.opacity = "0";
+        return;
+      }
+
+      const tablistRect = tablist.getBoundingClientRect();
+      const buttonRect = activeButton.getBoundingClientRect();
+      indicator.style.setProperty("--sliding-tab-x", `${buttonRect.left - tablistRect.left + tablist.scrollLeft}px`);
+      indicator.style.setProperty("--sliding-tab-y", `${buttonRect.top - tablistRect.top + tablist.scrollTop}px`);
+      indicator.style.setProperty("--sliding-tab-width", `${buttonRect.width}px`);
+      indicator.style.setProperty("--sliding-tab-height", `${buttonRect.height}px`);
+      indicator.style.opacity = "1";
+
+      if (indicator.dataset.ready !== "true") {
+        readyFrame = window.requestAnimationFrame(() => {
+          indicator.dataset.ready = "true";
+        });
+      }
+    };
+
+    updateIndicator();
+    const resizeObserver = new ResizeObserver(updateIndicator);
+    resizeObserver.observe(tablist);
+    buttons.forEach((button) => resizeObserver.observe(button));
+
+    return () => {
+      window.cancelAnimationFrame(readyFrame);
+      resizeObserver.disconnect();
+    };
+  }, [activeItem]);
+
+  return <span ref={indicatorRef} className="sliding-tab-indicator" role="presentation" aria-hidden="true" />;
 }
 
 interface PendingConfirm extends AppConfirmOptions {
@@ -476,6 +586,30 @@ function todayBlocks(dailyView: DailyJournalView): DailyWorkItemBlock[] {
   return dailyView.groups.flatMap((group) => group.items);
 }
 
+function findDailyWorkItemBlock(
+  dailyView: DailyJournalView | null,
+  workItemId: string
+): DailyWorkItemBlock | null {
+  return dailyView ? todayBlocks(dailyView).find((block) => block.workItem.id === workItemId) ?? null : null;
+}
+
+function blockAppearsInTodayConstellation(block: DailyWorkItemBlock): boolean {
+  return block.workItem.status !== "done" && block.entry?.status_for_today !== "done_today";
+}
+
+function workItemStatusAfterDailyEntrySave(
+  block: DailyWorkItemBlock,
+  entry: DailyWorkItemEntry | null
+): WorkItemStatus {
+  if (entry?.status_for_today === "done_today") {
+    return "done";
+  }
+  if (block.entry?.status_for_today === "done_today" && block.workItem.status === "done") {
+    return "active";
+  }
+  return block.workItem.status;
+}
+
 function dailyEntryCountsAsFilled(entry: DailyWorkItemEntry | null | undefined): boolean {
   return Boolean(
     entry &&
@@ -572,7 +706,8 @@ function updateDailyViewAfterEntrySave(
   dailyView: DailyJournalView,
   workItemId: string,
   entry: DailyWorkItemEntry | null,
-  workItemNote: WorkItemNote
+  workItemNote: WorkItemNote,
+  workItemStatus?: WorkItemStatus
 ): DailyJournalView {
   const groups = dailyView.groups.map((group) => ({
     ...group,
@@ -580,6 +715,12 @@ function updateDailyViewAfterEntrySave(
       item.workItem.id === workItemId
         ? {
             ...item,
+            workItem: workItemStatus
+              ? {
+                  ...item.workItem,
+                  status: workItemStatus
+                }
+              : item.workItem,
             entry,
             workItemNote
           }
@@ -652,6 +793,23 @@ function buildTodayReminders(dailyView: DailyJournalView, t: Translator, languag
   return reminders.slice(0, 3);
 }
 
+function normalizeGeneratedWhitespace(value: string): string {
+  return value
+    .replace(/&amp;(?:nbsp|#0*160|#x0*a0);/gi, " ")
+    .replace(/&(?:nbsp|#0*160|#x0*a0);/gi, " ")
+    .replace(/\u00a0/g, " ");
+}
+
+function sanitizeGeneratedChangeDraft(value: string): string {
+  return normalizeGeneratedWhitespace(value)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[ \t]+$/g, ""))
+    .filter((line) => !/^\s*(?:[-*+]|\d+[.)])(?:\s+\[[ xX]\])?\s*$/.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function markdownDiffBlocks(value: string): string[] {
   const blocks: string[] = [];
   let paragraph: string[] = [];
@@ -661,7 +819,7 @@ function markdownDiffBlocks(value: string): string[] {
       paragraph = [];
     }
   };
-  for (const rawLine of value.split(/\r?\n/)) {
+  for (const rawLine of normalizeGeneratedWhitespace(value).split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) {
       flush();
@@ -902,6 +1060,9 @@ function App() {
   const [heatmapData, setHeatmapData] = useState<HeatmapMonth | null>(null);
   const [todayHeatmapData, setTodayHeatmapData] = useState<HeatmapMonth | null>(null);
   const [todayHeatmapFailed, setTodayHeatmapFailed] = useState(false);
+  const [todayVisualPulse, setTodayVisualPulse] = useState<TodayVisualPulse | null>(null);
+  const [todayConstellationTransition, setTodayConstellationTransition] =
+    useState<TodayConstellationTransition | null>(null);
   const [selectedHeatmapDate, setSelectedHeatmapDate] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [projectDetailReturnView, setProjectDetailReturnView] = useState<"projects" | "archive">("projects");
@@ -943,6 +1104,7 @@ function App() {
   } | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  const [hasUnsavedReportChanges, setHasUnsavedReportChanges] = useState(false);
   const confirmResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
   const currentEditorSaveRef = useRef<(options?: EditorSaveOptions) => Promise<boolean>>(async () => false);
   const currentViewRef = useRef<View>(view);
@@ -954,6 +1116,8 @@ function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
   const todayScrollPositionsRef = useRef<Record<string, number>>({});
   const pendingTodayScrollRestoreKeyRef = useRef<string | null>(null);
+  const todayConstellationTransitionSequenceRef = useRef(0);
+  const todayConstellationTransitionRef = useRef<TodayConstellationTransition | null>(null);
   const language = settingsInfo?.language ?? "zh-CN";
   const effectiveTheme = settingsInfo?.effectiveTheme ?? "light";
   const t = useMemo(() => createTranslator(language), [language]);
@@ -961,6 +1125,46 @@ function App() {
   const showToast = (toastValue: Toast) => {
     setToast({ ...toastValue, message: compactToastMessage(toastValue.message) });
     window.setTimeout(() => setToast(null), 2600);
+  };
+
+  const queueTodayConstellationTransition = (
+    kind: TodayConstellationTransitionKind,
+    journalDate: string,
+    projectId: string,
+    workItemId: string,
+    node: TodayConstellationNode | null
+  ) => {
+    todayConstellationTransitionSequenceRef.current += 1;
+    const nextTransition: TodayConstellationTransition = {
+      id: todayConstellationTransitionSequenceRef.current,
+      journalDate,
+      projectId,
+      workItemId,
+      kind,
+      node
+    };
+    todayConstellationTransitionRef.current = nextTransition;
+    setTodayVisualPulse(null);
+    setTodayConstellationTransition(nextTransition);
+  };
+
+  const queueTodayVisualPulse = (pulse: TodayVisualPulse) => {
+    if (todayConstellationTransitionRef.current) {
+      return;
+    }
+    setTodayVisualPulse(pulse);
+  };
+
+  const handleTodayConstellationTransitionComplete = (transitionId: number) => {
+    setTodayConstellationTransition((current) => {
+      if (current?.id !== transitionId) {
+        return current;
+      }
+      if (todayConstellationTransitionRef.current?.id === transitionId) {
+        todayConstellationTransitionRef.current = null;
+      }
+      return null;
+    });
   };
 
   useEffect(() => {
@@ -1020,8 +1224,27 @@ function App() {
     }
   };
 
-  const loadToday = async () => {
+  const loadToday = async (constellationTarget?: TodayConstellationRefreshTarget) => {
+    const previousDailyView = dailyViewRef.current;
     const nextDailyView = await window.workJournal.daily.getTodayJournal();
+    if (constellationTarget && previousDailyView?.journalDate === nextDailyView.journalDate) {
+      const previousBlock = findDailyWorkItemBlock(previousDailyView, constellationTarget.workItemId);
+      const nextBlock = findDailyWorkItemBlock(nextDailyView, constellationTarget.workItemId);
+      const wasVisible = previousBlock ? blockAppearsInTodayConstellation(previousBlock) : false;
+      const isVisible = nextBlock ? blockAppearsInTodayConstellation(nextBlock) : false;
+
+      if (wasVisible !== isVisible) {
+        const kind: TodayConstellationTransitionKind = isVisible ? "enter" : "exit";
+        queueTodayConstellationTransition(
+          kind,
+          nextDailyView.journalDate,
+          nextBlock?.project.id ?? previousBlock?.project.id ?? constellationTarget.projectId,
+          constellationTarget.workItemId,
+          findTodayConstellationNode(kind === "enter" ? nextDailyView : previousDailyView, constellationTarget.workItemId)
+        );
+      }
+    }
+    dailyViewRef.current = nextDailyView;
     setDailyView(nextDailyView);
     void loadTodayHeatmap(nextDailyView.journalDate);
     setDailyForms(() => {
@@ -1120,8 +1343,11 @@ function App() {
     return settings;
   };
 
-  const refreshActiveView = async (projectId: string | null = selectedProjectId) => {
-    await Promise.all([loadToday(), loadProjects(), loadReports(), loadHeatmap()]);
+  const refreshActiveView = async (
+    projectId: string | null = selectedProjectId,
+    constellationTarget?: TodayConstellationRefreshTarget
+  ) => {
+    await Promise.all([loadToday(constellationTarget), loadProjects(), loadReports(), loadHeatmap()]);
     if (projectId) {
       await loadDetail(projectId);
     }
@@ -1590,15 +1816,16 @@ function App() {
     if (!detail) {
       return;
     }
+    const projectId = detail.project.id;
     try {
-      await window.workJournal.workItems.create({
-        projectId: detail.project.id,
+      const workItem = await window.workJournal.workItems.create({
+        projectId,
         title: workItemForm.title,
         description: workItemForm.description
       });
       setWorkItemForm({ title: "", description: "" });
       setNewWorkItemOpen(false);
-      await refreshActiveView();
+      await refreshActiveView(projectId, { projectId, workItemId: workItem.id });
       showToast({ kind: "success", message: t("workItemCreateSuccess") });
     } catch (error) {
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("workItemCreateFailed") });
@@ -1611,9 +1838,10 @@ function App() {
       showToast({ kind: "error", message: t("chooseProjectFirst") });
       return;
     }
+    const projectId = quickForm.projectId;
     try {
       const workItem = await window.workJournal.workItems.create({
-        projectId: quickForm.projectId,
+        projectId,
         title: quickWorkItemForm.title,
         description: quickWorkItemForm.description
       });
@@ -1623,7 +1851,7 @@ function App() {
         ...current,
         workItemId: workItem.id
       }));
-      await refreshActiveView();
+      await refreshActiveView(selectedProjectId, { projectId, workItemId: workItem.id });
       showToast({ kind: "success", message: t("workItemCreateSelectedSuccess") });
     } catch (error) {
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("workItemCreateFailed") });
@@ -1631,9 +1859,13 @@ function App() {
   };
 
   const handleCompleteWorkItem = async (id: string) => {
+    const projectId = detail?.project.id ?? findDailyWorkItemBlock(dailyViewRef.current, id)?.project.id ?? null;
     try {
       await window.workJournal.workItems.complete(id);
-      await refreshActiveView();
+      await refreshActiveView(
+        selectedProjectId,
+        projectId ? { projectId, workItemId: id } : undefined
+      );
       showToast({ kind: "success", message: t("workItemCompleteSuccess") });
     } catch (error) {
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("workItemCompleteFailed") });
@@ -1654,18 +1886,19 @@ function App() {
     if (!editWorkItemTarget) {
       return;
     }
+    const target = editWorkItemTarget;
     const shouldRefreshArchivedProjects =
-      detail?.project.status === "archived" && detail.project.id === editWorkItemTarget.project_id;
+      detail?.project.status === "archived" && detail.project.id === target.project_id;
     try {
       await window.workJournal.workItems.update({
-        id: editWorkItemTarget.id,
+        id: target.id,
         title: workItemForm.title,
         description: workItemForm.description,
         status: workItemEditStatus
       });
       setEditWorkItemTarget(null);
       await Promise.all([
-        refreshActiveView(),
+        refreshActiveView(selectedProjectId, { projectId: target.project_id, workItemId: target.id }),
         shouldRefreshArchivedProjects ? loadArchivedProjects() : Promise.resolve()
       ]);
       showToast({ kind: "success", message: t("workItemUpdateSuccess") });
@@ -1743,9 +1976,15 @@ function App() {
       showToast({ kind: "error", message: t("fillProgressRequired") });
       return;
     }
+    const journalDate = dailyView?.journalDate ?? getLocalDateKey();
+    const previousBlock = findDailyWorkItemBlock(dailyView, quickForm.workItemId);
+    const wasVisible = previousBlock ? blockAppearsInTodayConstellation(previousBlock) : false;
+    const exitNode = previousBlock && wasVisible
+      ? findTodayConstellationNode(dailyView, quickForm.workItemId)
+      : null;
     try {
-      await window.workJournal.daily.upsertWorkItemEntry({
-        journalDate: dailyView?.journalDate ?? "",
+      const result = await window.workJournal.daily.upsertWorkItemEntry({
+        journalDate,
         projectId: quickForm.projectId,
         workItemId: quickForm.workItemId,
         todayProgress: quickForm.content,
@@ -1759,7 +1998,52 @@ function App() {
         nextStep: "",
         blocker: ""
       }));
+      const nextWorkItemStatus = previousBlock
+        ? workItemStatusAfterDailyEntrySave(previousBlock, result.entry)
+        : null;
+      const nextBlock = previousBlock
+        ? {
+            ...previousBlock,
+            workItem: {
+              ...previousBlock.workItem,
+              status: nextWorkItemStatus ?? previousBlock.workItem.status
+            },
+            entry: result.entry
+          }
+        : null;
+      const isVisible = nextBlock ? blockAppearsInTodayConstellation(nextBlock) : false;
+      const constellationTransitionKind: TodayConstellationTransitionKind | null =
+        previousBlock && wasVisible !== isVisible ? (isVisible ? "enter" : "exit") : null;
+      const nextDailyView = previousBlock && dailyView
+        ? updateDailyViewAfterEntrySave(
+            dailyView,
+            quickForm.workItemId,
+            result.entry,
+            previousBlock.workItemNote,
+            nextWorkItemStatus ?? undefined
+          )
+        : null;
+      const enterNode = constellationTransitionKind === "enter"
+        ? findTodayConstellationNode(nextDailyView, quickForm.workItemId)
+        : null;
+      if (constellationTransitionKind) {
+        queueTodayConstellationTransition(
+          constellationTransitionKind,
+          journalDate,
+          quickForm.projectId,
+          quickForm.workItemId,
+          constellationTransitionKind === "exit" ? exitNode : enterNode
+        );
+      }
       await refreshActiveView();
+      if (!constellationTransitionKind) {
+        queueTodayVisualPulse({
+          id: Date.now(),
+          journalDate,
+          projectId: quickForm.projectId,
+          workItemId: quickForm.workItemId
+        });
+      }
       showToast({ kind: "success", message: t("progressSaveSuccess") });
     } catch (error) {
       showToast({ kind: "error", message: error instanceof Error ? error.message : t("progressSaveFailed") });
@@ -1808,6 +2092,8 @@ function App() {
     const payloadDailyForm = dailyFormPayloadForBlock(block, form);
     const hasDailyContent = dailyFormHasMeaningfulDailyContent(payloadDailyForm);
     const dailyChanged = Boolean(block.entry) ? storedDailyChanged : displayDailyChanged && hasDailyContent;
+    const wasVisible = blockAppearsInTodayConstellation(block);
+    const exitNode = wasVisible ? findTodayConstellationNode(dailyView, block.workItem.id) : null;
 
     if (!dailyChanged && !noteChanged) {
       if (options.skipUnchanged) {
@@ -1839,9 +2125,47 @@ function App() {
         statusForToday: payloadDailyForm.statusForToday,
         workItemNoteContentMarkdown: form.workItemNoteContent
       });
+      const nextWorkItemStatus = workItemStatusAfterDailyEntrySave(block, result.entry);
+      const nextBlock = {
+        ...block,
+        workItem: {
+          ...block.workItem,
+          status: nextWorkItemStatus
+        },
+        entry: result.entry,
+        workItemNote: result.workItemNote
+      };
+      const isVisible = blockAppearsInTodayConstellation(nextBlock);
+      const constellationTransitionKind: TodayConstellationTransitionKind | null =
+        wasVisible === isVisible ? null : isVisible ? "enter" : "exit";
+      const nextDailyView = updateDailyViewAfterEntrySave(
+        dailyView,
+        block.workItem.id,
+        result.entry,
+        result.workItemNote,
+        nextWorkItemStatus
+      );
+      const enterNode = constellationTransitionKind === "enter"
+        ? findTodayConstellationNode(nextDailyView, block.workItem.id)
+        : null;
+      if (constellationTransitionKind) {
+        queueTodayConstellationTransition(
+          constellationTransitionKind,
+          dailyView.journalDate,
+          block.project.id,
+          block.workItem.id,
+          constellationTransitionKind === "exit" ? exitNode : enterNode
+        );
+      }
       setDailyView((current) =>
         current && current.journalDate === dailyView.journalDate
-          ? updateDailyViewAfterEntrySave(current, block.workItem.id, result.entry, result.workItemNote)
+          ? updateDailyViewAfterEntrySave(
+              current,
+              block.workItem.id,
+              result.entry,
+              result.workItemNote,
+              nextWorkItemStatus
+            )
           : current
       );
       const nextForm = result.entry
@@ -1861,6 +2185,14 @@ function App() {
       updateDailyForm(block.workItem.id, nextForm);
       if (options.refresh ?? true) {
         await refreshActiveView();
+      }
+      if (!constellationTransitionKind && dailyChanged) {
+        queueTodayVisualPulse({
+          id: Date.now(),
+          journalDate: dailyView.journalDate,
+          projectId: block.project.id,
+          workItemId: block.workItem.id
+        });
       }
       if (options.showSuccess ?? true) {
         showToast({ kind: "success", message: t("dailyEntrySaveSuccess") });
@@ -2208,6 +2540,30 @@ function App() {
     { id: "archive" as View, label: t("navArchive"), icon: Archive },
     { id: "settings" as View, label: t("navSettings"), icon: Settings }
   ];
+  const handlePrimaryNavigation = async (targetView: View) => {
+    if (targetView === view) {
+      return;
+    }
+    if (view === "reports" && hasUnsavedReportChanges) {
+      const confirmed = await requestConfirm({
+        title: t("discardReportChangesTitle"),
+        body: t("discardReportChangesBody"),
+        primaryLabel: t("discardChanges"),
+        secondaryLabel: t("continueEditing"),
+        tone: "warning"
+      });
+      if (!confirmed) {
+        return;
+      }
+      setHasUnsavedReportChanges(false);
+    }
+    if (targetView === "today") {
+      loadToday().catch((error) =>
+        showToast({ kind: "error", message: error instanceof Error ? error.message : t("loadFailed") })
+      );
+    }
+    setView(targetView);
+  };
   const shouldShowQuickProgressPanel = false;
   const quickCollapsed = view === "project-detail" ? detailQuickCollapsed : todayQuickCollapsed;
   const setQuickCollapsed = view === "project-detail" ? setDetailQuickCollapsed : setTodayQuickCollapsed;
@@ -2317,9 +2673,14 @@ function App() {
   return (
     <div className={appShellClassName} spellCheck={false}>
       <aside className="sidebar">
-        <div className="brand">
-          <BookOpenText size={22} />
-          <span>{t("appName")}</span>
+        <div className="brand" aria-label={t("appFullName")}>
+          <span className="brand-mark" aria-hidden="true">
+            <Waypoints size={22} strokeWidth={1.8} />
+          </span>
+          <span className="brand-lockup" aria-hidden="true">
+            <span className="brand-name">流梭</span>
+            <span className="brand-subtitle">Flow Shuttle</span>
+          </span>
         </div>
         <nav className="side-nav" aria-label={t("navAria")}>
           {navItems.map((item) => (
@@ -2334,14 +2695,7 @@ function App() {
               }`}
               key={item.id}
               type="button"
-              onClick={() => {
-                if (item.id === "today") {
-                  loadToday().catch((error) =>
-                    showToast({ kind: "error", message: error instanceof Error ? error.message : t("loadFailed") })
-                  );
-                }
-                setView(item.id);
-              }}
+              onClick={() => void handlePrimaryNavigation(item.id)}
             >
               <item.icon size={19} />
               <span>{item.label}</span>
@@ -2368,13 +2722,21 @@ function App() {
       </aside>
 
       <main ref={workspaceRef} className={`workspace ${view === "daily-entry-editor" || view === "project-memo" ? "workspace-focus" : ""}`}>
+        {view !== "daily-entry-editor" && view !== "project-memo" && (
+          <WorkspaceAmbientField view={view} theme={effectiveTheme} />
+        )}
         {view === "today" && dailyView && (
           <TodayPage
             dailyView={dailyView}
             heatmapData={todayHeatmapData}
             heatmapFailed={todayHeatmapFailed}
             language={language}
+            theme={effectiveTheme}
             t={t}
+            visualPulse={todayVisualPulse}
+            onVisualPulseHandled={() => setTodayVisualPulse(null)}
+            constellationTransition={todayConstellationTransition}
+            onConstellationTransitionHandled={handleTodayConstellationTransitionComplete}
             searchTerm={searchTerm}
             searchResults={searchResults}
             isSearching={isSearching}
@@ -2445,11 +2807,14 @@ function App() {
             onSelectMonthlyReport={setSelectedMonthlyReportId}
             t={t}
             language={language}
+            theme={effectiveTheme}
             aiSettings={settingsInfo?.ai ?? null}
             onCopy={copyMarkdownPayload}
             onExport={exportMarkdownPayload}
             onReportsChanged={loadReports}
             onToast={showToast}
+            onConfirm={requestConfirm}
+            onUnsavedChangesChange={setHasUnsavedReportChanges}
           />
         )}
         {view === "heatmap" && heatmapData && (
@@ -2478,7 +2843,6 @@ function App() {
             backLabel={t(projectDetailReturnView === "archive" ? "detailBackToArchive" : "detailBackToProjects")}
             onBack={() => setView(projectDetailReturnView)}
             onRecordProgress={(projectId, workItemId) => openDailyEntryEditor(projectId, workItemId, undefined, "project-detail")}
-            onMoveProject={(direction) => handleMoveProject(detail.project.id, direction)}
             onComplete={handleCompleteWorkItem}
             onEditWorkItem={openEditWorkItem}
             onMoveWorkItem={handleMoveWorkItem}
@@ -2527,6 +2891,7 @@ function App() {
             settings={settingsInfo}
             t={t}
             message={settingsMessage}
+            onToast={showToast}
             isMigrating={isMigratingData}
             busyAction={settingsBusyAction}
             onSetTheme={handleSetTheme}
@@ -2856,7 +3221,6 @@ function App() {
           tone="danger"
           objectName={detail.project.name}
           calloutTitle={t("deleteCannotUndo")}
-          t={t}
           onCancel={() => setProjectDeleteSummary(null)}
           onConfirm={handleConfirmDeleteProject}
         >
@@ -2882,7 +3246,6 @@ function App() {
           tone="danger"
           objectName={workItemDeleteTarget.item.title}
           calloutTitle={t("deleteCannotUndo")}
-          t={t}
           onCancel={() => setWorkItemDeleteTarget(null)}
           onConfirm={handleConfirmDeleteWorkItem}
         >
@@ -2906,7 +3269,6 @@ function App() {
           objectName={pendingConfirm.objectName}
           calloutTitle={pendingConfirm.calloutTitle}
           calloutBody={pendingConfirm.calloutBody}
-          t={t}
           onCancel={() => resolveConfirm(false)}
           onConfirm={() => resolveConfirm(true)}
         />
@@ -3092,11 +3454,17 @@ function HoverTooltip({
   as: Tag = "span",
   content,
   className = "",
+  showWhen = "truncated",
+  focusable = true,
+  align = "start",
   children
 }: {
   as?: TooltipTag;
   content?: string | null;
   className?: string;
+  showWhen?: "truncated" | "always";
+  focusable?: boolean;
+  align?: "start" | "center";
   children: ReactNode;
 }) {
   const [position, setPosition] = useState<{
@@ -3155,7 +3523,7 @@ function HoverTooltip({
   }, [position, text]);
 
   const openTooltip = (element: HTMLElement) => {
-    if (!text || !hasTruncatedContent(element)) {
+    if (!text || (showWhen === "truncated" && !hasTruncatedContent(element))) {
       setPosition(null);
       return;
     }
@@ -3163,7 +3531,10 @@ function HoverTooltip({
     const margin = 16;
     const maxWidth = Math.min(560, window.innerWidth - margin * 2);
     const rect = element.getBoundingClientRect();
-    const x = Math.min(Math.max(rect.left, margin), window.innerWidth - maxWidth - margin);
+    const x =
+      align === "center"
+        ? rect.left + rect.width / 2
+        : Math.min(Math.max(rect.left, margin), window.innerWidth - maxWidth - margin);
     const placement = rect.top > window.innerHeight - rect.bottom ? "top" : "bottom";
     const y = placement === "top" ? rect.top - 8 : rect.bottom + 8;
     setPosition({ x, y, placement, maxWidth });
@@ -3182,7 +3553,7 @@ function HoverTooltip({
   return (
     <Tag
       className={["hover-tooltip-trigger", className].filter(Boolean).join(" ")}
-      tabIndex={text ? 0 : undefined}
+      tabIndex={text && focusable ? 0 : undefined}
       onMouseEnter={(event) => openTooltip(event.currentTarget)}
       onMouseLeave={closeTooltip}
       onFocus={(event) => openTooltip(event.currentTarget)}
@@ -3194,11 +3565,19 @@ function HoverTooltip({
       }}
     >
       {children}
-      {text && position && (
-        <span ref={tooltipRef} className={`floating-tooltip ${position.placement}`} role="tooltip" style={tooltipStyle}>
-          {text}
-        </span>
-      )}
+      {text && position && typeof document !== "undefined"
+        ? createPortal(
+            <span
+              ref={tooltipRef}
+              className={`floating-tooltip ${position.placement} align-${align}`}
+              role="tooltip"
+              style={tooltipStyle}
+            >
+              {text}
+            </span>,
+            document.body
+          )
+        : null}
     </Tag>
   );
 }
@@ -3411,6 +3790,10 @@ function ReadableMarkdownImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
+function unescapeReadableMarkdownText(value: string): string {
+  return value.replace(/\\([\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E])/g, "$1");
+}
+
 function ReadableMarkdown({ content, compact = false }: { content: string; compact?: boolean }) {
   const readableContent = compact ? normalizeReferenceMarkdownSpacing(content) : content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const lines = readableContent.split("\n");
@@ -3458,14 +3841,19 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
       return;
     }
 
-    const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed);
+    const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed);
     if (heading) {
-      if (heading[1].length === 1) {
-        elements.push(<h2 key={`heading-${index}`}>{heading[2]}</h2>);
-      } else if (heading[1].length === 2) {
-        elements.push(<h3 key={`heading-${index}`}>{heading[2]}</h3>);
+      const headingLevel = heading[1].length;
+      if (headingLevel === 1) {
+        elements.push(<h2 key={`heading-${index}`}>{unescapeReadableMarkdownText(heading[2])}</h2>);
+      } else if (headingLevel === 2) {
+        elements.push(<h3 key={`heading-${index}`}>{unescapeReadableMarkdownText(heading[2])}</h3>);
       } else {
-        elements.push(<h4 key={`heading-${index}`}>{heading[2]}</h4>);
+        elements.push(
+          <h4 className={`readable-markdown-heading-level-${headingLevel}`} key={`heading-${index}`}>
+            {unescapeReadableMarkdownText(heading[2])}
+          </h4>
+        );
       }
       return;
     }
@@ -3475,7 +3863,7 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
       elements.push(
         <p className="readable-markdown-list-line" key={`list-${index}`}>
           <span aria-hidden="true">•</span>
-          <span>{unordered[1]}</span>
+          <span>{unescapeReadableMarkdownText(unordered[1])}</span>
         </p>
       );
       return;
@@ -3486,7 +3874,7 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
       elements.push(
         <p className="readable-markdown-list-line" key={`ordered-${index}`}>
           <span>{ordered[1]}.</span>
-          <span>{ordered[2]}</span>
+          <span>{unescapeReadableMarkdownText(ordered[2])}</span>
         </p>
       );
       return;
@@ -3494,7 +3882,7 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
 
     elements.push(
       <p className="readable-markdown-paragraph" key={`paragraph-${index}`}>
-        {line}
+        {unescapeReadableMarkdownText(line)}
       </p>
     );
   });
@@ -3510,12 +3898,216 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
   );
 }
 
+const PROJECT_VISUAL_TONES = ["cobalt", "cyan", "teal", "emerald", "amber", "coral", "rose", "violet"] as const;
+
+function projectVisualTone(projectId: string): (typeof PROJECT_VISUAL_TONES)[number] {
+  let hash = 2166136261;
+  for (const character of projectId) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return PROJECT_VISUAL_TONES[(hash >>> 0) % PROJECT_VISUAL_TONES.length];
+}
+
+function ProjectIdentityMark({
+  projectId,
+  large = false,
+  className = ""
+}: {
+  projectId: string;
+  large?: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`project-identity-mark${large ? " large" : ""} ${projectVisualTone(projectId)} ${className}`.trim()}
+      aria-hidden="true"
+    >
+      <Orbit size={large ? 22 : 18} strokeWidth={1.8} />
+    </span>
+  );
+}
+
+function WorkspaceAmbientField({
+  view,
+  theme
+}: {
+  view: View;
+  theme: SettingsInfo["effectiveTheme"];
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const host = canvas?.parentElement;
+    if (!canvas || !host) {
+      return;
+    }
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const viewSeed = Array.from(view).reduce((total, character) => total + (character.codePointAt(0) ?? 0), 0);
+    let width = 0;
+    let height = 0;
+    let deviceScale = 1;
+    let frame = 0;
+    let lastPaint = 0;
+
+    const resize = () => {
+      const bounds = host.getBoundingClientRect();
+      width = Math.max(1, bounds.width);
+      height = Math.max(1, bounds.height);
+      deviceScale = Math.min(window.devicePixelRatio || 1, 1.5);
+      canvas.width = Math.round(width * deviceScale);
+      canvas.height = Math.round(height * deviceScale);
+    };
+
+    const draw = (time: number) => {
+      if (width <= 1 || height <= 1) {
+        return;
+      }
+
+      const rootStyle = window.getComputedStyle(document.documentElement);
+      const accent = rootStyle.getPropertyValue("--accent").trim() || "#0b63f6";
+      const cyan = rootStyle.getPropertyValue("--pixel-cyan").trim() || "#28c9eb";
+      const success = rootStyle.getPropertyValue("--success").trim() || "#12835a";
+      const motionTime = reduceMotion ? 0 : time * 0.000045;
+      const darkTheme = theme === "dark";
+
+      context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
+      context.clearRect(0, 0, width, height);
+
+      const ribbons = [
+        { baseline: 0.22, amplitude: 0.055, frequency: 7.2, phase: viewSeed * 0.013 },
+        { baseline: 0.78, amplitude: 0.072, frequency: 6.1, phase: viewSeed * 0.021 + 1.8 }
+      ];
+
+      ribbons.forEach((ribbon, ribbonIndex) => {
+        context.save();
+        context.beginPath();
+        for (let step = 0; step <= 72; step += 1) {
+          const progress = step / 72;
+          const x = progress * width;
+          const y =
+            ribbon.baseline * height +
+            Math.sin(progress * ribbon.frequency + ribbon.phase + motionTime * (ribbonIndex + 1)) *
+              height * ribbon.amplitude;
+          if (step === 0) {
+            context.moveTo(x, y);
+          } else {
+            context.lineTo(x, y);
+          }
+        }
+        context.strokeStyle = ribbonIndex === 0 ? accent : cyan;
+        context.globalAlpha = darkTheme ? 0.08 : 0.045;
+        context.lineWidth = 1;
+        context.stroke();
+        context.restore();
+
+        const particleCount = ribbonIndex === 0 ? 64 : 52;
+        for (let index = 0; index < particleCount; index += 1) {
+          const seed = viewSeed * 47 + ribbonIndex * 997 + index * 61;
+          const baseProgress = seededUnit(seed + 7);
+          const speed = 0.016 + seededUnit(seed + 13) * 0.02;
+          const progress = reduceMotion ? baseProgress : (baseProgress + motionTime * speed * 18) % 1;
+          const x = progress * width;
+          const scatter = (seededUnit(seed + 29) - 0.5) * height * 0.12;
+          const y =
+            ribbon.baseline * height +
+            Math.sin(progress * ribbon.frequency + ribbon.phase + motionTime * (ribbonIndex + 1)) *
+              height * ribbon.amplitude +
+            scatter;
+          const size = 0.8 + seededUnit(seed + 43) * 1.9;
+          const color = index % 17 === 0 ? success : index % 5 === 0 ? cyan : accent;
+
+          context.save();
+          context.fillStyle = color;
+          context.globalAlpha = (darkTheme ? 0.13 : 0.075) + seededUnit(seed + 53) * (darkTheme ? 0.11 : 0.075);
+          context.fillRect(x - size / 2, y - size / 2, size, size);
+          context.restore();
+        }
+      });
+    };
+
+    const tick = (time: number) => {
+      if (!document.hidden && time - lastPaint >= 50) {
+        draw(time);
+        lastPaint = time;
+      }
+      frame = window.requestAnimationFrame(tick);
+    };
+
+    const observer = new ResizeObserver(() => {
+      resize();
+      draw(performance.now());
+    });
+    observer.observe(host);
+    resize();
+    draw(performance.now());
+    if (!reduceMotion) {
+      frame = window.requestAnimationFrame(tick);
+    }
+
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
+  }, [theme, view]);
+
+  return <canvas ref={canvasRef} className="workspace-ambient-field" aria-hidden="true" />;
+}
+
+function TodayGlassActionButton({
+  children,
+  onClick
+}: {
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="primary-button today-glass-action"
+      type="button"
+      onClick={onClick}
+    >
+      <span className="today-glass-action-content">{children}</span>
+    </button>
+  );
+}
+
+function todayWorkItemDisplayStatus(
+  block: DailyWorkItemBlock,
+  t: Translator
+): { label: string; className: "filled" | "active" | "not-started" } {
+  if (blockHasFilledDailyEntry(block)) {
+    return { label: t("filled"), className: "filled" };
+  }
+  if (
+    block.entry ||
+    block.previousEntry ||
+    block.workItemNote.content_markdown?.trim() ||
+    block.workItem.description?.trim()
+  ) {
+    return { label: t("statusContinue"), className: "active" };
+  }
+  return { label: t("statusNotStarted"), className: "not-started" };
+}
+
 function TodayPage({
   dailyView,
   heatmapData,
   heatmapFailed,
   language,
+  theme,
   t,
+  visualPulse,
+  onVisualPulseHandled,
+  constellationTransition,
+  onConstellationTransitionHandled,
   searchTerm,
   searchResults,
   isSearching,
@@ -3535,7 +4127,12 @@ function TodayPage({
   heatmapData: HeatmapMonth | null;
   heatmapFailed: boolean;
   language: LanguagePreference;
+  theme: SettingsInfo["effectiveTheme"];
   t: Translator;
+  visualPulse: TodayVisualPulse | null;
+  onVisualPulseHandled: () => void;
+  constellationTransition: TodayConstellationTransition | null;
+  onConstellationTransitionHandled: (transitionId: number) => void;
   searchTerm: string;
   searchResults: SearchResult[];
   isSearching: boolean;
@@ -3553,8 +4150,53 @@ function TodayPage({
 }) {
   const isClosed = dailyView.journal.status === "closed";
   const isLocalToday = dailyView.journalDate === getLocalDateKey();
+  const activeEnterTransition =
+    constellationTransition?.journalDate === dailyView.journalDate && constellationTransition.kind === "enter"
+      ? constellationTransition
+      : null;
+  const activeVisualPulse: TodayVisualPulse | null =
+    activeEnterTransition ?? (visualPulse?.journalDate === dailyView.journalDate ? visualPulse : null);
   const openBlockEditor = (block: DailyWorkItemBlock) =>
     onOpenEntryEditor(block.project.id, block.workItem.id, dailyView.journalDate);
+  const [selectedProjectKey, setSelectedProjectKey] = useState<string>(() => dailyView.groups[0]?.project.id ?? "");
+  const [isLocatorSearchOpen, setIsLocatorSearchOpen] = useState(false);
+  const [locatorQuery, setLocatorQuery] = useState("");
+  const [locatorSort, setLocatorSort] = useState<"default" | "recent">("default");
+
+  useEffect(() => {
+    if (dailyView.groups.some((group) => group.project.id === selectedProjectKey)) {
+      return;
+    }
+    setSelectedProjectKey(dailyView.groups[0]?.project.id ?? "");
+  }, [dailyView.groups, selectedProjectKey]);
+
+  useEffect(() => {
+    if (
+      activeVisualPulse &&
+      dailyView.groups.some((group) => group.project.id === activeVisualPulse.projectId)
+    ) {
+      setSelectedProjectKey(activeVisualPulse.projectId);
+    }
+  }, [activeVisualPulse, dailyView.groups]);
+
+  const visibleProjectGroups = useMemo(() => {
+    const normalizedQuery = locatorQuery.trim().toLocaleLowerCase();
+    const groups = normalizedQuery
+      ? dailyView.groups.filter((group) => group.project.name.toLocaleLowerCase().includes(normalizedQuery))
+      : [...dailyView.groups];
+
+    if (locatorSort === "recent") {
+      return groups.sort((left, right) => {
+        const latest = (group: DailyProjectGroup) =>
+          latestTimestamp(group.items.map((block) => latestBlockSavedAt(block))) ?? group.project.updated_at;
+        return new Date(latest(right)).getTime() - new Date(latest(left)).getTime();
+      });
+    }
+    return groups;
+  }, [dailyView.groups, locatorQuery, locatorSort]);
+
+  const selectedGroup = dailyView.groups.find((group) => group.project.id === selectedProjectKey) ?? null;
+  const focusedBlocks = selectedGroup?.items ?? [];
 
   return (
     <section className="page daily-page">
@@ -3573,10 +4215,10 @@ function TodayPage({
               onResult={onSearchResult}
             />
             {isLocalToday && (
-              <button className="primary-button" type="button" onClick={onGenerateMarkdown}>
+              <TodayGlassActionButton onClick={onGenerateMarkdown}>
                 <FileText size={18} />
                 {isClosed ? t("regenerateDailyReport") : t("endTodayWork")}
-              </button>
+              </TodayGlassActionButton>
             )}
             {isClosed && (
               <button className="secondary-button" type="button" onClick={onReopen}>
@@ -3588,75 +4230,1293 @@ function TodayPage({
         }
       />
 
-      <div className="today-workspace">
-        <div className="today-main-column">
-          <div className="stats-grid today-stats-grid">
-            <StatCard label={t("statsActiveProjects")} value={dailyView.stats.activeProjects} suffix={t("unitCount")} icon={FolderOpen} tone="blue" />
-            <StatCard label={t("statsDailyWorkItems")} value={dailyView.stats.workItems} suffix={t("unitCount")} icon={LayoutList} tone="amber" />
-            <StatCard label={t("statsDailyEntries")} value={dailyView.stats.filledEntries} suffix={t("unitEntry")} icon={FileText} tone="green" />
-            <StatCard label={t("statsCompletedToday")} value={dailyView.stats.completedToday} suffix={t("unitCount")} icon={Check} tone="green" />
+      <TodayMonthOverviewBar
+        dailyView={dailyView}
+        heatmapData={heatmapData}
+        heatmapFailed={heatmapFailed}
+        t={t}
+        language={language}
+        theme={theme}
+        transition={
+          constellationTransition?.journalDate === dailyView.journalDate
+            ? constellationTransition
+            : null
+        }
+        onTransitionHandled={onConstellationTransitionHandled}
+      />
+
+      <div className="today-focus-workspace">
+        <aside className="today-project-locator">
+          <header className="today-locator-header">
+            <div>
+              <h2>{t("todayProjectLocatorTitle")}</h2>
+              <span>{dailyView.groups.length}</span>
+            </div>
+            <div className="today-locator-tools">
+              <button
+                className={`today-tool-button${isLocatorSearchOpen ? " active" : ""}`}
+                type="button"
+                aria-label={t("todaySearchProjects")}
+                title={t("todaySearchProjects")}
+                aria-expanded={isLocatorSearchOpen}
+                onClick={() => {
+                  setIsLocatorSearchOpen((current) => {
+                    if (current) {
+                      setLocatorQuery("");
+                    }
+                    return !current;
+                  });
+                }}
+              >
+                <Search size={18} aria-hidden="true" />
+              </button>
+              <button
+                className={`today-tool-button${locatorSort === "recent" ? " active" : ""}`}
+                type="button"
+                aria-label={t("todayProjectSortAria")}
+                aria-pressed={locatorSort === "recent"}
+                title={t("todaySortRecent")}
+                onClick={() => setLocatorSort((current) => (current === "recent" ? "default" : "recent"))}
+              >
+                <Bell size={18} aria-hidden="true" />
+              </button>
+            </div>
+          </header>
+
+          {isLocatorSearchOpen && (
+            <label className="today-locator-search">
+              <Search size={16} aria-hidden="true" />
+              <input
+                value={locatorQuery}
+                autoFocus
+                aria-label={t("todaySearchProjects")}
+                placeholder={t("todaySearchProjects")}
+                onChange={(event) => setLocatorQuery(event.target.value)}
+              />
+              {locatorQuery && (
+                <button type="button" aria-label={t("clearSearch")} onClick={() => setLocatorQuery("")}>
+                  <X size={14} aria-hidden="true" />
+                </button>
+              )}
+            </label>
+          )}
+
+          <div className="today-locator-list">
+            {visibleProjectGroups.map((group) => {
+              const latestSavedAt = latestTimestamp(group.items.map((block) => latestBlockSavedAt(block)));
+              return (
+                <button
+                  className={`today-locator-item${selectedProjectKey === group.project.id ? " active" : ""}`}
+                  type="button"
+                  key={group.project.id}
+                  onClick={() => setSelectedProjectKey(group.project.id)}
+                >
+                  <ProjectIdentityMark projectId={group.project.id} />
+                  <span className="today-locator-item-copy">
+                    <strong>{group.project.name}</strong>
+                    <small>
+                      {formatTimestamp(latestSavedAt, language, t)} {t("savedShort")}
+                    </small>
+                  </span>
+                  <span className="today-locator-count">
+                    {t("todayProjectItemCount").replace("{count}", String(group.items.length))}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
-          <section className="today-projects-panel">
-            <header className="today-section-header">
-              <div>
-                <h2>{t("todayProjectsTitle")}</h2>
-                <p>{t("todayProjectsSubtitle")}</p>
-              </div>
-            </header>
-            <div className="project-groups">
-              {dailyView.groups.length === 0 ? (
-                <EmptyState
-                  title={t("todayGuideEmptyTitle")}
-                  body={t("todayGuideEmptyBody")}
-                  actions={
-                    <>
-                      <button className="primary-button" type="button" onClick={onCreateProject}>
-                        <Plus size={17} />
-                        {t("newProject")}
-                      </button>
-                      <button className="secondary-button" type="button" onClick={onOpenUserGuide}>
-                        <BookOpenText size={17} />
-                        {t("viewUserGuide")}
-                      </button>
-                    </>
-                  }
-                />
-              ) : (
-                dailyView.groups.map((group) => (
-                  <DailyGroupCard
-                    key={group.project.id}
-                    group={group}
-                    collapsed={Boolean(collapsedGroups[group.project.id])}
-                    onToggle={() =>
-                      setCollapsedGroups({
-                        ...collapsedGroups,
-                        [group.project.id]: !collapsedGroups[group.project.id]
-                      })
-                    }
-                    onOpenEntryEditor={openBlockEditor}
-                    onOpenProject={onOpenProject}
-                    onOpenMemo={onOpenMemo}
-                    t={t}
-                    language={language}
-                  />
-                ))
-              )}
+          {dailyView.groups.length === 0 && (
+            <div className="today-locator-empty">
+              <p>{t("todayGuideEmptyBody")}</p>
+              <button className="primary-button" type="button" onClick={onCreateProject}>
+                <Plus size={16} />
+                {t("newProject")}
+              </button>
+              <button className="text-button" type="button" onClick={onOpenUserGuide}>
+                {t("viewUserGuide")}
+              </button>
             </div>
-          </section>
-        </div>
+          )}
+        </aside>
 
-        <TodaySidebar
-          dailyView={dailyView}
-          heatmapData={heatmapData}
-          heatmapFailed={heatmapFailed}
-          t={t}
-          language={language}
-          onOpenEntryEditor={openBlockEditor}
+        <section className={`today-focused-project${selectedGroup ? "" : " empty"}`}>
+          {selectedGroup ? (
+            <>
+              <header className="today-focused-header">
+                <div className="today-focused-identity">
+                  <ProjectIdentityMark projectId={selectedGroup.project.id} large />
+                  <div>
+                    <h2>{selectedGroup.project.name}</h2>
+                    <span className="detail-status-pill">{t("statusActive")}</span>
+                  </div>
+                  <span className="today-focused-count">
+                    {t("todayProjectItemCount").replace("{count}", String(focusedBlocks.length))}
+                  </span>
+                </div>
+                <button className="today-memo-button" type="button" onClick={() => onOpenMemo(selectedGroup.project.id)}>
+                  <StickyNote size={17} />
+                  <span>{t("projectMemo")}</span>
+                </button>
+              </header>
+
+              <div className="today-focus-table">
+                <div className="today-focus-table-head" aria-hidden="true">
+                  <span className="today-focus-title-heading">{t("workItem")}</span>
+                  <span>{t("todayStatus")}</span>
+                  <span>{t("todayRecentRecord")}</span>
+                  <span>{t("todaySavedTime")}</span>
+                  <span>{t("workItemActions")}</span>
+                </div>
+                {focusedBlocks.length > 0 ? (
+                  focusedBlocks.map((block) => {
+                const displayStatus = todayWorkItemDisplayStatus(block, t);
+                const hasBlocker = Boolean(block.entry?.blocker?.trim());
+                const recentText =
+                  block.entry?.today_progress?.trim() ||
+                  block.entry?.next_step?.trim() ||
+                  block.previousEntry?.today_progress?.trim() ||
+                  block.workItemNote.content_markdown?.trim() ||
+                  block.workItem.description?.trim() ||
+                  t("none");
+                return (
+                    <article
+                      className={`today-focus-row${
+                       activeVisualPulse?.workItemId === block.workItem.id ? " visual-pulse" : ""
+                      }`}
+                    key={`${block.project.id}-${block.workItem.id}`}
+                    data-work-item-id={block.workItem.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openBlockEditor(block)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openBlockEditor(block);
+                      }
+                    }}
+                  >
+                    <span className="today-focus-title">
+                      <span
+                        className={`today-work-item-icon${hasBlocker ? " blocked" : ""}`}
+                        role={hasBlocker ? "img" : undefined}
+                        aria-label={hasBlocker ? t("hasBlocker") : undefined}
+                        aria-hidden={hasBlocker ? undefined : true}
+                        title={hasBlocker ? t("hasBlocker") : undefined}
+                      >
+                        {hasBlocker ? <AlertTriangle size={17} /> : <FileText size={17} />}
+                      </span>
+                      <strong title={block.workItem.title}>{block.workItem.title}</strong>
+                    </span>
+                    <span className={`today-state-pill ${displayStatus.className}`}>{displayStatus.label}</span>
+                    <span className="today-focus-recent" title={recentText}>
+                      {summary(recentText, t)}
+                    </span>
+                    <time>{formatTimestamp(latestBlockSavedAt(block), language, t)}</time>
+                    <button
+                      className="today-focus-action"
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openBlockEditor(block);
+                      }}
+                    >
+                      <SquarePen size={16} />
+                      {t("recordProgress")}
+                    </button>
+                  </article>
+                );
+                  })
+                ) : (
+                  <EmptyState title={t("todayGuideEmptyTitle")} body={t("todayGuideEmptyBody")} />
+                )}
+              </div>
+            </>
+          ) : (
+            <EmptyState title={t("todayGuideEmptyTitle")} body={t("todayGuideEmptyBody")} />
+          )}
+        </section>
+      </div>
+      <TodayHeartFlightLayer
+        pulse={activeVisualPulse}
+        theme={theme}
+        onComplete={() => {
+          if (activeEnterTransition) {
+            onConstellationTransitionHandled(activeEnterTransition.id);
+            return;
+          }
+          onVisualPulseHandled();
+        }}
+      />
+    </section>
+  );
+}
+
+function TodayMonthOverviewBar({
+  dailyView,
+  t,
+  language,
+  theme,
+  transition,
+  onTransitionHandled
+}: {
+  dailyView: DailyJournalView;
+  heatmapData: HeatmapMonth | null;
+  heatmapFailed: boolean;
+  t: Translator;
+  language: LanguagePreference;
+  theme: SettingsInfo["effectiveTheme"];
+  transition: TodayConstellationTransition | null;
+  onTransitionHandled: (transitionId: number) => void;
+}) {
+  const blocks = todayBlocks(dailyView);
+  const missingSummaryCount = blocks.filter((block) => !blockHasChangeSummary(block)).length;
+  const blockerCount = blocks.filter((block) => block.entry?.blocker?.trim()).length;
+  const { year, month, day } = dateKeyParts(dailyView.journalDate);
+  const selectedDate = new Date(year, month - 1, day);
+  const monday = new Date(selectedDate);
+  monday.setDate(selectedDate.getDate() - ((selectedDate.getDay() + 6) % 7));
+  const locale = localeFor(language);
+  const weekDays = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return date;
+  });
+  const pendingEnterTransition = transition?.kind === "enter" ? transition : null;
+  const pendingEnterWorkItemId = pendingEnterTransition?.workItemId ?? null;
+  const constellationLayout = useMemo(
+    () =>
+      buildTodayConstellationLayout(
+        todayBlocks(dailyView).filter(blockAppearsInTodayConstellation)
+      ),
+    [dailyView]
+  );
+  const pendingEnterIsOverflow = Boolean(
+    pendingEnterWorkItemId &&
+      constellationLayout.overflowNodes.some((node) => node.workItemId === pendingEnterWorkItemId)
+  );
+  const pendingEnterTargetNode = pendingEnterWorkItemId
+    ? constellationLayout.nodes.find((node) => node.workItemId === pendingEnterWorkItemId) ??
+      pendingEnterTransition?.node ??
+      null
+    : null;
+  const visibleOverflowCount = Math.max(
+    0,
+    constellationLayout.overflowNodes.length - (pendingEnterIsOverflow ? 1 : 0)
+  );
+  const overviewStats = [
+    { label: t("statsDailyWorkItems"), value: dailyView.stats.workItems, tone: "info" },
+    { label: t("statsDailyEntries"), value: dailyView.stats.filledEntries, tone: "success" },
+    { label: t("todayMissingSummary"), value: missingSummaryCount, tone: "info" },
+    { label: t("todayBlockerItems"), value: blockerCount, tone: "danger" }
+  ];
+
+  return (
+    <section className="today-month-overview">
+      <div className="today-month-calendar">
+        <div className="today-month-overview-title">
+          <strong>{t("todaySidebarCalendarTitle")}</strong>
+          <span>·</span>
+          <span>{formatMonthDisplay(year, month, language)}</span>
+        </div>
+        <div className="today-overview-week">
+          {weekDays.map((date) => {
+            const isSelected =
+              date.getFullYear() === selectedDate.getFullYear() &&
+              date.getMonth() === selectedDate.getMonth() &&
+              date.getDate() === selectedDate.getDate();
+            const isOutsideMonth = date.getMonth() !== selectedDate.getMonth();
+            return (
+              <span className={`${isSelected ? "selected" : ""}${isOutsideMonth ? " outside" : ""}`} key={date.toISOString()}>
+                <small>{new Intl.DateTimeFormat(locale, { weekday: "narrow" }).format(date)}</small>
+                <strong>{date.getDate()}</strong>
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="today-constellation-summary">
+        <TodayConstellationField
+          nodes={constellationLayout.nodes}
+          suppressedWorkItemId={pendingEnterWorkItemId}
+          suppressedPoint={pendingEnterTargetNode}
+          theme={theme}
         />
+        <TodayConstellationTransitionLayer
+          transition={transition?.kind === "exit" ? transition : null}
+          theme={theme}
+          onComplete={onTransitionHandled}
+        />
+        {constellationLayout.nodes.map((node) => (
+          <span
+            aria-hidden="true"
+            className="today-constellation-target"
+            data-constellation-state={node.state}
+            data-constellation-work-item-id={node.workItemId}
+            key={node.workItemId}
+            style={{ left: `${node.x * 100}%`, top: `${node.y * 100}%` }}
+          />
+        ))}
+        {visibleOverflowCount > 0 && (
+          <span className="today-constellation-overflow-count" aria-hidden="true">
+            <span className="today-constellation-overflow-star">
+              <Star size={10} strokeWidth={2.2} />
+            </span>
+            <strong>+{visibleOverflowCount}</strong>
+          </span>
+        )}
+        {constellationLayout.overflowNodes.map((node) => (
+          <span
+            aria-hidden="true"
+            className="today-constellation-target today-constellation-overflow-target"
+            data-constellation-state={node.state}
+            data-constellation-work-item-id={node.workItemId}
+            key={node.workItemId}
+          />
+        ))}
+      </div>
+
+      <div className="today-overview-stats">
+        {overviewStats.map((item) => (
+          <div className={item.tone} key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+          </div>
+        ))}
       </div>
     </section>
   );
+}
+
+type TodayConstellationState = "default" | "filled" | "blocked";
+
+interface TodayConstellationNode {
+  workItemId: string;
+  x: number;
+  y: number;
+  state: TodayConstellationState;
+  seed: number;
+}
+
+interface TodayConstellationOverflowNode {
+  workItemId: string;
+  state: TodayConstellationState;
+}
+
+interface TodayConstellationLayout {
+  nodes: TodayConstellationNode[];
+  overflowNodes: TodayConstellationOverflowNode[];
+}
+
+function seededUnit(seed: number): number {
+  const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+const TODAY_CONSTELLATION_VISIBLE_LIMIT = 16;
+
+function todayConstellationSeed(value: string): number {
+  return Array.from(value).reduce(
+    (total, character, index) => (total + (character.codePointAt(0) ?? 0) * (index + 17)) % 104729,
+    0
+  );
+}
+
+function todayConstellationState(block: DailyWorkItemBlock): TodayConstellationState {
+  return block.entry?.blocker?.trim()
+    ? "blocked"
+    : blockHasFilledDailyEntry(block)
+      ? "filled"
+      : "default";
+}
+
+function buildTodayConstellationLayout(blocks: DailyWorkItemBlock[]): TodayConstellationLayout {
+  const prioritizedBlocks = [
+    ...blocks.filter((block) => todayConstellationState(block) === "blocked"),
+    ...blocks.filter((block) => todayConstellationState(block) !== "blocked")
+  ];
+  const visibleWorkItemIds = new Set(
+    prioritizedBlocks
+      .slice(0, TODAY_CONSTELLATION_VISIBLE_LIMIT)
+      .map((block) => block.workItem.id)
+  );
+  const visibleBlocks = blocks.filter((block) => visibleWorkItemIds.has(block.workItem.id));
+  const overflowBlocks = blocks.filter((block) => !visibleWorkItemIds.has(block.workItem.id));
+
+  return {
+    nodes: buildTodayConstellationNodes(visibleBlocks),
+    overflowNodes: overflowBlocks.map((block) => ({
+      workItemId: block.workItem.id,
+      state: todayConstellationState(block)
+    }))
+  };
+}
+
+function findTodayConstellationNode(
+  dailyView: DailyJournalView | null,
+  workItemId: string
+): TodayConstellationNode | null {
+  if (!dailyView) {
+    return null;
+  }
+  return buildTodayConstellationLayout(
+    todayBlocks(dailyView).filter(blockAppearsInTodayConstellation)
+  ).nodes.find((node) => node.workItemId === workItemId) ?? null;
+}
+
+function buildTodayConstellationNodes(blocks: DailyWorkItemBlock[]): TodayConstellationNode[] {
+  return blocks.map((block) => {
+    const seed = todayConstellationSeed(block.workItem.id);
+    return {
+      workItemId: block.workItem.id,
+      x: 0.055 + seededUnit(seed + 3) * 0.89,
+      y: 0.1 + seededUnit(seed + 11) * 0.78,
+      state: todayConstellationState(block),
+      seed
+    };
+  });
+}
+
+function TodayConstellationField({
+  nodes,
+  suppressedWorkItemId,
+  suppressedPoint,
+  theme
+}: {
+  nodes: TodayConstellationNode[];
+  suppressedWorkItemId: string | null;
+  suppressedPoint: Pick<TodayConstellationNode, "x" | "y"> | null;
+  theme: SettingsInfo["effectiveTheme"];
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const visibleNodes = useMemo(
+    () =>
+      nodes.filter((node) => {
+        if (node.workItemId === suppressedWorkItemId) {
+          return false;
+        }
+        if (!suppressedPoint) {
+          return true;
+        }
+
+        const horizontalDistance = (node.x - suppressedPoint.x) / 0.06;
+        const verticalDistance = (node.y - suppressedPoint.y) / 0.22;
+        return horizontalDistance ** 2 + verticalDistance ** 2 >= 1;
+      }),
+    [nodes, suppressedPoint, suppressedWorkItemId]
+  );
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    const container = canvas?.parentElement;
+    if (!canvas || !container) {
+      return;
+    }
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let frame = 0;
+    let width = 0;
+    let height = 0;
+    let deviceScale = 1;
+    let lastPaint = 0;
+
+    const resize = () => {
+      const rect = container.getBoundingClientRect();
+      width = Math.max(1, rect.width);
+      height = Math.max(1, rect.height);
+      deviceScale = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * deviceScale);
+      canvas.height = Math.round(height * deviceScale);
+    };
+
+    const draw = (time: number) => {
+      if (width <= 1 || height <= 1) {
+        return;
+      }
+      const rootStyle = window.getComputedStyle(document.documentElement);
+      const accent = rootStyle.getPropertyValue("--accent").trim() || "#0b63f6";
+      const cyan = rootStyle.getPropertyValue("--pixel-cyan").trim() || "#28c9eb";
+      const success = rootStyle.getPropertyValue("--success").trim() || "#12835a";
+      const danger = rootStyle.getPropertyValue("--danger").trim() || "#b42318";
+      const border = rootStyle.getPropertyValue("--border-strong").trim() || "#d4deeb";
+      const stateColor = (state: TodayConstellationState) =>
+        state === "blocked" ? danger : state === "filled" ? success : accent;
+      context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
+      context.clearRect(0, 0, width, height);
+
+      if (visibleNodes.length === 0) {
+        return;
+      }
+
+      const motionTime = reduceMotion ? 0 : time * 0.00055;
+      const points = visibleNodes.map((node) => {
+        const phase = seededUnit(node.seed + 37) * Math.PI * 2;
+        const driftStrength = node.x > 0.32 && node.x < 0.72 ? 4.2 : 2.8;
+        return {
+          ...node,
+          px: node.x * width + Math.sin(motionTime * 1.65 + phase) * driftStrength,
+          py: node.y * height + Math.cos(motionTime * 1.25 + phase) * driftStrength * 0.72
+        };
+      });
+
+      for (let index = 0; index < points.length - 1; index += 1) {
+        const current = points[index];
+        const next = points[index + 1];
+        const controlOffset = (seededUnit(current.seed + next.seed) - 0.5) * height * 0.28;
+        const controlA = {
+          x: current.px + (next.px - current.px) * 0.34,
+          y: current.py + controlOffset
+        };
+        const controlB = {
+          x: current.px + (next.px - current.px) * 0.7,
+          y: next.py - controlOffset
+        };
+        const pointOnConnection = (progress: number) => {
+          const inverse = 1 - progress;
+          return {
+            x:
+              inverse * inverse * inverse * current.px +
+              3 * inverse * inverse * progress * controlA.x +
+              3 * inverse * progress * progress * controlB.x +
+              progress * progress * progress * next.px,
+            y:
+              inverse * inverse * inverse * current.py +
+              3 * inverse * inverse * progress * controlA.y +
+              3 * inverse * progress * progress * controlB.y +
+              progress * progress * progress * next.py
+          };
+        };
+        context.save();
+        context.beginPath();
+        context.moveTo(current.px, current.py);
+        context.bezierCurveTo(
+          controlA.x,
+          controlA.y,
+          controlB.x,
+          controlB.y,
+          next.px,
+          next.py
+        );
+        context.strokeStyle = border;
+        context.globalAlpha = theme === "dark" ? 0.27 : 0.22;
+        context.lineWidth = 1;
+        context.setLineDash([1, 7]);
+        context.stroke();
+        context.restore();
+
+        for (let streamIndex = 0; streamIndex < 2; streamIndex += 1) {
+          const streamSeed = current.seed + next.seed + streamIndex * 97;
+          const baseProgress = seededUnit(streamSeed + 13);
+          const streamProgress = reduceMotion
+            ? baseProgress
+            : (baseProgress + motionTime * (0.095 + streamIndex * 0.025)) % 1;
+          const streamPoint = pointOnConnection(streamProgress);
+          const size = 1.7 + streamIndex * 0.7;
+          context.save();
+          context.fillStyle = streamIndex === 0 ? stateColor(next.state) : cyan;
+          context.globalAlpha = theme === "dark" ? 0.74 : 0.58;
+          context.shadowColor = stateColor(next.state);
+          context.shadowBlur = 5;
+          context.fillRect(streamPoint.x - size / 2, streamPoint.y - size / 2, size, size);
+          context.restore();
+        }
+      }
+
+      const ambientCount = Math.min(112, 34 + visibleNodes.length * 9);
+      for (let index = 0; index < ambientCount; index += 1) {
+        const localSeed = 1709 + index * 61 + visibleNodes.length * 19;
+        const sourceIndex = Math.floor(seededUnit(localSeed) * points.length) % points.length;
+        const targetIndex = (sourceIndex + 1 + (index % Math.min(3, points.length))) % points.length;
+        const source = points[sourceIndex];
+        const target = points[targetIndex];
+        const baseProgress = seededUnit(localSeed + 7);
+        const progress = reduceMotion ? baseProgress : (baseProgress + motionTime * 0.026) % 1;
+        const drift = Math.sin(motionTime * 1.8 + localSeed) * 2.4;
+        const scatterX = (seededUnit(localSeed + 13) - 0.5) * width * 0.11;
+        const scatterY = (seededUnit(localSeed + 29) - 0.5) * height * 0.38;
+        const x = source.px + (target.px - source.px) * progress + scatterX + drift;
+        const y = source.py + (target.py - source.py) * progress + scatterY - drift * 0.5;
+        const size = 0.8 + seededUnit(localSeed + 43) * 1.65;
+        context.save();
+        context.fillStyle = index % 9 === 0 ? cyan : stateColor(source.state);
+        context.globalAlpha = theme === "dark" ? 0.16 : 0.11;
+        context.fillRect(x - size / 2, y - size / 2, size, size);
+        context.restore();
+      }
+
+      for (const node of points) {
+        const color = stateColor(node.state);
+        const pulse = reduceMotion ? 1 : 1 + Math.sin(motionTime * 2.4 + node.seed) * 0.065;
+        const scale = (visibleNodes.length > 14 ? 0.78 : visibleNodes.length > 9 ? 0.88 : 1) * pulse;
+        const cell = 3.25 * scale;
+        const gap = 0.85 * scale;
+        const step = cell + gap;
+
+        for (let particleIndex = 0; particleIndex < 9; particleIndex += 1) {
+          const particleSeed = node.seed + particleIndex * 47;
+          const angle = seededUnit(particleSeed + 5) * Math.PI * 2 + motionTime * 0.16;
+          const distance = 14 + seededUnit(particleSeed + 17) * 17;
+          const drift = Math.sin(motionTime * 2 + particleSeed) * 2;
+          const size = 1 + seededUnit(particleSeed + 31) * 1.7;
+          context.save();
+          context.fillStyle = particleIndex % 4 === 0 ? cyan : color;
+          context.globalAlpha = theme === "dark" ? 0.4 : 0.3;
+          context.fillRect(
+            node.px + Math.cos(angle) * (distance + drift) - size / 2,
+            node.py + Math.sin(angle) * (distance + drift) - size / 2,
+            size,
+            size
+          );
+          context.restore();
+        }
+
+        const halo = context.createRadialGradient(node.px, node.py, 0, node.px, node.py, 28 * scale);
+        halo.addColorStop(0, color);
+        halo.addColorStop(1, "transparent");
+        context.save();
+        context.fillStyle = halo;
+        context.globalAlpha = theme === "dark" ? 0.2 : 0.13;
+        context.fillRect(node.px - 30 * scale, node.py - 30 * scale, 60 * scale, 60 * scale);
+        context.restore();
+
+        context.save();
+        context.fillStyle = color;
+        context.shadowColor = color;
+        context.shadowBlur = theme === "dark" ? 12 : 9;
+        context.globalAlpha = theme === "dark" ? 0.98 : 0.9;
+        for (let row = -1; row <= 1; row += 1) {
+          for (let column = -1; column <= 1; column += 1) {
+            context.fillRect(
+              node.px + column * step - cell / 2,
+              node.py + row * step - cell / 2,
+              cell,
+              cell
+            );
+          }
+        }
+        context.globalAlpha = theme === "dark" ? 0.74 : 0.62;
+        context.fillRect(node.px - step - cell / 2 + step * 0.55, node.py - step * 2 - cell / 2, cell, cell);
+        context.fillRect(node.px - cell / 2 + step * 0.55, node.py - step * 2 - cell / 2, cell, cell);
+        context.fillRect(node.px + step * 1.55 - cell / 2, node.py - step - cell / 2, cell, cell);
+        context.fillRect(node.px + step * 1.55 - cell / 2, node.py - cell / 2, cell, cell);
+        context.restore();
+
+        context.save();
+        context.fillStyle = theme === "dark" ? "#ffffff" : "#f8fbff";
+        context.globalAlpha = theme === "dark" ? 0.7 : 0.82;
+        context.fillRect(node.px - step - cell / 2 + 0.8, node.py - step - cell / 2 + 0.8, 1.2, 1.2);
+        context.restore();
+      }
+    };
+
+    const tick = (time: number) => {
+      if (time - lastPaint >= 34) {
+        draw(time);
+        lastPaint = time;
+      }
+      frame = window.requestAnimationFrame(tick);
+    };
+
+    const observer = new ResizeObserver(() => {
+      resize();
+      draw(performance.now());
+    });
+    observer.observe(container);
+    resize();
+    draw(performance.now());
+    if (!reduceMotion) {
+      frame = window.requestAnimationFrame(tick);
+    }
+
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
+  }, [theme, visibleNodes]);
+
+  return <canvas ref={canvasRef} className="today-constellation-field" aria-hidden="true" />;
+}
+
+function TodayConstellationTransitionLayer({
+  transition,
+  theme,
+  onComplete
+}: {
+  transition: TodayConstellationTransition | null;
+  theme: SettingsInfo["effectiveTheme"];
+  onComplete: (transitionId: number) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const onCompleteRef = useRef(onComplete);
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = canvas?.parentElement;
+    if (!transition || !canvas || !container) {
+      return;
+    }
+
+    const node = transition.node;
+    if (!node) {
+      const completionTimer = window.setTimeout(() => onCompleteRef.current(transition.id), 0);
+      return () => window.clearTimeout(completionTimer);
+    }
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      const completionTimer = window.setTimeout(() => onCompleteRef.current(transition.id), 0);
+      return () => window.clearTimeout(completionTimer);
+    }
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const duration = reduceMotion ? 320 : transition.kind === "exit" ? 1160 : 760;
+    const startedAt = performance.now();
+    let animationFrame = 0;
+    let width = 0;
+    let height = 0;
+    let deviceScale = 1;
+    let cancelled = false;
+
+    const resize = () => {
+      const rect = container.getBoundingClientRect();
+      width = Math.max(1, rect.width);
+      height = Math.max(1, rect.height);
+      deviceScale = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * deviceScale);
+      canvas.height = Math.round(height * deviceScale);
+    };
+
+    const drawStar = (x: number, y: number, color: string, scale: number, alpha: number) => {
+      const cell = 3.25 * scale;
+      const gap = 0.85 * scale;
+      const step = cell + gap;
+      context.save();
+      context.fillStyle = color;
+      context.shadowColor = color;
+      context.shadowBlur = theme === "dark" ? 14 : 10;
+      context.globalAlpha = alpha;
+      for (let row = -1; row <= 1; row += 1) {
+        for (let column = -1; column <= 1; column += 1) {
+          context.fillRect(x + column * step - cell / 2, y + row * step - cell / 2, cell, cell);
+        }
+      }
+      context.globalAlpha = alpha * 0.72;
+      context.fillRect(x - step - cell / 2 + step * 0.55, y - step * 2 - cell / 2, cell, cell);
+      context.fillRect(x - cell / 2 + step * 0.55, y - step * 2 - cell / 2, cell, cell);
+      context.fillRect(x + step * 1.55 - cell / 2, y - step - cell / 2, cell, cell);
+      context.fillRect(x + step * 1.55 - cell / 2, y - cell / 2, cell, cell);
+      context.restore();
+    };
+
+    const easeOutCubic = (value: number) => 1 - Math.pow(1 - value, 3);
+    const easeInOutCubic = (value: number) =>
+      value < 0.5 ? 4 * value * value * value : 1 - Math.pow(-2 * value + 2, 3) / 2;
+    const pointOnQuadraticCurve = (
+      startX: number,
+      startY: number,
+      controlX: number,
+      controlY: number,
+      endX: number,
+      endY: number,
+      progress: number
+    ) => {
+      const inverse = 1 - progress;
+      return {
+        x: inverse * inverse * startX + 2 * inverse * progress * controlX + progress * progress * endX,
+        y: inverse * inverse * startY + 2 * inverse * progress * controlY + progress * progress * endY
+      };
+    };
+
+    const draw = (time: number) => {
+      if (cancelled || width <= 1 || height <= 1) {
+        return;
+      }
+
+      const progress = Math.min(1, Math.max(0, (time - startedAt) / duration));
+      const rootStyle = window.getComputedStyle(document.documentElement);
+      const accent = rootStyle.getPropertyValue("--accent").trim() || "#0b63f6";
+      const cyan = rootStyle.getPropertyValue("--pixel-cyan").trim() || "#28c9eb";
+      const success = rootStyle.getPropertyValue("--success").trim() || "#12835a";
+      const danger = rootStyle.getPropertyValue("--danger").trim() || "#b42318";
+      const color = node.state === "blocked" ? danger : node.state === "filled" ? success : accent;
+      const x = node.x * width;
+      const y = node.y * height;
+
+      context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
+      context.clearRect(0, 0, width, height);
+
+      if (transition.kind === "exit") {
+        if (reduceMotion) {
+          drawStar(x, y, color, 1 - progress * 0.12, 1 - progress);
+        } else {
+          const focusEnd = 0.22;
+          const focusProgress = Math.min(1, progress / focusEnd);
+          const focus = easeInOutCubic(focusProgress);
+          const release = Math.max(0, (progress - focusEnd) / (1 - focusEnd));
+          const releaseEase = easeInOutCubic(release);
+          const direction = seededUnit(node.seed + 211) > 0.5 ? 1 : -1;
+          const coreX = x + direction * releaseEase * 4;
+          const coreY = y - releaseEase * 7;
+          const coreFade = Math.pow(1 - release, 1.35);
+          const glintPulse = Math.exp(-Math.pow((progress - focusEnd) / 0.055, 2));
+
+          if (progress < focusEnd) {
+            drawStar(x, y, color, 1 - focus * 0.14, 1 - focus * 0.82);
+          }
+
+          const glowRadius = 9 + glintPulse * 5;
+          const glow = context.createRadialGradient(coreX, coreY, 0, coreX, coreY, glowRadius);
+          glow.addColorStop(
+            0,
+            theme === "dark" ? "rgba(255,255,255,0.98)" : "rgba(255,255,255,0.94)"
+          );
+          glow.addColorStop(0.24, cyan);
+          glow.addColorStop(0.62, color);
+          glow.addColorStop(1, "transparent");
+          context.save();
+          context.globalCompositeOperation = "lighter";
+          context.fillStyle = glow;
+          context.globalAlpha = Math.max(0, (0.12 + glintPulse * 0.28) * coreFade);
+          context.fillRect(coreX - glowRadius, coreY - glowRadius, glowRadius * 2, glowRadius * 2);
+          context.restore();
+
+          if (glintPulse > 0.01) {
+            const verticalExtent = 5 + glintPulse * 15;
+            const horizontalExtent = 4 + glintPulse * 9;
+            const verticalGlint = context.createLinearGradient(
+              coreX,
+              coreY - verticalExtent,
+              coreX,
+              coreY + verticalExtent
+            );
+            verticalGlint.addColorStop(0, "transparent");
+            verticalGlint.addColorStop(0.5, theme === "dark" ? "#ffffff" : "#dff5ff");
+            verticalGlint.addColorStop(1, "transparent");
+            const horizontalGlint = context.createLinearGradient(
+              coreX - horizontalExtent,
+              coreY,
+              coreX + horizontalExtent,
+              coreY
+            );
+            horizontalGlint.addColorStop(0, "transparent");
+            horizontalGlint.addColorStop(0.5, cyan);
+            horizontalGlint.addColorStop(1, "transparent");
+            context.save();
+            context.globalCompositeOperation = "lighter";
+            context.beginPath();
+            context.moveTo(coreX, coreY - verticalExtent);
+            context.lineTo(coreX, coreY + verticalExtent);
+            context.strokeStyle = verticalGlint;
+            context.lineWidth = 0.8;
+            context.globalAlpha = glintPulse * 0.72;
+            context.stroke();
+            context.beginPath();
+            context.moveTo(coreX - horizontalExtent, coreY);
+            context.lineTo(coreX + horizontalExtent, coreY);
+            context.strokeStyle = horizontalGlint;
+            context.lineWidth = 0.7;
+            context.globalAlpha = glintPulse * 0.56;
+            context.stroke();
+            context.restore();
+          }
+
+          if (release > 0) {
+            for (let trailIndex = 0; trailIndex < 4; trailIndex += 1) {
+              const trailSeed = node.seed + trailIndex * 149;
+              const spread = (seededUnit(trailSeed + 5) - 0.5) * 28;
+              const reach = 28 + seededUnit(trailSeed + 17) * 34;
+              const endX = x + direction * (9 + seededUnit(trailSeed + 29) * 19) + spread;
+              const endY = y - reach;
+              const controlX = x - direction * (8 + seededUnit(trailSeed + 41) * 12);
+              const controlY = y - reach * 0.38;
+              const trailGradient = context.createLinearGradient(x, y, endX, endY);
+              trailGradient.addColorStop(0, color);
+              trailGradient.addColorStop(0.48, cyan);
+              trailGradient.addColorStop(1, "transparent");
+              context.save();
+              context.beginPath();
+              context.moveTo(x, y);
+              context.quadraticCurveTo(controlX, controlY, endX, endY);
+              context.strokeStyle = trailGradient;
+              context.lineCap = "round";
+              context.lineWidth = 0.75 + trailIndex * 0.22;
+              context.globalAlpha = Math.sin(release * Math.PI) * (0.16 + trailIndex * 0.035);
+              context.stroke();
+              context.restore();
+            }
+
+            for (let index = 0; index < 26; index += 1) {
+              const particleSeed = node.seed + index * 83;
+              const delay = seededUnit(particleSeed + 3) * 0.22;
+              const particleProgress = Math.min(
+                1,
+                Math.max(0, (release - delay) / (1 - delay))
+              );
+              if (particleProgress <= 0) {
+                continue;
+              }
+              const curvedProgress = easeOutCubic(particleProgress);
+              const angle =
+                -Math.PI / 2 + (seededUnit(particleSeed + 5) - 0.5) * Math.PI * 1.55;
+              const distance = 22 + seededUnit(particleSeed + 17) * 48;
+              const endX =
+                x + Math.cos(angle) * distance + direction * seededUnit(particleSeed + 23) * 12;
+              const endY = y + Math.sin(angle) * distance - seededUnit(particleSeed + 31) * 15;
+              const controlX = x - direction * (6 + seededUnit(particleSeed + 37) * 18);
+              const controlY = y - 8 - seededUnit(particleSeed + 43) * 20;
+              const point = pointOnQuadraticCurve(
+                x,
+                y,
+                controlX,
+                controlY,
+                endX,
+                endY,
+                curvedProgress
+              );
+              const particleAlpha =
+                Math.sin(particleProgress * Math.PI) *
+                (0.32 + seededUnit(particleSeed + 53) * 0.46);
+              const particleSize = 0.65 + seededUnit(particleSeed + 61) * 1.75;
+              const particleColor =
+                index % 6 === 0
+                  ? theme === "dark"
+                    ? "#ffffff"
+                    : "#eaf7ff"
+                  : index % 3 === 0
+                    ? cyan
+                    : color;
+              context.save();
+              context.beginPath();
+              context.fillStyle = particleColor;
+              context.globalAlpha = particleAlpha;
+              context.shadowColor = index % 3 === 0 ? cyan : color;
+              context.shadowBlur = 6 + particleSize * 2;
+              context.arc(point.x, point.y, particleSize, 0, Math.PI * 2);
+              context.fill();
+              context.restore();
+            }
+          }
+
+          const coreRadius = Math.max(0, (2.8 + glintPulse * 1.3) * coreFade);
+          if (coreRadius > 0.1) {
+            context.save();
+            context.globalCompositeOperation = "lighter";
+            context.beginPath();
+            context.fillStyle = theme === "dark" ? "#ffffff" : "#f7fbff";
+            context.globalAlpha = Math.max(0, 0.82 * coreFade);
+            context.shadowColor = cyan;
+            context.shadowBlur = 8 + glintPulse * 10;
+            context.arc(coreX, coreY, coreRadius, 0, Math.PI * 2);
+            context.fill();
+            context.restore();
+          }
+        }
+      } else {
+        const arrival = easeOutCubic(progress);
+
+        if (!reduceMotion) {
+          for (let index = 0; index < 24; index += 1) {
+            const particleSeed = node.seed + index * 79;
+            const angle = seededUnit(particleSeed + 7) * Math.PI * 2;
+            const startDistance = 34 + seededUnit(particleSeed + 19) * 44;
+            const distance = startDistance * (1 - arrival);
+            const orbital = Math.sin(progress * Math.PI * 2 + particleSeed) * (1 - arrival) * 4;
+            const size = 1 + seededUnit(particleSeed + 31) * 2;
+            context.save();
+            context.fillStyle = index % 5 === 0 ? cyan : color;
+            context.globalAlpha = Math.sin(progress * Math.PI) * (0.38 + seededUnit(particleSeed + 43) * 0.48);
+            context.fillRect(
+              x + Math.cos(angle) * distance - Math.sin(angle) * orbital - size / 2,
+              y + Math.sin(angle) * distance + Math.cos(angle) * orbital - size / 2,
+              size,
+              size
+            );
+            context.restore();
+          }
+
+          const haloRadius = 22 + (1 - arrival) * 24;
+          const halo = context.createRadialGradient(x, y, 0, x, y, haloRadius);
+          halo.addColorStop(0, color);
+          halo.addColorStop(1, "transparent");
+          context.save();
+          context.fillStyle = halo;
+          context.globalAlpha = Math.sin(progress * Math.PI) * 0.26;
+          context.fillRect(x - haloRadius, y - haloRadius, haloRadius * 2, haloRadius * 2);
+          context.restore();
+        }
+      }
+
+      if (progress < 1) {
+        animationFrame = window.requestAnimationFrame(draw);
+        return;
+      }
+
+      context.clearRect(0, 0, width, height);
+      onCompleteRef.current(transition.id);
+    };
+
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+    resize();
+    animationFrame = window.requestAnimationFrame(draw);
+
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [theme, transition]);
+
+  return <canvas ref={canvasRef} className="today-constellation-transition-layer" aria-hidden="true" />;
+}
+
+function TodayHeartFlightLayer({
+  pulse,
+  theme,
+  onComplete
+}: {
+  pulse: TodayVisualPulse | null;
+  theme: SettingsInfo["effectiveTheme"];
+  onComplete: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const onCompleteRef = useRef(onComplete);
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const host = canvas?.closest<HTMLElement>(".daily-page");
+    if (!pulse || !canvas || !host) {
+      return;
+    }
+    const context = canvas.getContext("2d");
+    if (!context) {
+      onCompleteRef.current();
+      return;
+    }
+
+    let prepareFrame = 0;
+    let animationFrame = 0;
+    let completionTimer = 0;
+    let attempt = 0;
+    let cancelled = false;
+
+    const finish = () => {
+      if (cancelled) {
+        return;
+      }
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      onCompleteRef.current();
+    };
+
+    const prepare = () => {
+      if (cancelled) {
+        return;
+      }
+      const origin = Array.from(host.querySelectorAll<HTMLElement>(".today-focus-row")).find(
+        (element) => element.dataset.workItemId === pulse.workItemId
+      );
+      const target = Array.from(host.querySelectorAll<HTMLElement>(".today-constellation-target")).find(
+        (element) => element.dataset.constellationWorkItemId === pulse.workItemId
+      );
+      if ((!origin || !target) && attempt < 18) {
+        attempt += 1;
+        prepareFrame = window.requestAnimationFrame(prepare);
+        return;
+      }
+      if (!origin || !target) {
+        finish();
+        return;
+      }
+
+      const hostRect = host.getBoundingClientRect();
+      const originRect = origin.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const width = Math.max(host.scrollWidth, host.clientWidth);
+      const height = Math.max(host.scrollHeight, host.clientHeight);
+      const deviceScale = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      canvas.width = Math.round(width * deviceScale);
+      canvas.height = Math.round(height * deviceScale);
+
+      const start = {
+        x: originRect.left - hostRect.left + originRect.width * 0.58 + host.scrollLeft,
+        y: originRect.top - hostRect.top + originRect.height * 0.5 + host.scrollTop
+      };
+      const end = {
+        x: targetRect.left - hostRect.left + targetRect.width * 0.5 + host.scrollLeft,
+        y: targetRect.top - hostRect.top + targetRect.height * 0.5 + host.scrollTop
+      };
+      const horizontalDistance = Math.abs(end.x - start.x);
+      const controlA = {
+        x: start.x + Math.max(72, horizontalDistance * 0.28),
+        y: start.y - Math.max(54, Math.abs(end.y - start.y) * 0.16)
+      };
+      const controlB = {
+        x: end.x - Math.max(62, horizontalDistance * 0.18),
+        y: end.y + 48
+      };
+      const rootStyle = window.getComputedStyle(document.documentElement);
+      const accent = rootStyle.getPropertyValue("--accent").trim() || "#0b63f6";
+      const cyan = rootStyle.getPropertyValue("--pixel-cyan").trim() || "#28c9eb";
+      const success = rootStyle.getPropertyValue("--success").trim() || "#12835a";
+      const danger = rootStyle.getPropertyValue("--danger").trim() || "#b42318";
+      const targetState = target.dataset.constellationState as TodayConstellationState | undefined;
+      const targetColor = targetState === "blocked" ? danger : targetState === "filled" ? success : accent;
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const duration = reduceMotion ? 240 : 1180;
+      const startedAt = performance.now();
+
+      const heartCells = [
+        [-2, -2],
+        [-1, -3],
+        [0, -2],
+        [1, -3],
+        [2, -2],
+        [-3, -1],
+        [-2, -1],
+        [-1, -1],
+        [0, -1],
+        [1, -1],
+        [2, -1],
+        [3, -1],
+        [-3, 0],
+        [-2, 0],
+        [-1, 0],
+        [0, 0],
+        [1, 0],
+        [2, 0],
+        [3, 0],
+        [-2, 1],
+        [-1, 1],
+        [0, 1],
+        [1, 1],
+        [2, 1],
+        [-1, 2],
+        [0, 2],
+        [1, 2],
+        [0, 3]
+      ] as const;
+
+      const pointAt = (progress: number) => {
+        const inverse = 1 - progress;
+        return {
+          x:
+            inverse * inverse * inverse * start.x +
+            3 * inverse * inverse * progress * controlA.x +
+            3 * inverse * progress * progress * controlB.x +
+            progress * progress * progress * end.x,
+          y:
+            inverse * inverse * inverse * start.y +
+            3 * inverse * inverse * progress * controlA.y +
+            3 * inverse * progress * progress * controlB.y +
+            progress * progress * progress * end.y
+        };
+      };
+
+      const draw = (time: number) => {
+        if (cancelled) {
+          return;
+        }
+        const rawProgress = Math.min(1, (time - startedAt) / duration);
+        const progress = reduceMotion ? rawProgress : 1 - Math.pow(1 - rawProgress, 3);
+        context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
+        context.clearRect(0, 0, width, height);
+
+        const trailLength = reduceMotion ? 4 : 24;
+        for (let index = trailLength - 1; index >= 0; index -= 1) {
+          const trailProgress = progress - index * (reduceMotion ? 0.04 : 0.014);
+          if (trailProgress < 0) {
+            continue;
+          }
+          const point = pointAt(Math.min(1, trailProgress));
+          const strength = 1 - index / trailLength;
+          const size = 1.2 + strength * 3.8;
+          context.save();
+          context.globalAlpha = strength * (theme === "dark" ? 0.82 : 0.72);
+          context.fillStyle = index % 4 === 0 ? cyan : targetColor;
+          context.shadowColor = targetColor;
+          context.shadowBlur = 4 + strength * 8;
+          context.fillRect(point.x - size / 2, point.y - size / 2, size, size);
+          context.restore();
+        }
+
+        const head = pointAt(progress);
+        const heartCellSize = reduceMotion ? 1.8 : 2.1 + Math.sin(rawProgress * Math.PI) * 0.35;
+        context.save();
+        context.fillStyle = targetColor;
+        context.shadowColor = targetColor;
+        context.shadowBlur = theme === "dark" ? 13 : 10;
+        context.globalAlpha = theme === "dark" ? 0.98 : 0.92;
+        for (const [column, row] of heartCells) {
+          const size = heartCellSize - (Math.abs(column) + Math.abs(row) > 4 ? 0.2 : 0);
+          context.fillRect(
+            head.x + column * (heartCellSize + 0.45) - size / 2,
+            head.y + row * (heartCellSize + 0.45) - size / 2,
+            size,
+            size
+          );
+        }
+        context.restore();
+
+        if (rawProgress > 0.76) {
+          const activation = Math.min(1, (rawProgress - 0.76) / 0.24);
+          const fade = 1 - activation;
+          context.save();
+          context.shadowColor = targetColor;
+          context.shadowBlur = 7;
+          for (let index = 0; index < 26; index += 1) {
+            const particleSeed = 311 + index * 53;
+            const angle = seededUnit(particleSeed) * Math.PI * 2;
+            const reach = 8 + seededUnit(particleSeed + 13) * 34;
+            const distance = activation * reach;
+            const size = 1.2 + seededUnit(particleSeed + 29) * 2.5 * fade;
+            context.globalAlpha = fade * (theme === "dark" ? 0.82 : 0.68);
+            context.fillStyle = index % 5 === 0 ? cyan : targetColor;
+            context.fillRect(
+              end.x + Math.cos(angle) * distance - size / 2,
+              end.y + Math.sin(angle) * distance - size / 2,
+              size,
+              size
+            );
+          }
+          context.restore();
+        }
+
+        if (rawProgress < 1) {
+          animationFrame = window.requestAnimationFrame(draw);
+          return;
+        }
+        completionTimer = window.setTimeout(finish, 220);
+      };
+
+      animationFrame = window.requestAnimationFrame(draw);
+    };
+
+    prepareFrame = window.requestAnimationFrame(prepare);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(prepareFrame);
+      window.cancelAnimationFrame(animationFrame);
+      window.clearTimeout(completionTimer);
+    };
+  }, [pulse, theme]);
+
+  return <canvas ref={canvasRef} className="today-heart-flight-layer" aria-hidden="true" />;
 }
 
 function TodaySidebar({
@@ -3750,7 +5610,6 @@ function TodayMiniCalendar({
           const heatmapDay = heatmapByDate.get(date);
           const dayActivity = heatmapDay ? getHeatmapDisplayActivity(heatmapDay) : null;
           const level = dayActivity?.level ?? 0;
-          const blockCount = dayActivity?.blockCount ?? 0;
           const isToday = calendarDay === currentDay;
           const isFuture = date > getLocalDateKey();
           return (
@@ -3764,20 +5623,7 @@ function TodayMiniCalendar({
               }`}
             >
               <span className="today-mini-day-number">{calendarDay}</span>
-              <span className="today-mini-day-blocks" aria-hidden="true">
-                {Array.from({ length: HEATMAP_BLOCK_LIMIT }, (_, blockIndex) => (
-                  <i
-                    className={[
-                      "today-mini-day-block",
-                      blockIndex < blockCount ? "active" : "empty",
-                      blockIndex < blockCount ? `heatmap-display-level-${level}` : ""
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    key={blockIndex}
-                  />
-                ))}
-              </span>
+              <HeatmapConstellation dayNumber={calendarDay} level={level} variant="mini" />
             </span>
           );
         })}
@@ -3785,13 +5631,16 @@ function TodayMiniCalendar({
 
       <div className="today-mini-legend" aria-label={t("heatmapLegend")}>
         <span>{t("heatmapLess")}</span>
-        {[0, 1, 2, 3, 4].map((level) => (
-          <i
-            key={level}
-            className={level > 0 ? `heatmap-display-level-${level}` : ""}
-            aria-hidden="true"
-          />
-        ))}
+        <span className="today-mini-constellation-scale" aria-hidden="true">
+          {[1, 2, 3, 4].map((sampleLevel) => (
+            <HeatmapConstellation
+              dayNumber={17}
+              level={sampleLevel as HeatmapDay["level"]}
+              variant="mini-legend"
+              key={sampleLevel}
+            />
+          ))}
+        </span>
         <span>{t("heatmapMore")}</span>
       </div>
     </section>
@@ -4026,7 +5875,7 @@ function ProjectMemoSummaryCard({
       onKeyDown={handleKeyDown}
     >
       <div className="memo-summary-icon">
-        <BookOpenText size={16} />
+        <StickyNote size={16} />
       </div>
       <div className="memo-summary-main">
         <div className="memo-summary-title-row">
@@ -4120,6 +5969,190 @@ function DailyWorkItemSummaryCard({
   );
 }
 
+function DailyStatusDropdown({
+  value,
+  disabled,
+  t,
+  onChange
+}: {
+  value: DailyWorkItemStatus;
+  disabled: boolean;
+  t: Translator;
+  onChange: (value: DailyWorkItemStatus) => void;
+}) {
+  const options: Array<{
+    value: DailyWorkItemStatus;
+    label: string;
+    tone: "active" | "done" | "paused";
+  }> = [
+    { value: "in_progress", label: t("statusContinue"), tone: "active" },
+    { value: "done_today", label: t("statusDoneToday"), tone: "done" },
+    { value: "paused", label: t("statusPaused"), tone: "paused" }
+  ];
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const selectedOption = options[selectedIndex];
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(selectedIndex);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const menuId = useId();
+
+  const focusOption = (index: number) => {
+    const nextIndex = (index + options.length) % options.length;
+    setActiveIndex(nextIndex);
+    optionRefs.current[nextIndex]?.focus();
+  };
+
+  const closeMenu = (restoreTriggerFocus = false) => {
+    setOpen(false);
+    if (restoreTriggerFocus) {
+      window.requestAnimationFrame(() => triggerRef.current?.focus());
+    }
+  };
+
+  const openMenu = (index = selectedIndex) => {
+    if (disabled) {
+      return;
+    }
+    setActiveIndex(index);
+    setOpen(true);
+  };
+
+  const selectOption = (nextValue: DailyWorkItemStatus) => {
+    if (nextValue !== value) {
+      onChange(nextValue);
+    }
+    closeMenu(true);
+  };
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const focusFrame = window.requestAnimationFrame(() => optionRefs.current[activeIndex]?.focus());
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMenu(true);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+    }
+  }, [disabled]);
+
+  return (
+    <div
+      ref={rootRef}
+      className={`daily-status-select entry-status-control entry-topbar-status ${open ? "open" : ""}`.trim()}
+      data-status={value}
+    >
+      <button
+        ref={triggerRef}
+        className="entry-status-trigger"
+        type="button"
+        aria-label={`${t("todayStatus")}: ${selectedOption.label}`}
+        aria-haspopup="listbox"
+        aria-controls={menuId}
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => {
+          if (open) {
+            closeMenu();
+          } else {
+            openMenu();
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            openMenu(selectedIndex);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            openMenu(0);
+          } else if (event.key === "End") {
+            event.preventDefault();
+            openMenu(options.length - 1);
+          }
+        }}
+      >
+        <span className={`entry-status-dot ${selectedOption.tone}`} aria-hidden="true" />
+        <span className="entry-status-value">{selectedOption.label}</span>
+        <ChevronDown className="entry-status-chevron" size={16} aria-hidden="true" />
+      </button>
+      {open && (
+        <div id={menuId} className="entry-status-menu" role="listbox" aria-label={t("todayStatus")}>
+          <div className="entry-status-options" role="presentation">
+            {options.map((option, index) => {
+              const selected = option.value === value;
+              return (
+                <button
+                  ref={(element) => {
+                    optionRefs.current[index] = element;
+                  }}
+                  key={option.value}
+                  className={`${selected ? "selected" : ""} ${activeIndex === index ? "active" : ""}`.trim()}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => selectOption(option.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown") {
+                      event.preventDefault();
+                      focusOption(index + 1);
+                    } else if (event.key === "ArrowUp") {
+                      event.preventDefault();
+                      focusOption(index - 1);
+                    } else if (event.key === "Home") {
+                      event.preventDefault();
+                      focusOption(0);
+                    } else if (event.key === "End") {
+                      event.preventDefault();
+                      focusOption(options.length - 1);
+                    } else if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      selectOption(option.value);
+                    } else if (event.key === "Escape") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      closeMenu(true);
+                    } else if (event.key === "Tab") {
+                      setOpen(false);
+                    }
+                  }}
+                >
+                  <span className={`entry-status-option-dot ${option.tone}`} aria-hidden="true" />
+                  <span className="entry-status-option-label">{option.label}</span>
+                  <span className="entry-status-option-check" aria-hidden="true">
+                    {selected && <Check size={14} />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DailyEntryEditorPage({
   dailyView,
   block,
@@ -4158,8 +6191,13 @@ function DailyEntryEditorPage({
   const [referenceSidebarCollapsed, setReferenceSidebarCollapsed] = useState(false);
   const [savingImageTarget, setSavingImageTarget] = useState<"note" | "daily" | null>(null);
   const [draftingMode, setDraftingMode] = useState<"local" | "ai" | null>(null);
+  const [editorWallpaper, setEditorWallpaper] = useState<EditorWallpaper>(readEditorWallpaperPreference);
+  const [wallpaperPickerOpen, setWallpaperPickerOpen] = useState(false);
+  const wallpaperPickerRef = useRef<HTMLDivElement | null>(null);
   const isDrafting = draftingMode !== null;
   const canGenerateAiDraft = Boolean(aiSettings?.enabled && aiSettings.apiKeyConfigured && aiSettings.baseUrl && aiSettings.model);
+  const aiDraftDisabled = isClosed || isDrafting || !canGenerateAiDraft;
+  const aiDraftTooltip = canGenerateAiDraft ? t("generateAiChangeSummaryHelp") : t("aiDraftUnavailableHint");
   const showHistoryRecoveryCard =
     !isClosed &&
     !form.workItemNoteContent.trim() &&
@@ -4212,6 +6250,49 @@ function DailyEntryEditorPage({
   const primaryEditorSectionIds = primaryEditorSections.map((section) => section.id);
   const editorSectionIds = editorSections.map((section) => section.id);
   const activeEditor = editorSections.find((section) => section.id === activeSection) ?? editorSections[0];
+  const wallpaperOptions: Array<{ id: EditorWallpaper; label: string; previewImage: string | null }> = [
+    { id: "clean", label: t("editorWallpaperClean"), previewImage: null },
+    { id: "cloud", label: t("editorWallpaperCloud"), previewImage: editorPaperCloudMist },
+    { id: "forest", label: t("editorWallpaperForest"), previewImage: editorPaperForestWhisper },
+    { id: "night", label: t("editorWallpaperNight"), previewImage: editorPaperNightVoyage }
+  ];
+  const activeWallpaperLabel = wallpaperOptions.find((option) => option.id === editorWallpaper)?.label ?? "";
+  const editorPaperImage = wallpaperOptions.find((option) => option.id === editorWallpaper)?.previewImage ?? null;
+  const editorPaperStyle = editorPaperImage
+    ? ({ "--editor-paper-image": `url("${editorPaperImage}")` } as CSSProperties)
+    : undefined;
+
+  useEffect(() => {
+    if (!wallpaperPickerOpen) {
+      return;
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!wallpaperPickerRef.current?.contains(event.target as Node)) {
+        setWallpaperPickerOpen(false);
+      }
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setWallpaperPickerOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [wallpaperPickerOpen]);
+
+  const selectEditorWallpaper = (nextWallpaper: EditorWallpaper) => {
+    setEditorWallpaper(nextWallpaper);
+    setWallpaperPickerOpen(false);
+    try {
+      window.localStorage.setItem(EDITOR_WALLPAPER_STORAGE_KEY, nextWallpaper);
+    } catch {
+      // The visual preference can remain session-only if localStorage is unavailable.
+    }
+  };
 
   const updateActiveSection = (value: string) => {
     if (activeSection === "todayProgress") {
@@ -4284,7 +6365,8 @@ function DailyEntryEditorPage({
   const buildCurrentLocalDraft = () =>
     buildLocalChangeDraft(block.previousNoteSnapshot?.content_markdown ?? "", form.workItemNoteContent, t);
   const applyGeneratedChangeDraft = (draft: string, message: string, kind: Toast["kind"] = "success") => {
-    onUpdate({ todayProgress: draft });
+    const sanitizedDraft = sanitizeGeneratedChangeDraft(draft) || t("changeDraftNoChanges");
+    onUpdate({ todayProgress: sanitizedDraft });
     setActivePrimarySection("dailyChange");
     setActiveSection("todayProgress");
     onToast({ kind, message });
@@ -4374,19 +6456,58 @@ function DailyEntryEditorPage({
           <span className="entry-header-saved">
             {t("lastSavedAt")} {formatTimeDisplay(block.entry?.updated_at ?? null, language, t)}
           </span>
-          <label className="daily-status-select entry-status-control entry-topbar-status">
-            <span>{t("todayStatus")}</span>
-            <select
-              aria-label={t("todayStatus")}
-              value={form.statusForToday}
-              onChange={(event) => onUpdate({ statusForToday: event.target.value as DailyWorkItemStatus })}
-              disabled={isClosed}
+          <div ref={wallpaperPickerRef} className="editor-wallpaper-picker">
+            <button
+              className={`entry-wallpaper-trigger ${wallpaperPickerOpen ? "active" : ""}`}
+              type="button"
+              title={`${t("editorWallpaper")}: ${activeWallpaperLabel}`}
+              aria-label={`${t("editorWallpaper")}: ${activeWallpaperLabel}`}
+              aria-haspopup="menu"
+              aria-expanded={wallpaperPickerOpen}
+              onClick={() => setWallpaperPickerOpen((open) => !open)}
             >
-              <option value="in_progress">{t("statusContinue")}</option>
-              <option value="done_today">{t("statusDoneToday")}</option>
-              <option value="paused">{t("statusPaused")}</option>
-            </select>
-          </label>
+              <Wallpaper size={18} />
+            </button>
+            {wallpaperPickerOpen && (
+              <div className="editor-wallpaper-menu" role="menu" aria-label={t("editorWallpaper")}>
+                <span className="editor-wallpaper-menu-title">{t("editorWallpaper")}</span>
+                <div className="editor-wallpaper-options">
+                  {wallpaperOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      className={editorWallpaper === option.id ? "selected" : ""}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={editorWallpaper === option.id}
+                      onClick={() => selectEditorWallpaper(option.id)}
+                    >
+                      <span
+                        className={`editor-paper-preview ${option.id}`}
+                        style={
+                          option.previewImage
+                            ? ({ backgroundImage: `url("${option.previewImage}")` } as CSSProperties)
+                            : undefined
+                        }
+                        aria-hidden="true"
+                      />
+                      <span className="editor-paper-choice-name">{option.label}</span>
+                      {editorWallpaper === option.id && (
+                        <span className="editor-paper-choice-check" aria-hidden="true">
+                          <Check size={13} />
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <DailyStatusDropdown
+            value={form.statusForToday}
+            disabled={isClosed}
+            t={t}
+            onChange={(statusForToday) => onUpdate({ statusForToday })}
+          />
           <button className="secondary-button entry-save-button" type="button" onClick={onSave} disabled={isClosed}>
             {t("saveAction")}
           </button>
@@ -4404,20 +6525,7 @@ function DailyEntryEditorPage({
       )}
 
       <div className={`daily-entry-editor-layout ${referenceSidebarCollapsed ? "reference-sidebar-collapsed" : ""}`}>
-        {referenceSidebarCollapsed ? (
-          <aside className="reference-rail" aria-label={t("previousWorkdayReference")}>
-            <button
-              className="reference-rail-button"
-              type="button"
-              aria-label={t("expandReferenceSidebar")}
-              aria-expanded={false}
-              onClick={() => setReferenceSidebarCollapsed(false)}
-            >
-              <ChevronRight size={17} />
-              <span>{t("previousWorkdayReference")}</span>
-            </button>
-          </aside>
-        ) : (
+        {!referenceSidebarCollapsed && (
           <aside className="reference-panel-card expanded">
             <div className="reference-compact-row">
               <div className="reference-compact-main">
@@ -4425,13 +6533,13 @@ function DailyEntryEditorPage({
                   <div className="reference-heading-row">
                     <strong>{t("previousWorkdayReference")}</strong>
                     <button
-                      className="icon-button reference-sidebar-toggle"
+                      className="reference-sidebar-control reference-sidebar-toggle"
                       type="button"
                       aria-label={t("collapseReferenceSidebar")}
                       aria-expanded={true}
                       onClick={() => setReferenceSidebarCollapsed(true)}
                     >
-                      <ChevronLeft size={16} />
+                      <ChevronLeft size={16} strokeWidth={2} />
                     </button>
                   </div>
                 </div>
@@ -4478,29 +6586,49 @@ function DailyEntryEditorPage({
           </aside>
         )}
 
-        <section className="entry-editor-switcher editor-workspace">
-        <div
-          className="editor-tabs primary-editor-tabs"
-          role="tablist"
-          aria-label={t("dailyEditorTitle")}
-          onKeyDown={(event) => handleSegmentedKeyDown(event, primaryEditorSectionIds, activePrimarySection, setActivePrimarySection)}
+        <section
+          className={`entry-editor-switcher editor-workspace editor-paper-${editorWallpaper}`}
+          style={editorPaperStyle}
         >
-          {primaryEditorSections.map((section) => (
-            <button
-              key={section.id}
-              data-tab-id={section.id}
-              className={activePrimarySection === section.id ? "active" : ""}
-              type="button"
-              role="tab"
-              aria-selected={activePrimarySection === section.id}
-              tabIndex={activePrimarySection === section.id ? 0 : -1}
-              title={section.description}
-              onClick={() => setActivePrimarySection(section.id)}
+          <div className="primary-editor-navigation">
+            {referenceSidebarCollapsed && (
+              <button
+                className="reference-sidebar-control reference-sidebar-reveal"
+                type="button"
+                aria-label={t("expandReferenceSidebar")}
+                aria-expanded={false}
+                title={t("expandReferenceSidebar")}
+                onClick={() => setReferenceSidebarCollapsed(false)}
+              >
+                <ChevronRight size={16} strokeWidth={2} />
+              </button>
+            )}
+            <div
+              className="editor-tabs primary-editor-tabs sliding-tab-list"
+              role="tablist"
+              aria-label={t("dailyEditorTitle")}
+              onKeyDown={(event) =>
+                handleSegmentedKeyDown(event, primaryEditorSectionIds, activePrimarySection, setActivePrimarySection)
+              }
             >
-              {section.label}
-            </button>
-          ))}
-        </div>
+              <SlidingTabIndicator activeItem={activePrimarySection} />
+              {primaryEditorSections.map((section) => (
+                <button
+                  key={section.id}
+                  data-tab-id={section.id}
+                  className={activePrimarySection === section.id ? "active" : ""}
+                  type="button"
+                  role="tab"
+                  aria-selected={activePrimarySection === section.id}
+                  tabIndex={activePrimarySection === section.id ? 0 : -1}
+                  title={section.description}
+                  onClick={() => setActivePrimarySection(section.id)}
+                >
+                  {section.label}
+                </button>
+              ))}
+            </div>
+          </div>
 
         {activePrimarySection === "currentContent" ? (
           <section className="entry-editor-form work-item-note-editor">
@@ -4557,65 +6685,81 @@ function DailyEntryEditorPage({
           </section>
         ) : (
           <section className="entry-editor-form">
-            <div className="daily-editor-header">
-              <div>
-                <span>{t("dailyEditorTitle")}</span>
-                {savingImageTarget === "daily" && <em>{t("memoSavingImage")}</em>}
+            <div className="change-section-bar">
+              <div
+                className="editor-tabs change-section-tabs sliding-tab-list"
+                role="tablist"
+                aria-label={t("dailyEditorTitle")}
+                onKeyDown={(event) => handleSegmentedKeyDown(event, editorSectionIds, activeSection, setActiveSection)}
+              >
+                <SlidingTabIndicator activeItem={activeSection} />
+                {editorSections.map((section) => (
+                  <button
+                    key={section.id}
+                    data-tab-id={section.id}
+                    className={activeSection === section.id ? "active" : ""}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeSection === section.id}
+                    tabIndex={activeSection === section.id ? 0 : -1}
+                    onClick={() => setActiveSection(section.id)}
+                  >
+                    {section.label}
+                  </button>
+                ))}
               </div>
+              {(activeSection === "todayProgress" || savingImageTarget === "daily") && (
+                <div className="change-section-tools">
+                  {activeSection === "todayProgress" && (
+                    <div className="change-summary-actions" role="group" aria-label={t("changeSummaryGenerationActions")}>
+                      <HoverTooltip
+                        className="change-summary-action-tooltip"
+                        content={t("generateLocalChangeSummaryHelp")}
+                        showWhen="always"
+                        focusable={isClosed || isDrafting}
+                        align="center"
+                      >
+                        <button
+                          className="change-summary-action"
+                          type="button"
+                          onClick={() => void handleGenerateLocalChangeDraft()}
+                          disabled={isClosed || isDrafting}
+                        >
+                          <FileText size={16} aria-hidden="true" />
+                          {draftingMode === "local" ? t("changeDraftGenerating") : t("generateLocalChangeSummary")}
+                        </button>
+                      </HoverTooltip>
+                      <HoverTooltip
+                        className="change-summary-action-tooltip"
+                        content={aiDraftTooltip}
+                        showWhen="always"
+                        focusable={aiDraftDisabled}
+                        align="center"
+                      >
+                        <button
+                          className="change-summary-action ai"
+                          type="button"
+                          aria-label={
+                            canGenerateAiDraft
+                              ? t("generateAiChangeSummary")
+                              : `${t("generateAiChangeSummary")}: ${t("aiDraftUnavailableHint")}`
+                          }
+                          onClick={() => void handleGenerateAiChangeDraft()}
+                          disabled={aiDraftDisabled}
+                        >
+                          <Sparkles size={16} aria-hidden="true" />
+                          {draftingMode === "ai" ? t("changeDraftGenerating") : t("generateAiChangeSummary")}
+                        </button>
+                      </HoverTooltip>
+                    </div>
+                  )}
+                  {savingImageTarget === "daily" && (
+                    <span className="change-editor-saving">{t("memoSavingImage")}</span>
+                  )}
+                </div>
+              )}
             </div>
-            <div className="change-draft-actions" role="group" aria-label={t("changeSummaryGenerationActions")}>
-              <button
-                className="change-draft-card local-draft-action"
-                type="button"
-                onClick={handleGenerateLocalChangeDraft}
-                disabled={isClosed || isDrafting}
-              >
-                <span className="change-draft-icon">
-                  <FileText size={18} />
-                </span>
-                <span className="change-draft-copy">
-                  <strong>{draftingMode === "local" ? t("changeDraftGenerating") : t("generateLocalChangeSummary")}</strong>
-                  <small>{t("generateLocalChangeSummaryHelp")}</small>
-                </span>
-              </button>
-              <button
-                className="change-draft-card ai-draft-action"
-                type="button"
-                onClick={handleGenerateAiChangeDraft}
-                disabled={isClosed || isDrafting}
-              >
-                <span className="change-draft-icon">
-                  <Sparkles size={18} />
-                </span>
-                <span className="change-draft-copy">
-                  <strong>{draftingMode === "ai" ? t("changeDraftGenerating") : t("generateAiChangeSummary")}</strong>
-                  <small>{canGenerateAiDraft ? t("generateAiChangeSummaryHelp") : t("aiDraftUnavailableHint")}</small>
-                </span>
-              </button>
-            </div>
-            <div
-              className="editor-tabs"
-              role="tablist"
-              aria-label={t("dailyEditorTitle")}
-              onKeyDown={(event) => handleSegmentedKeyDown(event, editorSectionIds, activeSection, setActiveSection)}
-            >
-              {editorSections.map((section) => (
-                <button
-                  key={section.id}
-                  data-tab-id={section.id}
-                  className={activeSection === section.id ? "active" : ""}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeSection === section.id}
-                  tabIndex={activeSection === section.id ? 0 : -1}
-                  onClick={() => setActiveSection(section.id)}
-                >
-                  {section.label}
-                </button>
-              ))}
-            </div>
-            <div className="daily-field editor-note-field" role="group" aria-label={activeEditor.label}>
-              <span>{activeEditor.label}</span>
+            <div className="daily-field editor-note-field change-editor-field" role="group" aria-label={activeEditor.label}>
               <MarkdownWysiwygEditor
                 key={activeEditor.id}
                 value={activeEditor.value}
@@ -4708,7 +6852,6 @@ function WorkItemRow({
               <button
                 className="icon-button reorder-icon-button"
                 type="button"
-                title={canMoveUp ? t("moveUp") : t("alreadyAtTop")}
                 aria-label={canMoveUp ? t("moveUp") : t("alreadyAtTop")}
                 onClick={onMoveUp}
               >
@@ -4719,7 +6862,6 @@ function WorkItemRow({
               <button
                 className="icon-button reorder-icon-button"
                 type="button"
-                title={canMoveDown ? t("moveDown") : t("alreadyAtBottom")}
                 aria-label={canMoveDown ? t("moveDown") : t("alreadyAtBottom")}
                 onClick={onMoveDown}
               >
@@ -4787,7 +6929,7 @@ function ProjectsPage({
   };
 
   return (
-    <section className="page">
+    <section className="page projects-page">
       <PageHeader
         title={t("projectsTitle")}
         description={t("projectsSubtitle")}
@@ -4812,30 +6954,45 @@ function ProjectsPage({
             const description = project.description?.trim();
             const canMoveUp = index > 0;
             const canMoveDown = index < projects.length - 1;
+            const tone = projectVisualTone(project.id);
             return (
               <article
-                className="project-list-card"
+                className={`project-list-card project-tone-${tone}`}
                 key={project.id}
                 role="button"
                 tabIndex={0}
                 onClick={() => onOpenProject(project.id)}
                 onKeyDown={(event) => handleProjectCardKeyDown(event, project.id)}
               >
-                <header className="project-list-card-header">
-                  <span className="project-list-card-icon" aria-hidden="true">
-                    <FolderOpen size={20} />
-                  </span>
-                  <span className="project-list-card-title-block">
+                <ProjectIdentityMark projectId={project.id} className="project-list-card-icon" />
+
+                <div className="project-list-card-main">
+                  <div className="project-list-card-title-block">
                     <span className="project-list-card-title" title={project.name}>{project.name}</span>
                     <span className={`project-list-status ${project.status}`}>
                       {project.status === "archived" ? t("statusArchived") : t("statusActive")}
                     </span>
-                  </span>
+                  </div>
+                  <p className={`project-list-description ${description ? "" : "empty"}`.trim()}>
+                    {description || t("noProjectDescription")}
+                  </p>
+                </div>
+
+                <div className="project-list-card-metric">
+                  <span>{t("activeCountPrefix")}</span>
+                  <strong>{project.active_item_count} {t("unitCount")}</strong>
+                </div>
+
+                <div className="project-list-card-metric updated">
+                  <span>{t("updatedPrefix")}</span>
+                  <strong>{formatTimestamp(project.updated_at, language, t)}</strong>
+                </div>
+
+                <div className="project-list-card-actions">
                   <span className="project-list-card-reorder" role="group" aria-label={t("reorder")}>
                     <button
                       className="icon-button reorder-icon-button"
                       type="button"
-                      title={canMoveUp ? t("moveUp") : t("alreadyAtTop")}
                       aria-label={canMoveUp ? t("moveUp") : t("alreadyAtTop")}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -4847,7 +7004,6 @@ function ProjectsPage({
                     <button
                       className="icon-button reorder-icon-button"
                       type="button"
-                      title={canMoveDown ? t("moveDown") : t("alreadyAtBottom")}
                       aria-label={canMoveDown ? t("moveDown") : t("alreadyAtBottom")}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -4857,25 +7013,11 @@ function ProjectsPage({
                       <ArrowDown size={15} />
                     </button>
                   </span>
-                </header>
-
-                <p className={`project-list-description ${description ? "" : "empty"}`.trim()}>
-                  {description || t("noProjectDescription")}
-                </p>
-
-                <footer className="project-list-card-footer">
-                  <span>
-                    {t("activeCountPrefix")} <strong>{project.active_item_count}</strong> {t("unitCount")}
+                  <span className="project-list-card-enter">
+                    {t("viewProject")}
+                    <ChevronRight size={16} />
                   </span>
-                  <span>
-                    {t("updatedPrefix")} <strong>{formatTimestamp(project.updated_at, language, t)}</strong>
-                  </span>
-                </footer>
-
-                <span className="project-list-card-enter">
-                  {t("viewProject")}
-                  <ChevronRight size={15} />
-                </span>
+                </div>
               </article>
             );
           })
@@ -4900,6 +7042,9 @@ function ArchivePage({
       <PageHeader title={t("archiveTitle")} description={t("archiveBody")} />
       {projects.length === 0 ? (
         <div className="archive-empty-panel">
+          <span className="archive-empty-icon" aria-hidden="true">
+            <Archive size={32} />
+          </span>
           <EmptyState title={t("archiveEmptyTitle")} body={t("archiveEmptyBody")} />
         </div>
       ) : (
@@ -4913,30 +7058,35 @@ function ArchivePage({
                 type="button"
                 onClick={() => onOpenProject(project.id)}
               >
-                <header className="project-list-card-header">
-                  <span className="project-list-card-icon archive-project-card-icon" aria-hidden="true">
-                    <Archive size={19} />
-                  </span>
+                <span className="project-list-card-icon project-identity-mark archive-project-card-icon" aria-hidden="true">
+                  <Archive size={20} />
+                </span>
+
+                <span className="project-list-card-main">
                   <span className="project-list-card-title-block">
                     <span className="project-list-card-title" title={project.name}>{project.name}</span>
                     <span className="project-list-status archived">{t("statusArchived")}</span>
                   </span>
-                </header>
-
-                {description ? <p className="project-list-description">{description}</p> : null}
-
-                <footer className="project-list-card-footer">
-                  <span>
-                    {t("activeCountPrefix")} <strong>{project.active_item_count}</strong> {t("unitCount")}
+                  <span className={`project-list-description ${description ? "" : "empty"}`.trim()}>
+                    {description || t("noProjectDescription")}
                   </span>
-                  <span>
-                    {t("updatedPrefix")} <strong>{formatTimestamp(project.archived_at ?? project.updated_at, language, t)}</strong>
-                  </span>
-                </footer>
+                </span>
 
-                <span className="project-list-card-enter">
-                  {t("viewProject")}
-                  <ChevronRight size={15} />
+                <span className="project-list-card-metric">
+                  <span>{t("activeCountPrefix")}</span>
+                  <strong>{project.active_item_count} {t("unitCount")}</strong>
+                </span>
+
+                <span className="project-list-card-metric updated">
+                  <span>{t("updatedPrefix")}</span>
+                  <strong>{formatTimestamp(project.archived_at ?? project.updated_at, language, t)}</strong>
+                </span>
+
+                <span className="project-list-card-actions">
+                  <span className="project-list-card-enter">
+                    {t("viewProject")}
+                    <ChevronRight size={15} />
+                  </span>
                 </span>
               </button>
             );
@@ -4960,11 +7110,14 @@ function ReportsPage({
   onSelectMonthlyReport,
   t,
   language,
+  theme,
   aiSettings,
   onCopy,
   onExport,
   onReportsChanged,
-  onToast
+  onToast,
+  onConfirm,
+  onUnsavedChangesChange
 }: {
   reports: DailyReportListItem[];
   projects: ProjectListItem[];
@@ -4978,11 +7131,14 @@ function ReportsPage({
   onSelectMonthlyReport: (id: string) => void;
   t: Translator;
   language: LanguagePreference;
+  theme: EffectiveTheme;
   aiSettings: AiSettingsInfo | null;
   onCopy: (payload: MarkdownPayload) => void;
   onExport: (payload: MarkdownPayload) => void;
   onReportsChanged: () => Promise<void>;
   onToast: (toastValue: Toast) => void;
+  onConfirm: (options: AppConfirmOptions) => Promise<boolean>;
+  onUnsavedChangesChange: (hasUnsavedChanges: boolean) => void;
 }) {
   const [activeTab, setActiveTab] = useState<ReportTab>("daily");
   const reportTabIds: ReportTab[] = ["daily", "weekly", "monthly"];
@@ -4993,6 +7149,14 @@ function ReportsPage({
   const [projectFilter, setProjectFilter] = useState("all");
   const [refineTarget, setRefineTarget] = useState<ReportItem | null>(null);
   const [isRefining, setIsRefining] = useState(false);
+  const [reportEdit, setReportEdit] = useState<{
+    reportId: string;
+    reportKind: ReportItem["reportKind"];
+    version: "rule" | "ai";
+    originalMarkdown: string;
+    draftMarkdown: string;
+  } | null>(null);
+  const [isSavingReport, setIsSavingReport] = useState(false);
   const [message, setMessage] = useState<Toast | null>(null);
   const dailyItems: ReportItem[] = reports.map((report) => ({
     id: report.id,
@@ -5124,10 +7288,16 @@ function ReportsPage({
     previewMode === "ai" && hasAiVersion && selectedReport?.aiRefinedMarkdown
       ? selectedReport.aiRefinedMarkdown
       : selectedReport?.markdown ?? "";
+  const currentVersion: "rule" | "ai" = previewMode === "ai" && hasAiVersion ? "ai" : "rule";
+  const isEditingReport = Boolean(reportEdit && reportEdit.reportId === selectedReport?.id);
+  const hasUnsavedChanges = Boolean(
+    isEditingReport && reportEdit && reportEdit.draftMarkdown !== reportEdit.originalMarkdown
+  );
+  const displayedMarkdown = isEditingReport && reportEdit ? reportEdit.draftMarkdown : currentMarkdown;
   const selectedPayload = selectedReport
     ? {
       date: selectedReport.date,
-      markdown: currentMarkdown,
+      markdown: displayedMarkdown,
       fileName:
         previewMode === "ai" && hasAiVersion && selectedReport.reportKind !== "daily"
           ? selectedReport.aiFileName
@@ -5176,9 +7346,84 @@ function ReportsPage({
     setProjectFilter("all");
   };
 
+  const handleStartReportEdit = () => {
+    if (!selectedReport) {
+      return;
+    }
+    setMessage(null);
+    setReportEdit({
+      reportId: selectedReport.id,
+      reportKind: selectedReport.reportKind,
+      version: currentVersion,
+      originalMarkdown: currentMarkdown,
+      draftMarkdown: currentMarkdown
+    });
+  };
+
+  const handleCancelReportEdit = async () => {
+    if (!reportEdit) {
+      return;
+    }
+    if (reportEdit.draftMarkdown !== reportEdit.originalMarkdown) {
+      const confirmed = await onConfirm({
+        title: t("discardReportChangesTitle"),
+        body: t("discardReportChangesBody"),
+        primaryLabel: t("discardChanges"),
+        secondaryLabel: t("continueEditing"),
+        tone: "warning"
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+    setMessage(null);
+    setReportEdit(null);
+  };
+
+  const handleSaveReport = async () => {
+    if (!reportEdit || !selectedReport || reportEdit.reportId !== selectedReport.id) {
+      return;
+    }
+    if (!reportEdit.draftMarkdown.trim()) {
+      setMessage({ kind: "error", message: t("reportCannotBeEmpty") });
+      return;
+    }
+
+    setIsSavingReport(true);
+    setMessage(null);
+    try {
+      await window.workJournal.reports.saveMarkdown({
+        reportId: reportEdit.reportId,
+        reportType: reportEdit.reportKind,
+        version: reportEdit.version,
+        markdown: reportEdit.draftMarkdown
+      });
+      await onReportsChanged();
+      setReportEdit(null);
+      onToast({ kind: "success", message: t("reportSaved") });
+    } catch {
+      setMessage({ kind: "error", message: t("reportSaveFailed") });
+    } finally {
+      setIsSavingReport(false);
+    }
+  };
+
+  useEffect(() => {
+    onUnsavedChangesChange(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onUnsavedChangesChange]);
+
+  useEffect(
+    () => () => {
+      onUnsavedChangesChange(false);
+    },
+    [onUnsavedChangesChange]
+  );
+
   useEffect(() => {
     setPreviewMode("rule");
     setMessage(null);
+    setReportEdit(null);
+    setIsSavingReport(false);
   }, [activeTab, selectedReport?.id]);
 
   useEffect(() => {
@@ -5186,6 +7431,22 @@ function ReportsPage({
       setProjectFilter("all");
     }
   }, [projectFilter, projects]);
+
+  useEffect(() => {
+    if (!isEditingReport) {
+      return;
+    }
+    const handleSaveShortcut = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "s") {
+        event.preventDefault();
+        if (!isSavingReport) {
+          void handleSaveReport();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleSaveShortcut);
+    return () => window.removeEventListener("keydown", handleSaveShortcut);
+  }, [isEditingReport, isSavingReport, reportEdit]);
 
   const handleRequestAiRefine = (report: ReportItem) => {
     if (report.reportKind === "daily") {
@@ -5236,11 +7497,12 @@ function ReportsPage({
         description={t("reportsSubtitle")}
         actions={
           <div
-            className="report-tabs"
+            className="report-tabs sliding-tab-list"
             role="tablist"
             aria-label={t("reportsTitle")}
-            onKeyDown={(event) => handleSegmentedKeyDown(event, reportTabIds, activeTab, setActiveTab)}
+            onKeyDown={isEditingReport ? undefined : (event) => handleSegmentedKeyDown(event, reportTabIds, activeTab, setActiveTab)}
           >
+            <SlidingTabIndicator activeItem={activeTab} />
             <button
               data-tab-id="daily"
               className={activeTab === "daily" ? "active" : ""}
@@ -5248,6 +7510,7 @@ function ReportsPage({
               role="tab"
               aria-selected={activeTab === "daily"}
               tabIndex={activeTab === "daily" ? 0 : -1}
+              disabled={isEditingReport}
               onClick={() => setActiveTab("daily")}
             >
               {t("dailyReports")}
@@ -5259,6 +7522,7 @@ function ReportsPage({
               role="tab"
               aria-selected={activeTab === "weekly"}
               tabIndex={activeTab === "weekly" ? 0 : -1}
+              disabled={isEditingReport}
               onClick={() => setActiveTab("weekly")}
             >
               {t("weeklyReports")}
@@ -5270,6 +7534,7 @@ function ReportsPage({
               role="tab"
               aria-selected={activeTab === "monthly"}
               tabIndex={activeTab === "monthly" ? 0 : -1}
+              disabled={isEditingReport}
               onClick={() => setActiveTab("monthly")}
             >
               {t("monthlyReports")}
@@ -5287,7 +7552,12 @@ function ReportsPage({
             </div>
             {hasActiveFilters && (
               <div className="reports-filter-action-row">
-                <button className="ghost-button reports-header-clear" type="button" onClick={clearReportFilters}>
+                <button
+                  className="ghost-button reports-header-clear"
+                  type="button"
+                  disabled={isEditingReport}
+                  onClick={clearReportFilters}
+                >
                   {t("clearReportFilters")}
                 </button>
               </div>
@@ -5301,10 +7571,16 @@ function ReportsPage({
                 value={reportQuery}
                 type="search"
                 placeholder={t("reportsSearchPlaceholder")}
+                disabled={isEditingReport}
                 onChange={(event) => setReportQuery(event.target.value)}
               />
               {reportQuery.trim() && (
-                <button type="button" aria-label={t("clearReportFilters")} onClick={() => setReportQuery("")}>
+                <button
+                  type="button"
+                  aria-label={t("clearReportFilters")}
+                  disabled={isEditingReport}
+                  onClick={() => setReportQuery("")}
+                >
                   <X size={15} />
                 </button>
               )}
@@ -5319,6 +7595,7 @@ function ReportsPage({
                   className={timeFilter === option.value ? "active" : ""}
                   key={option.value}
                   type="button"
+                  disabled={isEditingReport}
                   onClick={() => setTimeFilter(option.value)}
                 >
                   {option.label}
@@ -5333,6 +7610,7 @@ function ReportsPage({
               <button
                 className={projectFilter === "all" ? "active" : ""}
                 type="button"
+                disabled={isEditingReport}
                 onClick={() => setProjectFilter("all")}
               >
                 <span>{t("reportProjectAll")}</span>
@@ -5347,6 +7625,7 @@ function ReportsPage({
                     key={project.id}
                     type="button"
                     title={project.name}
+                    disabled={isEditingReport}
                     onClick={() => setProjectFilter(project.id)}
                   >
                     <span>{project.name}</span>
@@ -5377,16 +7656,26 @@ function ReportsPage({
             ) : (
               filteredItems.map((report) => {
                 const isSelected = selectedReport?.id === report.id;
-                const preview = report.markdown.replace(/\s+/g, " ").trim();
+                const preview = unescapeReadableMarkdownText(report.markdown)
+                  .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+                  .replace(/^\s{0,3}#{1,6}\s*/gm, "")
+                  .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/gm, "")
+                  .replace(/[*_`~>|]/g, "")
+                  .replace(/\s+/g, " ")
+                  .trim();
                 return (
                   <button
                     className={`report-list-item ${isSelected ? "active" : ""}`}
                     key={report.id}
                     type="button"
+                    aria-current={isSelected ? "true" : undefined}
+                    disabled={isEditingReport}
                     onClick={() => tabConfig.onSelect(report.id)}
                   >
-                    <span className="report-kind-pill">{report.typeLabel}</span>
-                    <strong>{report.title}</strong>
+                    <span className="report-list-heading">
+                      <span className="report-kind-pill">{report.typeLabel}</span>
+                      <strong>{report.title}</strong>
+                    </span>
                     <span className="report-list-meta">
                       <span>{report.meta}</span>
                       <span>{countCharacters(report.markdown)} {t("unitChar")}</span>
@@ -5412,53 +7701,91 @@ function ReportsPage({
           {selectedReport ? (
             <>
               <header className="report-preview-header">
-                <div>
+                <div className="report-preview-copy">
                   <span className="eyebrow">{selectedReport.typeLabel}</span>
                   <h2>{selectedReport.title}</h2>
                   <div className="report-preview-meta">
                     <span>{t("reportGeneratedAt")}{t("searchMatchedSeparator")}{selectedReport.meta}</span>
-                    <span>{countCharacters(currentMarkdown)} {t("unitChar")}</span>
+                    <span>{countCharacters(displayedMarkdown)} {t("unitChar")}</span>
                   </div>
                   {selectedReport.reportKind !== "daily" && selectedReport.aiIsStale && (
                     <p className="report-stale-message">{t("aiReportStale")}</p>
                   )}
                 </div>
-                <div className="button-row">
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    title={aiRefineButtonTitle}
-                    aria-label={aiRefineButtonTitle ? `${t("aiRefine")}: ${aiRefineButtonTitle}` : t("aiRefine")}
-                    aria-describedby={aiRefineDisabledReasonId}
-                    onClick={() => handleRequestAiRefine(selectedReport)}
-                    disabled={isRefining || selectedReport.reportKind === "daily" || !selectedReportCanUseAiRefine}
-                  >
-                    <Sparkles size={17} />
-                    {isRefining ? t("aiRefining") : t("aiRefine")}
-                  </button>
-                  {aiRefineButtonTitle && (
-                    <span id={aiRefineDisabledReasonId} className="sr-only">
-                      {aiRefineButtonTitle}
-                    </span>
-                  )}
-                  <button className="secondary-button" type="button" onClick={() => selectedPayload && onCopy(selectedPayload)}>
-                    <Clipboard size={17} />
-                    {t("copyMarkdown")}
-                  </button>
-                  <button className="secondary-button" type="button" onClick={() => selectedPayload && onExport(selectedPayload)}>
-                    <FileDown size={17} />
-                    {exportButtonLabel}
-                  </button>
-                </div>
+                {isEditingReport ? (
+                  <div className="button-row report-edit-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={isSavingReport}
+                      onClick={() => void handleCancelReportEdit()}
+                    >
+                      {t("cancel")}
+                    </button>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={isSavingReport}
+                      onClick={() => void handleSaveReport()}
+                    >
+                      <Save size={17} />
+                      {isSavingReport ? t("savingReport") : t("saveReport")}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="button-row">
+                    <HoverTooltip
+                      className="report-ai-tooltip-trigger"
+                      content={aiRefineButtonTitle}
+                      showWhen="always"
+                      focusable={Boolean(aiRefineButtonTitle)}
+                    >
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        aria-label={aiRefineButtonTitle ? `${t("aiRefine")}: ${aiRefineButtonTitle}` : t("aiRefine")}
+                        aria-describedby={aiRefineDisabledReasonId}
+                        onClick={() => handleRequestAiRefine(selectedReport)}
+                        disabled={isRefining || selectedReport.reportKind === "daily" || !selectedReportCanUseAiRefine}
+                      >
+                        <Sparkles size={17} />
+                        {isRefining ? t("aiRefining") : t("aiRefine")}
+                      </button>
+                    </HoverTooltip>
+                    {aiRefineButtonTitle && (
+                      <span id={aiRefineDisabledReasonId} className="sr-only">
+                        {aiRefineButtonTitle}
+                      </span>
+                    )}
+                    <button className="secondary-button" type="button" onClick={() => selectedPayload && onCopy(selectedPayload)}>
+                      <Clipboard size={17} />
+                      {t("copyMarkdown")}
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => selectedPayload && onExport(selectedPayload)}>
+                      <FileDown size={17} />
+                      {exportButtonLabel}
+                    </button>
+                    <button
+                      className="secondary-button report-edit-button"
+                      type="button"
+                      title={t("editReport")}
+                      aria-label={t("editReport")}
+                      onClick={handleStartReportEdit}
+                    >
+                      <SquarePen size={17} />
+                    </button>
+                  </div>
+                )}
               </header>
               {message && <div className={`inline-message ${message.kind}`}>{message.message}</div>}
               {selectedReport.reportKind !== "daily" && hasAiVersion && (
                 <div
-                  className="report-version-toggle"
+                  className="report-version-toggle sliding-tab-list"
                   role="tablist"
                   aria-label={t("reportVersion")}
-                  onKeyDown={(event) => handleSegmentedKeyDown(event, reportVersionIds, previewMode, setPreviewMode)}
+                  onKeyDown={isEditingReport ? undefined : (event) => handleSegmentedKeyDown(event, reportVersionIds, previewMode, setPreviewMode)}
                 >
+                  <SlidingTabIndicator activeItem={previewMode} />
                   <button
                     data-tab-id="rule"
                     className={previewMode === "rule" ? "active" : ""}
@@ -5466,6 +7793,7 @@ function ReportsPage({
                     role="tab"
                     aria-selected={previewMode === "rule"}
                     tabIndex={previewMode === "rule" ? 0 : -1}
+                    disabled={isEditingReport}
                     onClick={() => setPreviewMode("rule")}
                   >
                     {t("ruleReportVersion")}
@@ -5477,13 +7805,37 @@ function ReportsPage({
                     role="tab"
                     aria-selected={previewMode === "ai"}
                     tabIndex={previewMode === "ai" ? 0 : -1}
+                    disabled={isEditingReport}
                     onClick={() => setPreviewMode("ai")}
                   >
                     {t("aiRefinedVersion")}
                   </button>
                 </div>
               )}
-              <ReadableMarkdown content={currentMarkdown} />
+              {isEditingReport && reportEdit ? (
+                <div className="report-editor-stage">
+                  <div className="report-edit-hint">
+                    <Info size={15} />
+                    <span>{t("reportEditHint")}</span>
+                  </div>
+                  <MarkdownWysiwygEditor
+                    value={reportEdit.draftMarkdown}
+                    language={language}
+                    theme={theme}
+                    placeholder={t("reportEditPlaceholder")}
+                    height="100%"
+                    minHeight="0"
+                    hideModeSwitch
+                    labels={markdownEditorLabels(t)}
+                    onFeedback={onToast}
+                    onChange={(markdown) =>
+                      setReportEdit((current) => current ? { ...current, draftMarkdown: markdown } : current)
+                    }
+                  />
+                </div>
+              ) : (
+                <ReadableMarkdown content={currentMarkdown} />
+              )}
             </>
           ) : (
             <EmptyState title={t("reportPreviewEmptyTitle")} body={t("reportPreviewEmptyBody")} />
@@ -5492,13 +7844,12 @@ function ReportsPage({
       </div>
       {refineTarget && (
         <ConfirmModal
-          title={t("aiRefineConfirmTitle")}
-          body={t("aiRefineConfirmBody")}
+          title={refineTarget.aiRefinedMarkdown ? t("aiRefineReplaceConfirmTitle") : t("aiRefineConfirmTitle")}
+          body={refineTarget.aiRefinedMarkdown ? t("aiRefineReplaceConfirmBody") : t("aiRefineConfirmBody")}
           primaryLabel={t("aiRefine")}
           secondaryLabel={t("cancel")}
           onConfirm={handleConfirmAiRefine}
           onCancel={() => setRefineTarget(null)}
-          t={t}
         />
       )}
     </section>
@@ -5521,13 +7872,154 @@ function activityLevelLabel(level: HeatmapDay["level"], t: Translator): string {
   return t("heatmapLevelNone");
 }
 
-const HEATMAP_BLOCK_LIMIT = 4;
+type HeatmapConstellationVariant = "cell" | "detail" | "legend" | "mini" | "mini-legend";
+
+interface HeatmapConstellationPoint {
+  x: number;
+  y: number;
+}
+
+function createHeatmapConstellation(dayNumber: number): HeatmapConstellationPoint[] {
+  const normalizedDay = Math.max(1, Math.min(31, Math.trunc(dayNumber) || 1));
+  let state = Math.imul(normalizedDay, 0x9e3779b1) >>> 0;
+  const nextValue = () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return (state >>> 0) / 0xffffffff;
+  };
+  const xAnchors = [0.11, 0.37, 0.64, 0.89];
+  const points: HeatmapConstellationPoint[] = [];
+
+  xAnchors.forEach((xAnchor, pointIndex) => {
+    const x = Math.max(0.07, Math.min(0.93, xAnchor + (nextValue() - 0.5) * 0.09));
+    let y = 0.18 + nextValue() * 0.64;
+    const previousY = points[pointIndex - 1]?.y;
+    if (previousY !== undefined && Math.abs(previousY - y) < 0.14) {
+      y = y < 0.5 ? Math.min(0.82, y + 0.2) : Math.max(0.18, y - 0.2);
+    }
+    points.push({ x, y });
+  });
+
+  return points;
+}
+
+function HeatmapConstellation({
+  dayNumber,
+  level,
+  variant
+}: {
+  dayNumber: number;
+  level: HeatmapDay["level"];
+  variant: HeatmapConstellationVariant;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const points = useMemo(() => createHeatmapConstellation(dayNumber), [dayNumber]);
+  const activePointCount = Math.max(0, Math.min(4, level));
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const drawConnections = () => {
+      const bounds = canvas.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) {
+        return;
+      }
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const pixelWidth = Math.max(1, Math.round(bounds.width * pixelRatio));
+      const pixelHeight = Math.max(1, Math.round(bounds.height * pixelRatio));
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return;
+      }
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, bounds.width, bounds.height);
+
+      const activeSegmentCount = Math.max(0, activePointCount - 1);
+      if (activeSegmentCount === 0) {
+        return;
+      }
+      const accent = getComputedStyle(canvas).getPropertyValue("--accent").trim() || "#1677ff";
+      context.save();
+      context.strokeStyle = accent;
+      context.globalAlpha = variant === "detail" ? 0.72 : 0.62;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.lineWidth = variant === "detail" ? 1.6 : variant === "cell" ? 1.2 : 1;
+      context.shadowColor = accent;
+      context.shadowBlur = variant === "detail" ? 4 : 2;
+      for (let pointIndex = 0; pointIndex < activeSegmentCount; pointIndex += 1) {
+        const from = points[pointIndex];
+        const to = points[pointIndex + 1];
+        context.beginPath();
+        context.moveTo(from.x * bounds.width, from.y * bounds.height);
+        context.lineTo(to.x * bounds.width, to.y * bounds.height);
+        context.stroke();
+      }
+      context.restore();
+    };
+
+    drawConnections();
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(drawConnections);
+    resizeObserver?.observe(canvas);
+    const themeObserver = new MutationObserver(drawConnections);
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    window.addEventListener("resize", drawConnections);
+
+    return () => {
+      resizeObserver?.disconnect();
+      themeObserver.disconnect();
+      window.removeEventListener("resize", drawConnections);
+    };
+  }, [activePointCount, points, variant]);
+
+  return (
+    <span className={`heatmap-constellation heatmap-constellation-${variant}`} aria-hidden="true">
+      <canvas ref={canvasRef} />
+      {points.map((point, pointIndex) => {
+        const isActive = pointIndex < activePointCount;
+        const duration = 2.15 + ((dayNumber * 17 + pointIndex * 29) % 19) / 10;
+        const delay = -((dayNumber * 11 + pointIndex * 23) % 31) / 10;
+        const nodeStyle = {
+          left: `${point.x * 100}%`,
+          top: `${point.y * 100}%`,
+          "--constellation-duration": `${duration}s`,
+          "--constellation-delay": `${delay}s`
+        } as CSSProperties;
+
+        return isActive ? (
+          <Star
+            className="heatmap-constellation-node is-active"
+            fill="currentColor"
+            key={pointIndex}
+            strokeWidth={1.35}
+            style={nodeStyle}
+          />
+        ) : (
+          <Circle
+            className="heatmap-constellation-node is-dormant"
+            key={pointIndex}
+            strokeWidth={1.8}
+            style={nodeStyle}
+          />
+        );
+      })}
+    </span>
+  );
+}
 
 interface HeatmapDisplayActivity {
   total: number;
   level: HeatmapDay["level"];
   updatedItemCount: number;
-  blockCount: number;
   contentDepth: number;
   structure: number;
   breadth: number;
@@ -5627,7 +8119,6 @@ function getHeatmapDisplayActivity(day: HeatmapDay): HeatmapDisplayActivity {
       total: 0,
       level: 0,
       updatedItemCount: 0,
-      blockCount: 0,
       contentDepth: 0,
       structure: 0,
       breadth: 0,
@@ -5652,7 +8143,6 @@ function getHeatmapDisplayActivity(day: HeatmapDay): HeatmapDisplayActivity {
     total,
     level: heatmapDisplayLevel(total),
     updatedItemCount,
-    blockCount: Math.min(HEATMAP_BLOCK_LIMIT, updatedItemCount),
     contentDepth,
     structure,
     breadth,
@@ -5794,39 +8284,46 @@ function HeatmapPage({
   const monthLabel = formatMonthDisplay(data.year, data.month, language);
   const numberFormat = new Intl.NumberFormat(localeFor(language));
   const today = getLocalDateKey();
-  const selectedReportTime = selectedDay?.closedAt ? `${t("todayTitle")} ${formatTimeDisplay(selectedDay.closedAt, language, t)}` : t("none");
-  const overviewMetrics = [
+  const selectedReportTime = selectedDay?.closedAt ? formatTimeDisplay(selectedDay.closedAt, language, t) : t("none");
+  const overviewMetricGroups = [
     {
-      label: t("heatmapActiveDays"),
-      value: numberFormat.format(activeDisplayDays),
-      suffix: t("unitDay"),
-      meta: t("heatmapStatRecordedThisMonth")
+      label: t("heatmapOutputGroup"),
+      metrics: [
+        {
+          label: t("heatmapClosedReports"),
+          value: numberFormat.format(data.summary.closedJournalDays),
+          suffix: t("unitDay"),
+          context: null
+        },
+        {
+          label: t("heatmapTotalChars"),
+          value: numberFormat.format(data.summary.totalTextLength),
+          suffix: t("unitChar"),
+          context: null
+        }
+      ]
     },
     {
-      label: t("heatmapClosedReports"),
-      value: numberFormat.format(data.summary.closedJournalDays),
-      suffix: t("unitDay"),
-      meta: t("heatmapStatReportsThisMonth")
-    },
-    {
-      label: t("heatmapTotalChars"),
-      value: numberFormat.format(data.summary.totalTextLength),
-      suffix: t("unitChar"),
-      meta: t("heatmapStatTotalCharsMeta")
-    },
-    {
-      label: t("heatmapHighDays"),
-      value: numberFormat.format(highDisplayDays),
-      suffix: t("unitDay"),
-      meta: t("heatmapStatHighActivityMeta")
-    },
-    {
-      label: t("heatmapLongestStreak"),
-      value: numberFormat.format(streakInfo.length),
-      suffix: t("unitDay"),
-      meta: streakMeta
+      label: t("heatmapRhythmGroup"),
+      metrics: [
+        {
+          label: t("heatmapHighDays"),
+          value: numberFormat.format(highDisplayDays),
+          suffix: t("unitDay"),
+          context: t("heatmapStatHighActivityMeta")
+        },
+        {
+          label: t("heatmapLongestStreak"),
+          value: numberFormat.format(streakInfo.length),
+          suffix: t("unitDay"),
+          context: streakMeta
+        }
+      ]
     }
   ];
+  const recordedDayProgress = data.days.length > 0
+    ? Math.min(100, (activeDisplayDays / data.days.length) * 100)
+    : 0;
 
   return (
     <section className="page heatmap-page">
@@ -5849,24 +8346,56 @@ function HeatmapPage({
         </div>
       </div>
 
-      <div className="heatmap-overview-card">
-        <header>
-          <span>{t("heatmapMonthlyOverview")}</span>
-          <small>{monthLabel}</small>
-        </header>
-        <div className="heatmap-overview-metrics">
-          {overviewMetrics.map((metric) => (
-            <div className="heatmap-overview-item" key={metric.label}>
-              <span>{metric.label}</span>
-              <strong>
-                {metric.value}
-                <small>{metric.suffix}</small>
-              </strong>
-              <em>{metric.meta}</em>
-            </div>
+      <section className="heatmap-overview-card" aria-label={t("heatmapMonthlyOverview")}>
+        <div className="heatmap-overview-primary">
+          <div className="heatmap-overview-primary-heading">
+            <span className="heatmap-overview-primary-icon" aria-hidden="true">
+              <CalendarDays size={18} />
+            </span>
+            <span>{t("heatmapActiveDays")}</span>
+          </div>
+          <div className="heatmap-overview-primary-value">
+            <strong>{numberFormat.format(activeDisplayDays)}</strong>
+            <span>
+              / {numberFormat.format(data.days.length)} {t("unitDay")}
+            </span>
+          </div>
+          <div
+            className="heatmap-overview-primary-progress"
+            role="progressbar"
+            aria-label={t("heatmapActiveDays")}
+            aria-valuemin={0}
+            aria-valuemax={data.days.length}
+            aria-valuenow={activeDisplayDays}
+          >
+            <span style={{ width: `${recordedDayProgress}%` }} />
+          </div>
+          <p>{t("heatmapStatRecordedThisMonth")}</p>
+        </div>
+        <div className="heatmap-overview-groups">
+          {overviewMetricGroups.map((group) => (
+            <section className="heatmap-overview-group" aria-label={group.label} key={group.label}>
+              <div className="heatmap-overview-group-title">
+                <span>{group.label}</span>
+              </div>
+              <div className="heatmap-overview-group-grid">
+                {group.metrics.map((metric) => (
+                  <div className="heatmap-overview-item" key={metric.label}>
+                    <span className="heatmap-overview-item-label">{metric.label}</span>
+                    <strong>
+                      {metric.value}
+                      <small>{metric.suffix}</small>
+                    </strong>
+                    <em className={metric.context ? "" : "is-empty"} aria-hidden={metric.context ? undefined : true}>
+                      {metric.context ?? "\u00a0"}
+                    </em>
+                  </div>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
-      </div>
+      </section>
 
       <div className="heatmap-layout">
         <section className="heatmap-calendar-panel">
@@ -5906,84 +8435,108 @@ function HeatmapPage({
                     "heatmap-day-cell",
                     day.date === selectedDay?.date ? "selected" : "",
                     day.date === today ? "today" : "",
+                    dayActivity.total > 0 ? "has-activity" : "",
                     isFuture ? "future" : ""
                   ]
                     .filter(Boolean)
                     .join(" ")}
                   key={day.date}
                   type="button"
-                  title={`${day.date} · ${heatmapDisplayLevelLabel(dayActivity.level, t)} · ${t("activityScore")}: ${numberFormat.format(dayActivity.total)}`}
+                  title={`${day.date} · ${t("heatmapUnifiedIntensity")}: ${heatmapDisplayLevelLabel(dayActivity.level, t)}`}
+                  aria-label={`${formatDateOnlyDisplay(day.date, language)} · ${t("heatmapUnifiedIntensity")}: ${heatmapDisplayLevelLabel(dayActivity.level, t)}`}
+                  aria-pressed={day.date === selectedDay?.date}
+                  aria-current={day.date === today ? "date" : undefined}
                   onClick={() => onSelectDate(day.date)}
                 >
                   <span className="heatmap-day-number">{day.day}</span>
-                  <div className="heatmap-day-blocks" aria-hidden="true">
-                    {Array.from({ length: HEATMAP_BLOCK_LIMIT }, (_, blockIndex) => (
-                      <i
-                        className={[
-                          "heatmap-day-block",
-                          blockIndex < dayActivity.blockCount ? "active" : "empty",
-                          blockIndex < dayActivity.blockCount ? `heatmap-display-level-${dayActivity.level}` : ""
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
-                        key={blockIndex}
-                      />
-                    ))}
-                  </div>
-                  {dayActivity.total > 0 && <em>{numberFormat.format(dayActivity.total)}</em>}
+                  <HeatmapConstellation dayNumber={day.day} level={dayActivity.level} variant="cell" />
                 </button>
               );
             })}
           </div>
 
           <footer className="heatmap-calendar-footer">
-            <div className="heatmap-legend" aria-label={t("heatmapLegend")}>
-              <span>{t("heatmapLess")}</span>
-              {[0, 1, 2, 3, 4].map((level) => (
-                <i
-                  className={[
-                    "heatmap-block-sample",
-                    level > 0 ? `heatmap-display-level-${level}` : ""
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  key={level}
-                />
-              ))}
-              <span>{t("heatmapMore")}</span>
+            <div className="heatmap-legend-group heatmap-unified-legend">
+              <strong>{t("heatmapUnifiedIntensity")}</strong>
+              <div className="heatmap-legend" aria-label={t("heatmapUnifiedIntensity")}>
+                <span>{t("heatmapLess")}</span>
+                <span className="heatmap-constellation-scale" aria-hidden="true">
+                  {[0, 1, 2, 3, 4].map((sampleLevel) => (
+                    <HeatmapConstellation
+                      dayNumber={17}
+                      level={sampleLevel as HeatmapDay["level"]}
+                      variant="legend"
+                      key={sampleLevel}
+                    />
+                  ))}
+                </span>
+                <span>{t("heatmapMore")}</span>
+              </div>
             </div>
-            <p>{t("heatmapLegendShort")}</p>
           </footer>
         </section>
 
         <aside className="heatmap-detail-panel">
           {selectedDay && selectedDayActivity ? (
             <>
-              <header>
-                <CalendarDays size={22} />
-                <h2>{formatDateOnlyDisplay(selectedDay.date, language)}</h2>
-              </header>
-              <section className="heatmap-score-card">
+              <header className="heatmap-detail-header">
+                <span className="heatmap-detail-date-icon" aria-hidden="true">
+                  <CalendarDays size={19} />
+                </span>
                 <div>
-                  <p>{t("activityScore")}</p>
+                  <span>{t("daySummary")}</span>
+                  <h2>{formatDateOnlyDisplay(selectedDay.date, language)}</h2>
+                </div>
+              </header>
+              <section
+                className="heatmap-density-card"
+                aria-label={t("heatmapDayRecordSummary")
+                  .replace("{items}", numberFormat.format(selectedDayActivity.updatedItemCount))
+                  .replace("{projects}", numberFormat.format(selectedDay.projectCount))
+                  .replace("{chars}", numberFormat.format(selectedDay.totalTextLength))}
+              >
+                <div className={`heatmap-activity-mark heatmap-activity-mark-${selectedDayActivity.level}`}>
+                  <span>{t("heatmapUnifiedIntensity")}</span>
                   <strong>
-                    {numberFormat.format(selectedDayActivity.total)}
-                    <span>/100</span>
+                    <Star size={13} fill="currentColor" strokeWidth={1.4} aria-hidden="true" />
+                    {heatmapDisplayLevelLabel(selectedDayActivity.level, t)}
                   </strong>
                 </div>
-                <span className={`daily-status-pill heatmap-display-pill heatmap-display-pill-${selectedDayActivity.level}`}>
-                  {heatmapDisplayLevelLabel(selectedDayActivity.level, t)}
-                </span>
+                <HeatmapConstellation
+                  dayNumber={selectedDay.day}
+                  level={selectedDayActivity.level}
+                  variant="detail"
+                />
+                <div className="heatmap-day-facts">
+                  <div>
+                    <span>{t("heatmapRealUpdatedItems")}</span>
+                    <strong>
+                      {numberFormat.format(selectedDayActivity.updatedItemCount)}
+                      <small>{t("unitCount")}</small>
+                    </strong>
+                  </div>
+                  <div>
+                    <span>{t("heatmapProjectCount")}</span>
+                    <strong>
+                      {numberFormat.format(selectedDay.projectCount)}
+                      <small>{t("unitCount")}</small>
+                    </strong>
+                  </div>
+                  <div>
+                    <span>{t("heatmapTotalChars")}</span>
+                    <strong>
+                      {numberFormat.format(selectedDay.totalTextLength)}
+                      <small>{t("unitChar")}</small>
+                    </strong>
+                  </div>
+                </div>
               </section>
-              <p className="heatmap-score-note">{t("heatmapScoreFormulaNote")}</p>
               {selectedDayActivity.total > 0 ? (
                 <>
                   <div className="heatmap-detail-list">
-                    <HeatmapDetailRow label={t("heatmapRealUpdatedItems")} value={`${numberFormat.format(selectedDayActivity.updatedItemCount)} ${t("unitCount")}`} icon={CalendarDays} withChevron />
-                    <HeatmapDetailRow label={t("heatmapTextEntries")} value={selectedDayActivity.updatedItemCount > 0 ? t("heatmapYes") : t("heatmapNo")} icon={Check} />
-                    <HeatmapDetailRow label={t("heatmapProjectCount")} value={`${numberFormat.format(selectedDay.projectCount)} ${t("unitCount")}`} icon={FolderOpen} />
-                    <HeatmapDetailRow label={t("heatmapTotalChars")} value={`${numberFormat.format(selectedDay.totalTextLength)} ${t("unitChar")}`} icon={BookOpenText} />
-                    <HeatmapDetailRow label={t("statusDoneToday")} value={`${numberFormat.format(selectedDay.doneCount)} ${t("unitCount")}`} icon={FileText} withChevron />
+                    <HeatmapDetailRow label={t("statusDoneToday")} value={`${numberFormat.format(selectedDay.doneCount)} ${t("unitCount")}`} icon={Check} />
+                    <HeatmapDetailRow label={t("heatmapTextEntries")} value={selectedDayActivity.updatedItemCount > 0 ? t("heatmapYes") : t("heatmapNo")} icon={BookOpenText} />
+                    <HeatmapDetailRow label={t("heatmapPausedItems")} value={`${numberFormat.format(selectedDay.pausedCount)} ${t("unitCount")}`} icon={AlertTriangle} />
                     <HeatmapDetailRow label={t("heatmapReportStatus")} value={selectedDay.hasReport ? `${t("heatmapReportGenerated")} · ${selectedReportTime}` : t("heatmapReportMissing")} icon={FileText} />
                   </div>
                 </>
@@ -6062,35 +8615,44 @@ function ProjectMemoPage({
 
   return (
     <section className="page project-memo-page">
-      <div className="memo-page-header">
-        <div>
-          <button className="back-button" type="button" onClick={onBack}>
-            <ChevronLeft size={17} />
-            {t("backToProjectDetail")}
+      <header className="memo-page-topbar">
+        <div className="memo-page-route">
+          <button className="entry-back-icon" type="button" aria-label={t("backToProjectDetail")} onClick={onBack}>
+            <ChevronLeft size={20} />
           </button>
-          <p className="eyebrow">{project.name}</p>
-          <h1>{t("projectMemo")}</h1>
-          <p>{t("projectMemoDescription")}</p>
+          <ProjectIdentityMark projectId={project.id} className="memo-project-identity" />
+          <span className="memo-route-project" title={project.name}>
+            {project.name}
+          </span>
+          <span className="memo-route-divider">/</span>
+          <h1 className="memo-route-document">{t("projectMemo")}</h1>
+          <span className="detail-status-pill">
+            {project.status === "active" ? t("statusActive") : t("statusArchived")}
+          </span>
         </div>
         <div className="memo-header-actions">
-          <span>
+          <span className="memo-header-saved">
             {t("memoLastSaved")}
             {t("searchMatchedSeparator")}
             {formatTimestamp(memo.updated_at, language, t)}
           </span>
-          <button className="primary-button" type="button" onClick={onSave}>
+          <button className="primary-button memo-save-button" type="button" onClick={onSave}>
             <Save size={17} />
             {t("saveMemo")}
           </button>
         </div>
-      </div>
+      </header>
 
       <div className="memo-workspace">
         <section className="memo-editor-card">
           <div className="memo-card-header">
-            <div>
-              <h2>{t("memoEditor")}</h2>
-              <p>{t("memoPasteHint")}</p>
+            <div className="memo-document-meta">
+              <span className="memo-document-icon" aria-hidden="true">
+                <StickyNote size={17} />
+              </span>
+              <span>{t("projectMemoDocumentPill")}</span>
+              <span className="memo-document-separator">/</span>
+              <span>{t("memoEditor")}</span>
             </div>
             {isSavingImage && <span className="memo-saving-image">{t("memoSavingImage")}</span>}
           </div>
@@ -6184,7 +8746,6 @@ function ProjectDetailPage({
   backLabel,
   onBack,
   onRecordProgress,
-  onMoveProject,
   onComplete,
   onEditWorkItem,
   onMoveWorkItem,
@@ -6202,7 +8763,6 @@ function ProjectDetailPage({
   backLabel: string;
   onBack: () => void;
   onRecordProgress: (projectId: string, workItemId: string) => void;
-  onMoveProject: (direction: SortMoveDirection) => void;
   onComplete: (id: string) => void;
   onEditWorkItem: (item: WorkItemWithLatest) => void;
   onMoveWorkItem: (item: WorkItemWithLatest, direction: SortMoveDirection, canMove: boolean) => void;
@@ -6264,6 +8824,7 @@ function ProjectDetailPage({
             >
               <ChevronLeft size={20} />
             </button>
+            <ProjectIdentityMark projectId={detail.project.id} className="project-detail-identity-mark" />
             <div className="project-detail-title-line">
               <h1 title={detail.project.name}>{detail.project.name}</h1>
               <span className="detail-status-pill">
@@ -6274,50 +8835,22 @@ function ProjectDetailPage({
         </div>
         <div className="project-detail-actions">
           <button className="secondary-button" type="button" onClick={onOpenMemo}>
-            <BookOpenText size={17} />
+            <StickyNote size={17} />
             {t("projectMemo")}
           </button>
           <div className={`project-more-menu ${projectActionsOpen ? "open" : ""}`.trim()} ref={projectActionsMenuRef}>
             <button
-              className="ghost-button project-more-trigger"
+              className="project-more-trigger"
               type="button"
+              aria-label={t("moreActions")}
               aria-haspopup="menu"
               aria-expanded={projectActionsOpen}
               onClick={() => setProjectActionsOpen((current) => !current)}
             >
-              <ChevronDown size={16} />
-              {t("moreActions")}
+              <Ellipsis size={19} aria-hidden="true" />
             </button>
             {projectActionsOpen && (
               <div className="project-more-menu-list" role="menu" aria-label={t("moreActions")}>
-                {isActiveProject && (
-                  <>
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setProjectActionsOpen(false);
-                        onMoveProject("up");
-                      }}
-                    >
-                      <ArrowUp size={16} />
-                      {t("moveUp")}
-                    </button>
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setProjectActionsOpen(false);
-                        onMoveProject("down");
-                      }}
-                    >
-                      <ArrowDown size={16} />
-                      {t("moveDown")}
-                    </button>
-                  </>
-                )}
                 <button
                   className="ghost-button"
                   type="button"
@@ -6358,6 +8891,7 @@ function ProjectDetailPage({
                     {t("unarchiveProject")}
                   </button>
                 )}
+                <span className="project-menu-divider" aria-hidden="true" />
                 <button
                   className="ghost-button danger-ghost"
                   type="button"
@@ -6386,11 +8920,12 @@ function ProjectDetailPage({
         <section className="detail-section project-work-items-section">
           <header className="detail-section-header work-item-tabs-header">
             <div
-              className="work-item-tabs"
+              className="work-item-tabs sliding-tab-list"
               role="tablist"
               aria-label={t("workItem")}
               onKeyDown={(event) => handleSegmentedKeyDown<ProjectWorkItemTab>(event, PROJECT_WORK_ITEM_TABS, workItemTab, setWorkItemTab)}
             >
+              <SlidingTabIndicator activeItem={workItemTab} />
               {PROJECT_WORK_ITEM_TABS.map((tab) => {
                 const label = tab === "active" ? t("activeWorkItems") : t("completedWorkItems");
                 const count = tab === "active" ? detail.activeItems.length : detail.completedItems.length;
@@ -6811,6 +9346,7 @@ function SettingsPage({
   settings,
   t,
   message,
+  onToast,
   isMigrating,
   busyAction,
   onSetTheme,
@@ -6826,6 +9362,7 @@ function SettingsPage({
   settings: SettingsInfo;
   t: Translator;
   message: Toast | null;
+  onToast: (toast: Toast) => void;
   isMigrating: boolean;
   busyAction: string | null;
   onSetTheme: (theme: ThemePreference) => void;
@@ -6860,6 +9397,8 @@ function SettingsPage({
   const [updateAction, setUpdateAction] = useState<"check" | "download" | "install" | null>(null);
   const [updateMessage, setUpdateMessage] = useState<Toast | null>(null);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
+  const [expandedSettingsSection, setExpandedSettingsSection] = useState<"ai" | "storage" | "update" | null>(null);
+  const [isTransferGuideOpen, setIsTransferGuideOpen] = useState(false);
 
   useEffect(() => {
     setAiForm({
@@ -6911,6 +9450,7 @@ function SettingsPage({
   }, []);
 
   const checkUpdates = async () => {
+    setExpandedSettingsSection("update");
     setUpdateAction("check");
     setUpdateMessage(null);
     try {
@@ -6925,6 +9465,7 @@ function SettingsPage({
   };
 
   const downloadUpdate = async () => {
+    setExpandedSettingsSection("update");
     setUpdateAction("download");
     setUpdateMessage(null);
     try {
@@ -6956,8 +9497,19 @@ function SettingsPage({
   const openReleases = async () => {
     try {
       await window.workJournal.updates.openReleasePage();
-    } catch {
-      setUpdateMessage({ kind: "warning", message: t("openReleasesFailed") });
+    } catch (error) {
+      console.error("Failed to open the release page.", error);
+      onToast({ kind: "warning", message: t("openReleasesFailed") });
+    }
+  };
+
+  const openRepository = async () => {
+    setUpdateMessage(null);
+    try {
+      await window.workJournal.updates.openRepositoryPage();
+    } catch (error) {
+      console.error("Failed to open the repository page.", error);
+      onToast({ kind: "warning", message: t("openRepositoryFailed") });
     }
   };
 
@@ -7032,375 +9584,488 @@ function SettingsPage({
     <section className="page settings-page">
       <PageHeader title={t("settingsTitle")} description={t("settingsSubtitle")} />
 
-      <div className="settings-stack">
-        <section className="settings-card" id="settings-appearance-language">
-          <header className="settings-card-header">
-            <div className="settings-icon">
-              <Monitor size={20} />
-            </div>
-            <div>
-              <h2>{t("appearanceLanguageTitle")}</h2>
-              <p>{t("appearanceLanguageDescription")}</p>
-            </div>
-          </header>
-          <div className="settings-preference-grid">
-            <section className="settings-preference-group">
-              <div>
+      <div className="settings-overview">
+        <section className="settings-group" id="settings-appearance-language">
+          <h2 className="settings-group-label">{t("settingsPreferencesGroup")}</h2>
+          <div className="settings-table">
+            <div className="settings-row">
+              <div className="settings-row-icon" aria-hidden="true">
+                <Monitor size={21} />
+              </div>
+              <div className="settings-row-copy">
                 <h3>{t("appearanceTitle")}</h3>
                 <p>{t("appearanceDescription")}</p>
               </div>
-              <div className="segmented-control" role="radiogroup" aria-label={t("chooseAppearanceAria")}>
-                {themeOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    className={settings.theme === option.value ? "selected" : ""}
-                    type="button"
-                    role="radio"
-                    aria-checked={settings.theme === option.value}
-                    onClick={() => onSetTheme(option.value)}
-                  >
-                    <option.icon size={17} />
-                    {option.label}
-                  </button>
-                ))}
+              <div className="settings-row-actions">
+                <div className="segmented-control settings-segmented" role="radiogroup" aria-label={t("chooseAppearanceAria")}>
+                  {themeOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      className={settings.theme === option.value ? "selected" : ""}
+                      type="button"
+                      role="radio"
+                      aria-checked={settings.theme === option.value}
+                      onClick={() => onSetTheme(option.value)}
+                    >
+                      <option.icon size={16} />
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </section>
+            </div>
 
-            <section className="settings-preference-group">
-              <div>
+            <div className="settings-row">
+              <div className="settings-row-icon" aria-hidden="true">
+                <Languages size={21} />
+              </div>
+              <div className="settings-row-copy">
                 <h3>{t("languageTitle")}</h3>
                 <p>{t("languageDescription")}</p>
               </div>
-              <div className="segmented-control" role="radiogroup" aria-label={t("chooseLanguageAria")}>
-                {languageOptions.map((option) => (
+              <div className="settings-row-actions">
+                <div className="segmented-control settings-segmented language" role="radiogroup" aria-label={t("chooseLanguageAria")}>
+                  {languageOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      className={settings.language === option.value ? "selected" : ""}
+                      type="button"
+                      role="radio"
+                      aria-checked={settings.language === option.value}
+                      onClick={() => onSetLanguage(option.value)}
+                    >
+                      {t(option.labelKey)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="settings-group">
+          <h2 className="settings-group-label">{t("settingsIntelligenceGroup")}</h2>
+          <div className="settings-table" id="settings-ai">
+            <div className={`settings-row settings-summary-row${expandedSettingsSection === "ai" ? " is-expanded" : ""}`}>
+              <div className="settings-row-icon" aria-hidden="true">
+                <Sparkles size={21} />
+              </div>
+              <div className="settings-row-copy">
+                <h3>{t("aiSettingsTitle")}</h3>
+                <span className="settings-row-meta">
+                  {t("aiProviderOpenAICompatible")} · {aiKeyStatus}
+                </span>
+              </div>
+              <div className="settings-row-actions settings-command-actions">
+                <label className="settings-switch-control">
                   <button
-                    key={option.value}
-                    className={settings.language === option.value ? "selected" : ""}
+                    className={`settings-switch${aiForm.enabled ? " is-on" : ""}`}
                     type="button"
-                    role="radio"
-                    aria-checked={settings.language === option.value}
-                    onClick={() => onSetLanguage(option.value)}
+                    role="switch"
+                    aria-checked={aiForm.enabled}
+                    aria-label={t("aiEnabled")}
+                    onClick={() => {
+                      const nextEnabled = !aiForm.enabled;
+                      setAiForm((current) => ({ ...current, enabled: nextEnabled }));
+                      if (nextEnabled) {
+                        setExpandedSettingsSection("ai");
+                      }
+                    }}
                   >
-                    {t(option.labelKey)}
+                    <span />
                   </button>
-                ))}
-              </div>
-            </section>
-          </div>
-        </section>
-
-        <section className="settings-card ai-settings-card" id="settings-ai">
-          <header className="settings-card-header">
-            <div className="settings-icon">
-              <Bot size={20} />
-            </div>
-            <div>
-              <h2>{t("aiSettingsTitle")}</h2>
-              <p>{t("aiSettingsDescription")}</p>
-            </div>
-          </header>
-
-          <div className="ai-settings-topline">
-            <div className="ai-service-card">
-              <Bot size={18} />
-              <div>
-                <strong>{t("aiProviderOpenAICompatible")}</strong>
-                <span>{t("aiProviderDescription")}</span>
+                  <span>{aiForm.enabled ? t("aiEnabledOption") : t("aiDisabled")}</span>
+                </label>
+                <button
+                  className="secondary-button settings-disclosure-button"
+                  type="button"
+                  aria-expanded={expandedSettingsSection === "ai"}
+                  onClick={() => setExpandedSettingsSection((current) => (current === "ai" ? null : "ai"))}
+                >
+                  {expandedSettingsSection === "ai" ? t("collapse") : t("settingsConfigure")}
+                  <ChevronRight className={expandedSettingsSection === "ai" ? "is-open" : ""} size={16} />
+                </button>
               </div>
             </div>
-            <div className="segmented-control compact" role="radiogroup" aria-label={t("aiEnabled")}>
-              <button
-                className={!aiForm.enabled ? "selected" : ""}
-                type="button"
-                role="radio"
-                aria-checked={!aiForm.enabled}
-                onClick={() => setAiForm((current) => ({ ...current, enabled: false }))}
-              >
-                {t("aiDisabled")}
-              </button>
-              <button
-                className={aiForm.enabled ? "selected" : ""}
-                type="button"
-                role="radio"
-                aria-checked={aiForm.enabled}
-                onClick={() => setAiForm((current) => ({ ...current, enabled: true }))}
-              >
-                {t("aiEnabledOption")}
-              </button>
-            </div>
-          </div>
 
-          {!settings.ai.canSecurelyStoreApiKey && (
-            <div className="warning-panel">
-              <AlertTriangle size={18} />
-              <div>
-                <strong>{t("aiSafeStorageTitle")}</strong>
-                <span>{t("aiSafeStorageUnavailable")}</span>
-              </div>
-            </div>
-          )}
-
-          <div className="settings-form-grid">
-            <label>
-              <span className="label-text">{t("aiBaseUrl")}</span>
-              <input
-                value={aiForm.baseUrl}
-                onChange={(event) => setAiForm((current) => ({ ...current, baseUrl: event.target.value }))}
-                placeholder={t("aiBaseUrlPlaceholder")}
-              />
-            </label>
-            <label>
-              <span className="label-text">{t("aiModel")}</span>
-              <input
-                value={aiForm.model}
-                onChange={(event) => setAiForm((current) => ({ ...current, model: event.target.value }))}
-                placeholder={t("aiModelPlaceholder")}
-              />
-            </label>
-            <label className="span-two">
-              <span className="label-text">{t("aiApiKey")}</span>
-              <input
-                type="password"
-                value={aiForm.apiKey ?? ""}
-                onChange={(event) => setAiForm((current) => ({ ...current, apiKey: event.target.value }))}
-                placeholder={settings.ai.apiKeyConfigured ? settings.ai.apiKeyPreview : t("aiApiKeyPlaceholder")}
-              />
-            </label>
-          </div>
-
-          <div className="ai-key-status-row">
-            <span>{t("aiApiKeyStatus")}</span>
-            <code>{aiKeyStatus}</code>
-          </div>
-
-          <div className="settings-help-callout">
-            <AlertTriangle size={16} />
-            <p>{t("aiPrivacyNote")}</p>
-          </div>
-
-          {aiMessage && <div className={`inline-message ${aiMessage.kind}`}>{aiMessage.message}</div>}
-
-          <div className="settings-actions">
-            <button className="secondary-button" type="button" onClick={testAi} disabled={aiBusy !== null}>
-              <Sparkles size={17} />
-              {aiBusy === "test" ? t("testing") : t("aiTestConnection")}
-            </button>
-            <button className="ghost-button danger-ghost" type="button" onClick={clearAiKey} disabled={aiBusy !== null || !settings.ai.apiKeyConfigured}>
-              <X size={17} />
-              {t("aiClearApiKey")}
-            </button>
-            <button className="primary-button" type="button" onClick={saveAi} disabled={aiBusy !== null}>
-              <Save size={17} />
-              {aiBusy === "save" ? t("saving") : t("aiSaveSettings")}
-            </button>
-          </div>
-        </section>
-
-        <section className="settings-card" id="settings-storage">
-          <header className="settings-card-header">
-            <div className="settings-icon">
-              <HardDrive size={20} />
-            </div>
-            <div>
-              <h2>{t("dataStorageTitle")}</h2>
-              <p>{t("dataStorageDescription")}</p>
-            </div>
-          </header>
-
-          {settings.isFallbackDataDirectory && (
-            <div className="warning-panel">
-              <AlertTriangle size={18} />
-              <div>
-                <strong>{t("fallbackTitle")}</strong>
-                <span>{settings.fallbackReason}</span>
-                {settings.configuredDataDirectory && (
-                  <code>
-                    {t("fallbackConfiguredDirectory")}：{settings.configuredDataDirectory}
-                  </code>
+            {expandedSettingsSection === "ai" && (
+              <div className="settings-expanded-panel settings-ai-panel">
+                {!settings.ai.canSecurelyStoreApiKey && (
+                  <div className="warning-panel">
+                    <AlertTriangle size={18} />
+                    <div>
+                      <strong>{t("aiSafeStorageTitle")}</strong>
+                      <span>{t("aiSafeStorageUnavailable")}</span>
+                    </div>
+                  </div>
                 )}
+
+                <div className="settings-form-grid">
+                  <label>
+                    <span className="label-text">{t("aiBaseUrl")}</span>
+                    <input
+                      value={aiForm.baseUrl}
+                      onChange={(event) => setAiForm((current) => ({ ...current, baseUrl: event.target.value }))}
+                      placeholder={t("aiBaseUrlPlaceholder")}
+                    />
+                  </label>
+                  <label>
+                    <span className="label-text">{t("aiModel")}</span>
+                    <input
+                      value={aiForm.model}
+                      onChange={(event) => setAiForm((current) => ({ ...current, model: event.target.value }))}
+                      placeholder={t("aiModelPlaceholder")}
+                    />
+                  </label>
+                  <label className="span-two">
+                    <span className="label-text">{t("aiApiKey")}</span>
+                    <input
+                      type="password"
+                      value={aiForm.apiKey ?? ""}
+                      onChange={(event) => setAiForm((current) => ({ ...current, apiKey: event.target.value }))}
+                      placeholder={settings.ai.apiKeyConfigured ? settings.ai.apiKeyPreview : t("aiApiKeyPlaceholder")}
+                    />
+                  </label>
+                </div>
+
+                <div className="ai-key-status-row">
+                  <span>{t("aiApiKeyStatus")}</span>
+                  <code>{aiKeyStatus}</code>
+                </div>
+
+                <div className="settings-help-callout">
+                  <AlertTriangle size={16} />
+                  <p>{t("aiPrivacyNote")}</p>
+                </div>
+
+                {aiMessage && <div className={`inline-message ${aiMessage.kind}`}>{aiMessage.message}</div>}
+
+                <div className="settings-actions">
+                  <button className="secondary-button" type="button" onClick={testAi} disabled={aiBusy !== null}>
+                    <Sparkles size={17} />
+                    {aiBusy === "test" ? t("testing") : t("aiTestConnection")}
+                  </button>
+                  <button
+                    className="ghost-button danger-ghost"
+                    type="button"
+                    onClick={clearAiKey}
+                    disabled={aiBusy !== null || !settings.ai.apiKeyConfigured}
+                  >
+                    <X size={17} />
+                    {t("aiClearApiKey")}
+                  </button>
+                  <button className="primary-button" type="button" onClick={saveAi} disabled={aiBusy !== null}>
+                    <Save size={17} />
+                    {aiBusy === "save" ? t("saving") : t("aiSaveSettings")}
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-
-          <div className="settings-data-grid">
-            <InfoRow label={t("currentDataDirectory")} value={settings.dataDirectory} />
-            <InfoRow label={t("currentDatabaseFile")} value={settings.databasePath} />
-            <InfoRow label={t("databaseSize")} value={formatBytes(settings.databaseSize)} />
-            <InfoRow label={t("configFile")} value={settings.configPath} />
-            <InfoRow
-              label={t("directoryType")}
-              value={
-                settings.isFallbackDataDirectory
-                  ? t("directoryFallback")
-                  : settings.isCustomDataDirectory
-                    ? t("directoryCustom")
-                    : t("directoryDefault")
-              }
-            />
-          </div>
-
-          <p className="settings-note compact">{t("dataStorageNote")}</p>
-
-          <div className="copy-guidance">
-            <strong>{t("copyGuidanceTitle")}</strong>
-            <p>{t("copyGuidanceSummary")}</p>
-            <p>{t("copyGuidanceParagraphTwo")}</p>
-            <p>{t("copyGuidanceWarning")}</p>
-          </div>
-
-          {message && <div className={`inline-message ${message.kind}`}>{message.message}</div>}
-
-          <div className="settings-actions">
-            <button className="secondary-button" type="button" onClick={onOpenDataDirectory}>
-              <FolderCog size={17} />
-              {t("openDataDirectory")}
-            </button>
-            <button
-              className="primary-button"
-              type="button"
-              onClick={onMigrateDataDirectory}
-              disabled={isMigrating || busyAction !== null}
-            >
-              <HardDrive size={17} />
-              {isMigrating ? t("migrating") : t("migrateDataDirectory")}
-            </button>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={onReloadDataDirectory}
-              disabled={busyAction !== null}
-            >
-              <RefreshCw size={17} />
-              {busyAction === "reload" ? t("reloading") : t("reloadDataDirectory")}
-            </button>
-          </div>
-        </section>
-
-        <section className="settings-card settings-user-guide-card" id="settings-user-guide">
-          <header className="settings-card-header">
-            <div className="settings-icon">
-              <BookOpenText size={20} />
-            </div>
-            <div>
-              <h2>{t("helpUserGuideTitle")}</h2>
-              <p>{t("helpUserGuideDescription")}</p>
-            </div>
-          </header>
-
-          <div className="settings-actions">
-            <button className="secondary-button" type="button" onClick={onOpenUserGuide}>
-              <BookOpenText size={17} />
-              {t("openUserGuide")}
-            </button>
-          </div>
-        </section>
-
-        <section className="settings-card settings-about-card" id="settings-about-flow-shuttle">
-          <header className="settings-card-header">
-            <div className="settings-icon">
-              <ExternalLink size={20} />
-            </div>
-            <div>
-              <h2>{t("aboutFlowShuttleTitle")}</h2>
-              <p>{t("aboutFlowShuttleDescription")}</p>
-            </div>
-          </header>
-
-          <div className="settings-actions">
-            <button className="secondary-button" type="button" onClick={() => setIsAboutModalOpen(true)}>
-              <ExternalLink size={17} />
-              {t("openAboutFlowShuttle")}
-            </button>
-          </div>
-        </section>
-
-        <section className="settings-card" id="settings-version-updates">
-          <header className="settings-card-header">
-            <div className="settings-icon">
-              <RefreshCw size={20} />
-            </div>
-            <div>
-              <h2>{t("versionUpdatesTitle")}</h2>
-              <p>{t("versionUpdatesDescription")}</p>
-            </div>
-          </header>
-
-          <div className="settings-data-grid compact">
-            <InfoRow label={t("currentVersion")} value={appVersion ? `v${appVersion}` : t("loading")} />
-            <InfoRow label={t("updateStatus")} value={updateStatusLabel(displayedUpdateStatus, t)} />
-            {(displayedUpdateStatus.latestVersion || displayedUpdateStatus.status === "update-available") && (
-              <InfoRow label={t("updateLatestVersion")} value={latestVersionDisplay} />
-            )}
-            {displayedUpdateStatus.releaseDate && (
-              <InfoRow label={t("updateReleaseDate")} value={releaseDateDisplay} />
             )}
           </div>
+        </section>
 
-          <div className={`update-status-panel ${displayedUpdateStatus.status}`}>
-            <strong>{updateStatusLabel(displayedUpdateStatus, t)}</strong>
-            <span>{updatePanelDescription(displayedUpdateStatus, t)}</span>
-          </div>
+        <section className="settings-group">
+          <h2 className="settings-group-label">{t("settingsDataAppGroup")}</h2>
+          <div className="settings-table">
+            <section className="settings-row-block" id="settings-storage">
+              <div className={`settings-row settings-summary-row${expandedSettingsSection === "storage" ? " is-expanded" : ""}`}>
+                <div className="settings-row-icon" aria-hidden="true">
+                  <HardDrive size={21} />
+                </div>
+                <div className="settings-row-copy">
+                  <h3>{t("dataStorageTitle")}</h3>
+                  <span
+                    className={`settings-row-meta settings-storage-meta${settings.isFallbackDataDirectory ? " is-warning" : ""}`}
+                  >
+                    <span className={`settings-status-dot${settings.isFallbackDataDirectory ? " warning" : ""}`} />
+                    {settings.isFallbackDataDirectory ? t("storageAttention") : t("storageNormal")}
+                    <span className="settings-meta-divider" />
+                    <span className="settings-storage-description">{t("dataStorageDescription")}</span>
+                  </span>
+                </div>
+                <div className="settings-row-actions settings-command-actions">
+                  <button
+                    className="settings-icon-button"
+                    type="button"
+                    onClick={onOpenDataDirectory}
+                    aria-label={t("openDataDirectory")}
+                    title={t("openDataDirectory")}
+                  >
+                    <FolderOpen size={17} />
+                  </button>
+                  <button
+                    className="secondary-button settings-disclosure-button"
+                    type="button"
+                    aria-expanded={expandedSettingsSection === "storage"}
+                    onClick={() => setExpandedSettingsSection((current) => (current === "storage" ? null : "storage"))}
+                  >
+                    {expandedSettingsSection === "storage" ? t("collapse") : t("settingsManage")}
+                    <ChevronRight className={expandedSettingsSection === "storage" ? "is-open" : ""} size={16} />
+                  </button>
+                </div>
+              </div>
 
-          {displayedUpdateStatus.status === "download-progress" && (
-            <div className="update-progress-panel" aria-label={t("updateDownloadProgressLabel")}>
-              <div className="update-progress-meta">
-                <span>{t("updateDownloadProgressLabel")}</span>
-                <strong>{Math.round(updatePercent)}%</strong>
-              </div>
-              <div className="update-progress-track">
-                <div className="update-progress-bar" style={{ width: `${updatePercent}%` }} />
-              </div>
-              {displayedUpdateStatus.progress?.total && (
-                <p className="settings-note compact">
-                  {t("updateDownloadedSize")}
-                  ：{formatBytes(displayedUpdateStatus.progress.transferred ?? 0)} /{" "}
-                  {formatBytes(displayedUpdateStatus.progress.total)}
-                </p>
+              {expandedSettingsSection === "storage" && (
+                <div className="settings-expanded-panel settings-storage-panel">
+                  {settings.isFallbackDataDirectory && (
+                    <div className="warning-panel">
+                      <AlertTriangle size={18} />
+                      <div>
+                        <strong>{t("fallbackTitle")}</strong>
+                        <span>{settings.fallbackReason}</span>
+                        {settings.configuredDataDirectory && (
+                          <code>
+                            {t("fallbackConfiguredDirectory")}：{settings.configuredDataDirectory}
+                          </code>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="settings-data-grid compact">
+                    <InfoRow label={t("currentDataDirectory")} value={settings.dataDirectory} />
+                    <InfoRow label={t("currentDatabaseFile")} value={settings.databasePath} />
+                    <InfoRow label={t("databaseSize")} value={formatBytes(settings.databaseSize)} />
+                    <InfoRow
+                      label={t("directoryType")}
+                      value={
+                        settings.isFallbackDataDirectory
+                          ? t("directoryFallback")
+                          : settings.isCustomDataDirectory
+                            ? t("directoryCustom")
+                            : t("directoryDefault")
+                      }
+                    />
+                    <InfoRow label={t("configFile")} value={settings.configPath} />
+                  </div>
+
+                  <p className="settings-storage-note">
+                    <Info size={16} />
+                    <span>{t("dataStorageNote")}</span>
+                  </p>
+
+                  <div className="settings-storage-footer">
+                    <button
+                      className="settings-transfer-toggle"
+                      type="button"
+                      aria-expanded={isTransferGuideOpen}
+                      onClick={() => setIsTransferGuideOpen((current) => !current)}
+                    >
+                      {t("copyGuidanceTitle")}
+                      <ChevronRight className={isTransferGuideOpen ? "is-open" : ""} size={16} />
+                    </button>
+                    <div className="settings-actions">
+                      <button className="secondary-button" type="button" onClick={onOpenDataDirectory}>
+                        <FolderOpen size={17} />
+                        {t("openDataDirectory")}
+                      </button>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={onMigrateDataDirectory}
+                        disabled={isMigrating || busyAction !== null}
+                      >
+                        <HardDrive size={17} />
+                        {isMigrating ? t("migrating") : t("migrateDataDirectory")}
+                      </button>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={onReloadDataDirectory}
+                        disabled={busyAction !== null}
+                      >
+                        <RefreshCw size={17} />
+                        {busyAction === "reload" ? t("reloading") : t("reloadDataDirectory")}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isTransferGuideOpen && (
+                    <div className="copy-guidance">
+                      <strong>{t("copyGuidanceTitle")}</strong>
+                      <p>{t("copyGuidanceSummary")}</p>
+                      <p>{t("copyGuidanceParagraphTwo")}</p>
+                      <p>{t("copyGuidanceWarning")}</p>
+                    </div>
+                  )}
+
+                  {message && <div className={`inline-message ${message.kind}`}>{message.message}</div>}
+                </div>
               )}
-            </div>
-          )}
+            </section>
 
-          {shouldShowReleaseSummary && (
-            <div className="update-release-summary">
-              <strong>{t("updateReleaseSummary")}</strong>
-              <p>{releaseSummary}</p>
-            </div>
-          )}
+            <section className="settings-row-block" id="settings-version-updates">
+              <div className={`settings-row settings-summary-row${expandedSettingsSection === "update" ? " is-expanded" : ""}`}>
+                <div className="settings-row-icon" aria-hidden="true">
+                  <RefreshCw size={21} />
+                </div>
+                <div className="settings-row-copy">
+                  <h3>{t("versionUpdatesTitle")}</h3>
+                  <span className="settings-row-meta settings-update-meta">
+                    <span
+                      className={`settings-status-dot${displayedUpdateStatus.status === "error" ? " danger" : ""}`}
+                    />
+                    {updateStatusLabel(displayedUpdateStatus, t)}
+                    <span className="settings-meta-divider" aria-hidden="true" />
+                    <span className="settings-update-version">
+                      {t("currentVersion")} {appVersion ? `v${appVersion}` : t("loading")}
+                    </span>
+                  </span>
+                </div>
+                <div className="settings-row-actions settings-command-actions settings-update-actions">
+                  {displayedUpdateStatus.status === "update-available" ? (
+                    <button className="primary-button" type="button" onClick={downloadUpdate} disabled={updateIsDownloading}>
+                      <RefreshCw size={17} />
+                      {updateIsDownloading ? t("updateDownloadingShort") : t("downloadAndInstallUpdate")}
+                    </button>
+                  ) : displayedUpdateStatus.status === "download-progress" ? (
+                    <button className="primary-button" type="button" disabled>
+                      <RefreshCw size={17} />
+                      {t("updateDownloadingShort")}
+                    </button>
+                  ) : displayedUpdateStatus.status === "update-downloaded" ? (
+                    <button className="primary-button" type="button" onClick={quitAndInstallUpdate} disabled={updateIsInstalling}>
+                      <RefreshCw size={17} />
+                      {updateIsInstalling ? t("updateInstalling") : t("restartAndInstallUpdate")}
+                    </button>
+                  ) : (
+                    <button className="secondary-button" type="button" onClick={checkUpdates} disabled={updateIsChecking}>
+                      {updateIsChecking
+                        ? t("updateCheckingShort")
+                        : displayedUpdateStatus.status === "error"
+                          ? t("retry")
+                          : t("checkForUpdates")}
+                    </button>
+                  )}
+                  <button
+                    className="secondary-button settings-disclosure-button"
+                    type="button"
+                    aria-expanded={expandedSettingsSection === "update"}
+                    aria-controls="settings-update-details"
+                    onClick={() => setExpandedSettingsSection((current) => (current === "update" ? null : "update"))}
+                  >
+                    {expandedSettingsSection === "update" ? t("collapse") : t("settingsDetails")}
+                    <ChevronRight className={expandedSettingsSection === "update" ? "is-open" : ""} size={16} />
+                  </button>
+                </div>
+              </div>
 
-          <p className="settings-note compact">{t("updateDataSafetyNote")}</p>
-          {updateMessage && <div className={`inline-message ${updateMessage.kind}`}>{updateMessage.message}</div>}
+              {expandedSettingsSection === "update" && (
+                <div className="settings-expanded-panel settings-update-panel" id="settings-update-details">
+                  {(displayedUpdateStatus.latestVersion ||
+                    displayedUpdateStatus.status === "update-available" ||
+                    displayedUpdateStatus.releaseDate) && (
+                    <div className="settings-data-grid compact">
+                      {(displayedUpdateStatus.latestVersion || displayedUpdateStatus.status === "update-available") && (
+                        <InfoRow label={t("updateLatestVersion")} value={latestVersionDisplay} />
+                      )}
+                      {displayedUpdateStatus.releaseDate && (
+                        <InfoRow label={t("updateReleaseDate")} value={releaseDateDisplay} />
+                      )}
+                    </div>
+                  )}
 
-          <div className="settings-actions">
-            {displayedUpdateStatus.status === "update-available" ? (
-              <button className="primary-button" type="button" onClick={downloadUpdate} disabled={updateIsDownloading}>
-                <RefreshCw size={17} />
-                {updateIsDownloading ? t("updateDownloadingShort") : t("downloadAndInstallUpdate")}
-              </button>
-            ) : displayedUpdateStatus.status === "download-progress" ? (
-              <button className="primary-button" type="button" disabled>
-                <RefreshCw size={17} />
-                {t("updateDownloadingShort")}
-              </button>
-            ) : displayedUpdateStatus.status === "update-downloaded" ? (
-              <>
-                <button className="primary-button" type="button" onClick={quitAndInstallUpdate} disabled={updateIsInstalling}>
-                  <RefreshCw size={17} />
-                  {updateIsInstalling ? t("updateInstalling") : t("restartAndInstallUpdate")}
+                  <div className={`update-status-panel ${displayedUpdateStatus.status}`}>
+                    <strong>{updateStatusLabel(displayedUpdateStatus, t)}</strong>
+                    <span>{updatePanelDescription(displayedUpdateStatus, t)}</span>
+                  </div>
+
+                  {displayedUpdateStatus.status === "download-progress" && (
+                    <div className="update-progress-panel" aria-label={t("updateDownloadProgressLabel")}>
+                      <div className="update-progress-meta">
+                        <span>{t("updateDownloadProgressLabel")}</span>
+                        <strong>{Math.round(updatePercent)}%</strong>
+                      </div>
+                      <div className="update-progress-track">
+                        <div className="update-progress-bar" style={{ width: `${updatePercent}%` }} />
+                      </div>
+                      {displayedUpdateStatus.progress?.total && (
+                        <p className="settings-note compact">
+                          {t("updateDownloadedSize")}：{formatBytes(displayedUpdateStatus.progress.transferred ?? 0)} /{" "}
+                          {formatBytes(displayedUpdateStatus.progress.total)}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {shouldShowReleaseSummary && (
+                    <div className="update-release-summary">
+                      <strong>{t("updateReleaseSummary")}</strong>
+                      <p>{releaseSummary}</p>
+                    </div>
+                  )}
+
+                  <p className="settings-note compact">{t("updateDataSafetyNote")}</p>
+                  {updateMessage && <div className={`inline-message ${updateMessage.kind}`}>{updateMessage.message}</div>}
+
+                  <div className="settings-star-reminder">
+                    <div className="settings-star-reminder-copy">
+                      <Star size={17} aria-hidden="true" />
+                      <span>{t("updateStarReminder")}</span>
+                    </div>
+                    <div className="settings-star-reminder-actions">
+                      <button className="secondary-button" type="button" onClick={openReleases}>
+                        <ExternalLink size={16} />
+                        {t("viewReleaseDetails")}
+                      </button>
+                      <button
+                        className="secondary-button settings-star-action"
+                        type="button"
+                        onClick={openRepository}
+                      >
+                        <Star size={16} aria-hidden="true" />
+                        {t("updateStarAction")}
+                      </button>
+                    </div>
+                  </div>
+
+                  {displayedUpdateStatus.status === "update-downloaded" && (
+                    <div className="settings-update-footer">
+                      <button className="secondary-button" type="button" onClick={installLater}>
+                        {t("updateLater")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <div className="settings-row" id="settings-user-guide">
+              <div className="settings-row-icon" aria-hidden="true">
+                <BookOpenText size={21} />
+              </div>
+              <div className="settings-row-copy">
+                <h3>{t("helpUserGuideTitle")}</h3>
+                <p>{t("helpUserGuideDescription")}</p>
+              </div>
+              <div className="settings-row-actions settings-command-actions">
+                <button className="secondary-button settings-footer-action" type="button" onClick={onOpenUserGuide}>
+                  <ExternalLink size={16} />
+                  {t("openUserGuide")}
                 </button>
-                <button className="secondary-button" type="button" onClick={installLater}>
-                  {t("updateLater")}
+              </div>
+            </div>
+
+            <div className="settings-row" id="settings-about-flow-shuttle">
+              <div className="settings-row-icon" aria-hidden="true">
+                <Info size={21} />
+              </div>
+              <div className="settings-row-copy">
+                <h3>{t("aboutFlowShuttleTitle")}</h3>
+                <p>{t("aboutFlowShuttleDescription")}</p>
+              </div>
+              <div className="settings-row-actions settings-command-actions">
+                <button
+                  className="secondary-button settings-footer-action"
+                  type="button"
+                  onClick={() => setIsAboutModalOpen(true)}
+                >
+                  <ExternalLink size={16} />
+                  {t("openAboutFlowShuttle")}
                 </button>
-              </>
-            ) : (
-              <button className="secondary-button" type="button" onClick={checkUpdates} disabled={updateIsChecking}>
-                <RefreshCw size={17} />
-                {updateIsChecking ? t("updateCheckingShort") : displayedUpdateStatus.status === "error" ? t("retry") : t("checkForUpdates")}
-              </button>
-            )}
-            <button className="secondary-button" type="button" onClick={openReleases}>
-              <ExternalLink size={17} />
-              {t("viewReleaseDetails")}
-            </button>
+              </div>
+            </div>
+
           </div>
         </section>
       </div>
@@ -7528,13 +10193,18 @@ function EmptyState({ title, body, actions }: { title: string; body: string; act
 }
 
 function ToastMessage({ toast }: { toast: Toast }) {
-  const Icon = toast.kind === "success" ? Check : toast.kind === "error" ? X : toast.kind === "warning" ? AlertTriangle : FileText;
+  const Icon = toast.kind === "success" ? Check : toast.kind === "error" ? X : toast.kind === "warning" ? AlertTriangle : Info;
   return (
-    <div className={`toast ${toast.kind}`} role="status" aria-live={toast.kind === "error" ? "assertive" : "polite"}>
+    <div
+      className={`toast ${toast.kind}`}
+      role="status"
+      aria-live={toast.kind === "error" ? "assertive" : "polite"}
+      aria-atomic="true"
+    >
       <span className="toast-icon" aria-hidden="true">
         <Icon size={16} />
       </span>
-      <span>{toast.message}</span>
+      <span className="toast-copy">{toast.message}</span>
     </div>
   );
 }
@@ -7550,8 +10220,7 @@ function ConfirmModal({
   calloutTitle,
   calloutBody,
   onConfirm,
-  onCancel,
-  t
+  onCancel
 }: {
   title: string;
   body: string;
@@ -7564,7 +10233,6 @@ function ConfirmModal({
   calloutBody?: string;
   onConfirm: () => void;
   onCancel: () => void;
-  t: Translator;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLElement>(null);
@@ -7583,6 +10251,7 @@ function ConfirmModal({
   }, [onCancel]);
 
   const primaryClass = tone === "danger" ? "secondary-button danger" : "primary-button";
+  const hasDetail = Boolean(calloutTitle || calloutBody || children);
 
   return (
     <div
@@ -7596,32 +10265,40 @@ function ConfirmModal({
     >
       <section
         ref={modalRef}
-        className={`form-modal confirm-modal ${tone}`.trim()}
-        role="dialog"
+        className={`form-modal confirm-modal ${tone} ${hasDetail ? "has-detail" : ""}`.trim()}
+        role="alertdialog"
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
       >
-        <header className="modal-header">
-          <div>
-            <h2>{title}</h2>
-            {objectName && <p className="modal-object-name">{objectName}</p>}
-          </div>
-          <button className="icon-button" type="button" onClick={onCancel} aria-label={t("close")}>
-            <X size={18} />
-          </button>
-        </header>
-        <p className="confirm-body">{body}</p>
-        {(calloutTitle || calloutBody) && (
-          <div className={`confirm-callout ${tone}`.trim()}>
-            {tone === "info" ? <FileText size={17} /> : <AlertTriangle size={17} />}
-            <div>
-              {calloutTitle && <strong>{calloutTitle}</strong>}
-              {calloutBody && <span>{calloutBody}</span>}
+        <div className="confirm-modal-lead">
+          <span className={`confirm-modal-emblem ${tone}`.trim()} aria-hidden="true">
+            {tone === "danger" ? <AlertTriangle size={18} /> : <FileText size={18} />}
+          </span>
+          <div className="confirm-modal-copy">
+            <header className="confirm-modal-header">
+              <h2>{title}</h2>
+              {objectName && <p className="modal-object-name">{objectName}</p>}
+            </header>
+            <div className="confirm-modal-body">
+              <p className="confirm-body">{body}</p>
             </div>
           </div>
+        </div>
+        {hasDetail && (
+          <div className="confirm-modal-content">
+            {(calloutTitle || calloutBody) && (
+              <div className={`confirm-callout ${tone}`.trim()}>
+                {tone === "danger" ? <AlertTriangle size={17} /> : <FileText size={17} />}
+                <div>
+                  {calloutTitle && <strong>{calloutTitle}</strong>}
+                  {calloutBody && <span>{calloutBody}</span>}
+                </div>
+              </div>
+            )}
+            {children}
+          </div>
         )}
-        {children}
         <footer className="modal-actions">
           <button className="secondary-button" type="button" ref={cancelRef} onClick={onCancel}>
             {secondaryLabel}
