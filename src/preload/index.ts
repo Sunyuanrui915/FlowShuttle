@@ -174,8 +174,7 @@ const api: WorkJournalApi = {
     openDataDirectory: () => ipcRenderer.invoke("settings:open-data-directory"),
     prepareDataDirectoryForCopy: () =>
       ipcRenderer.invoke("settings:prepare-data-directory-for-copy"),
-    chooseAndMigrateDataDirectory: () =>
-      ipcRenderer.invoke("settings:choose-and-migrate-data-directory"),
+    chooseDataDirectory: () => ipcRenderer.invoke("settings:choose-data-directory"),
     useExistingDataDirectory: () => ipcRenderer.invoke("settings:use-existing-data-directory"),
     reloadDataDirectory: () => ipcRenderer.invoke("settings:reload-data-directory"),
     onChanged: (callback: (settings: SettingsInfo) => void) => {

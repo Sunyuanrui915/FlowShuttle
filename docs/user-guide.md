@@ -134,9 +134,11 @@
 
 归档项目后，它会从当前项目列表移到“归档”，历史内容不会被删除。取消归档后，项目会回到项目列表，其中未完成的工作项会重新出现在今日工作页。
 
-### 9. 本地数据与迁移
+### 9. 本地数据与搬运
 
 工作记录保存在本地 SQLite 数据库中，粘贴到编辑器或备忘录中的图片也保存在同一数据目录下。
+
+选择数据目录时，应用会读取其中已有的流梭数据库；如果目录中没有数据库，则创建空白数据库。
 
 换电脑或搬运数据时，请复制整个数据目录，而不只是 SQLite 文件，然后在另一台电脑的“设置 > 本地数据存储”中选择该目录。
 
@@ -304,9 +306,11 @@ Use Projects to create and manage projects and work items, or to save quick prog
 
 Archiving moves a project out of the current project list and into Archive without deleting its history. Unarchiving returns it to Projects, and its unfinished work items reappear on Today.
 
-### 9. Local Data and Migration
+### 9. Local Data and Transfer
 
 Work records are stored in a local SQLite database. Images pasted into an editor or Project Memo are stored in the same data directory.
+
+When you choose a data directory, the app reads its existing Flow Shuttle database. If the directory does not contain one, the app creates a blank database.
 
 When moving to another computer, copy the entire data directory rather than only the SQLite file, then select that directory from Settings > Local Data Storage on the other computer.
 

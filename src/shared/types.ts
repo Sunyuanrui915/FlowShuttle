@@ -441,11 +441,11 @@ export interface SettingsInfo {
   fallbackReason: string | null;
 }
 
-export interface MigrationResult {
+export interface DataDirectoryChangeResult {
   canceled: boolean;
   settings?: SettingsInfo;
   message?: string;
-  operation?: "migrated" | "switched" | "unchanged" | "reloaded";
+  operation?: "created" | "switched" | "unchanged" | "reloaded";
 }
 
 export type AppUpdateStatusKind =
@@ -719,9 +719,9 @@ export interface WorkJournalApi {
     setLanguage: (language: LanguagePreference) => Promise<SettingsInfo>;
     openDataDirectory: () => Promise<void>;
     prepareDataDirectoryForCopy: () => Promise<PrepareCopyResult>;
-    chooseAndMigrateDataDirectory: () => Promise<MigrationResult>;
-    useExistingDataDirectory: () => Promise<MigrationResult>;
-    reloadDataDirectory: () => Promise<MigrationResult>;
+    chooseDataDirectory: () => Promise<DataDirectoryChangeResult>;
+    useExistingDataDirectory: () => Promise<DataDirectoryChangeResult>;
+    reloadDataDirectory: () => Promise<DataDirectoryChangeResult>;
     onChanged: (callback: (settings: SettingsInfo) => void) => () => void;
   };
   ai: {

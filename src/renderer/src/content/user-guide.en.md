@@ -132,9 +132,11 @@ Use Projects to create and manage projects and work items, or to save quick prog
 
 Archiving moves a project out of the current project list and into Archive without deleting its history. Unarchiving returns it to Projects, and its unfinished work items reappear on Today.
 
-## 9. Local Data and Migration
+## 9. Local Data and Transfer
 
 Work records are stored in a local SQLite database. Images pasted into an editor or Project Memo are stored in the same data directory.
+
+When you choose a data directory, the app reads its existing Flow Shuttle database. If the directory does not contain one, the app creates a blank database.
 
 When moving to another computer, copy the entire data directory rather than only the SQLite file, then select that directory from Settings > Local Data Storage on the other computer.
 

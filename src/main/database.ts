@@ -1,8 +1,8 @@
 import { app } from "electron";
 import Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
-import { constants, existsSync, mkdirSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
-import { copyFile, cp, writeFile } from "node:fs/promises";
+import { closeSync, existsSync, mkdirSync, openSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { getLocalDateKey, getTimestamp } from "./date";
 import { countTextMetricCharacters } from "../shared/textMetrics";
@@ -30,7 +30,7 @@ import type {
   ExportMarkdownInput,
   HeatmapDay,
   HeatmapMonth,
-  MigrationResult,
+  DataDirectoryChangeResult,
   MarkdownPayload,
   PrepareCopyResult,
   PeriodReportListItem,
@@ -550,19 +550,6 @@ function dailyEntryAttachmentsDirectory(journalDate: string, workItemId: string,
 
 function workItemNoteAttachmentsDirectory(workItemId: string, dataDirectory = getCurrentDataDirectory()): string {
   return resolve(attachmentsDirectory(dataDirectory), "work-item-notes", requireSafeAttachmentSegment(workItemId, "work item id"));
-}
-
-async function copyAttachmentsDirectory(sourceDataDirectory: string, targetDataDirectory: string): Promise<boolean> {
-  const source = attachmentsDirectory(sourceDataDirectory);
-  const target = attachmentsDirectory(targetDataDirectory);
-  if (!existsSync(source)) {
-    return false;
-  }
-  if (existsSync(target)) {
-    throw new Error("目标目录已存在 attachments 文件夹，无法确认是否安全合并。请选择空目录或先手动整理。");
-  }
-  await cp(source, target, { recursive: true, errorOnExist: true, force: false });
-  return true;
 }
 
 function assertInside(baseDirectory: string, targetPath: string): void {
@@ -4290,7 +4277,7 @@ function validateDatabaseFile(filePath: string): void {
     const requiredTables = ["schema_migrations", "projects", "work_items", "progress_entries", "daily_journals", "daily_work_item_entries"];
     for (const tableName of requiredTables) {
       if (!tableNames.has(tableName)) {
-        throw new Error(`迁移后的数据库缺少 ${tableName} 表。`);
+        throw new Error(`数据库文件缺少 ${tableName} 表。`);
       }
     }
 
@@ -4324,7 +4311,7 @@ function validateDatabaseFile(filePath: string): void {
       const columnNames = new Set(columnRows.map((row) => row.name));
       for (const columnName of columns) {
         if (!columnNames.has(columnName)) {
-          throw new Error(`迁移后的数据库 ${tableName} 表缺少 ${columnName} 字段。`);
+          throw new Error(`数据库文件 ${tableName} 表缺少 ${columnName} 字段。`);
         }
       }
     }
@@ -4338,7 +4325,19 @@ function validateDatabaseFile(filePath: string): void {
     validationDb.close();
   }
 }
-async function switchToExistingDatabaseDirectory(targetDirectory: string): Promise<MigrationResult> {
+function createBlankDatabaseFile(filePath: string): void {
+  const fileDescriptor = openSync(filePath, "wx");
+  closeSync(fileDescriptor);
+  const blankDatabase = new Database(filePath);
+  try {
+    blankDatabase.pragma("foreign_keys = ON");
+    runMigrations(blankDatabase);
+  } finally {
+    blankDatabase.close();
+  }
+}
+
+async function switchToExistingDatabaseDirectory(targetDirectory: string): Promise<DataDirectoryChangeResult> {
   const previousDirectory = resolveDataDirectory().configuredDataDirectory;
   try {
     closeDatabase();
@@ -4361,13 +4360,12 @@ async function switchToExistingDatabaseDirectory(targetDirectory: string): Promi
   }
 }
 
-export async function migrateDatabaseToDirectory(
+export async function selectDatabaseDirectory(
   selectedDirectory: string,
   confirmUseExisting?: (targetDirectory: string, targetDatabasePath: string) => Promise<boolean>
-): Promise<MigrationResult> {
+): Promise<DataDirectoryChangeResult> {
   const currentDirectory = getCurrentDataDirectory();
   const targetDirectory = resolve(selectedDirectory);
-  const currentDatabasePath = getCurrentDatabasePath();
   const targetDatabasePath = getDatabasePathForDirectory(targetDirectory);
   const tempDatabasePath = `${targetDatabasePath}.tmp`;
 
@@ -4393,7 +4391,7 @@ export async function migrateDatabaseToDirectory(
       validateDatabaseFile(targetDatabasePath);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "数据库校验失败";
-      throw new Error(`该目录中的数据库文件无效，无法切换数据目录。当前数据目录未改变。${reason}`);
+      throw new Error(`该目录中的数据库文件无效，无法切换数据目录。原因：${reason}`);
     }
 
     if (confirmUseExisting) {
@@ -4406,60 +4404,47 @@ export async function migrateDatabaseToDirectory(
     return switchToExistingDatabaseDirectory(targetDirectory);
   }
 
-  if (existsSync(tempDatabasePath)) {
+  const incompleteDatabaseFiles = [
+    tempDatabasePath,
+    `${tempDatabasePath}-journal`,
+    `${tempDatabasePath}-wal`,
+    `${tempDatabasePath}-shm`,
+    `${targetDatabasePath}-journal`,
+    `${targetDatabasePath}-wal`,
+    `${targetDatabasePath}-shm`
+  ];
+  if (incompleteDatabaseFiles.some((filePath) => existsSync(filePath))) {
     throw new Error(
-      `目标目录已存在 ${getDatabaseFileName()}.tmp，无法确认是否为本次迁移产生，请先手动清理该目录后重试。`
+      `目标目录中存在 ${getDatabaseFileName()} 的残留文件，无法安全创建空白数据库。请先检查该目录后重试。`
     );
   }
 
-  database();
-  checkpointDatabase();
-  closeDatabase();
-
   let tempCreated = false;
-  let configChanged = false;
-  let attachmentsCopied = false;
-  const previousDirectory = resolveDataDirectory().configuredDataDirectory;
   try {
-    await copyFile(currentDatabasePath, tempDatabasePath, constants.COPYFILE_EXCL);
     tempCreated = true;
+    createBlankDatabaseFile(tempDatabasePath);
     validateDatabaseFile(tempDatabasePath);
-    attachmentsCopied = await copyAttachmentsDirectory(currentDirectory, targetDirectory);
     renameSync(tempDatabasePath, targetDatabasePath);
     tempCreated = false;
-    setDataDirectory(targetDirectory);
-    configChanged = true;
-    reopenDatabase();
+    const result = await switchToExistingDatabaseDirectory(targetDirectory);
     return {
-      canceled: false,
-      operation: "migrated",
-      message: "已将当前数据库迁移到新的数据目录。",
-      settings: getSettingsInfo()
+      ...result,
+      operation: "created",
+      message: "已在所选目录中创建空白数据库并完成切换。"
     };
   } catch (error) {
     if (tempCreated && existsSync(tempDatabasePath)) {
       try {
         unlinkSync(tempDatabasePath);
       } catch {
-        // The original database remains untouched; report the migration failure below.
+        // Leave an untrusted temporary file untouched and report the original failure.
       }
     }
-    if (configChanged) {
-      setDataDirectory(previousDirectory);
-    }
-    if (attachmentsCopied) {
-      try {
-        removeDirectoryInside(targetDirectory, attachmentsDirectory(targetDirectory), "Attachments rollback deletion failed.");
-      } catch {
-        // The original attachments remain untouched; report the migration failure below.
-      }
-    }
-    reopenDatabase();
     throw error;
   }
 }
 
-export async function useExistingDatabaseDirectory(selectedDirectory: string): Promise<MigrationResult> {
+export async function useExistingDatabaseDirectory(selectedDirectory: string): Promise<DataDirectoryChangeResult> {
   const targetDirectory = resolve(selectedDirectory);
   const currentDirectory = getCurrentDataDirectory();
   const targetDatabasePath = getDatabasePathForDirectory(targetDirectory);
@@ -4490,7 +4475,7 @@ export async function useExistingDatabaseDirectory(selectedDirectory: string): P
   return switchToExistingDatabaseDirectory(targetDirectory);
 }
 
-export function reloadDatabaseFromSettings(): MigrationResult {
+export function reloadDatabaseFromSettings(): DataDirectoryChangeResult {
   const previousDatabasePath = getCurrentDatabasePath();
   try {
     closeDatabase();

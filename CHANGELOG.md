@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.1 - 2026-08-05
+
+### Improved
+
+* 优化数据目录选择逻辑：已有数据库时直接加载，没有数据库时创建空白数据库，不再自动迁移当前数据，并加强异常数据库文件的安全校验。
+* Improved data directory selection: existing databases are loaded directly, blank databases are created when needed, current data is no longer migrated automatically, and invalid database files receive stronger safety checks.
+
 ## v0.3.0 - 2026-08-04
 
 ### Added
