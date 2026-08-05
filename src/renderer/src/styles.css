@@ -594,7 +594,7 @@ body {
 
 .search-result {
   display: grid;
-  grid-template-columns: 48px 1fr;
+  grid-template-columns: 64px 1fr;
   gap: 3px 10px;
   width: 100%;
   border: 0;
@@ -1067,7 +1067,12 @@ p {
   isolation: isolate;
 }
 
-.daily-page > .page-header,
+.daily-page > .page-header {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+}
+
 .daily-page > .today-month-overview {
   position: relative;
   z-index: 1;
@@ -1472,6 +1477,16 @@ p {
   border-radius: 8px;
   background: color-mix(in srgb, var(--accent-soft) 32%, transparent);
   color: var(--accent);
+}
+
+.daily-entry-row-icon.blocked {
+  background: color-mix(in srgb, var(--danger-soft) 56%, transparent);
+  color: var(--danger);
+}
+
+.daily-entry-row-icon.paused {
+  background: color-mix(in srgb, var(--warning-soft) 58%, transparent);
+  color: var(--warning);
 }
 
 .daily-entry-row-main {
@@ -3876,12 +3891,19 @@ button.today-reminder-item:focus-visible {
 .check-button {
   display: grid;
   place-items: center;
+  box-sizing: border-box;
   width: 20px;
   height: 20px;
+  padding: 0;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--input-bg);
   color: var(--accent);
+  line-height: 0;
+}
+
+.check-button svg {
+  display: block;
 }
 
 .check-button-placeholder {
@@ -4314,7 +4336,7 @@ button.today-reminder-item:focus-visible {
 }
 
 .reports-search-field {
-  padding: 0 14px 14px;
+  padding: 0;
 }
 
 .reports-filter-section {
@@ -4503,13 +4525,41 @@ button.today-reminder-item:focus-visible {
 }
 
 .reports-list-header {
+  display: grid;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-muted);
+  background: color-mix(in srgb, var(--bg-surface-muted) 46%, transparent);
+  padding: 14px 15px 13px;
+}
+
+.reports-filter-search-field {
+  width: 100%;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-muted) 78%, transparent);
+  padding: 0 14px 14px;
+}
+
+.reports-filter-search-field .reports-search-box {
+  height: 42px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  padding-right: 8px;
+  padding-left: 11px;
+}
+
+.reports-list-title-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid var(--border-muted);
-  background: color-mix(in srgb, var(--bg-surface-muted) 46%, transparent);
-  padding: 16px 17px 14px;
+  min-width: 0;
+}
+
+.reports-list-title-row > div {
+  min-width: 0;
+}
+
+.reports-filter-search-field:focus-within .reports-search-box {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-muted));
 }
 
 .reports-list-header h2 {
@@ -4604,6 +4654,134 @@ button.today-reminder-item:focus-visible {
   padding: 2px 6px;
   font-size: 11px;
   font-weight: 800;
+}
+
+.reports-filter-search-results {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  flex: 1;
+  flex-direction: column;
+}
+
+.reports-filter-search-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 8px;
+}
+
+.reports-filter-search-heading strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.reports-filter-search-heading small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.reports-filter-search-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  align-content: start;
+  gap: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+}
+
+.reports-filter-search-result {
+  display: flex;
+  position: relative;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-muted) 72%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 12px 11px 13px 14px;
+  text-align: left;
+}
+
+.reports-filter-search-result:hover,
+.reports-filter-search-result:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.reports-filter-search-result.active {
+  border-bottom-color: transparent;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent-soft) 76%, var(--bg-surface));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.reports-filter-search-result-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.reports-filter-search-result-title svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+  stroke-width: 2;
+}
+
+.reports-filter-search-result-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reports-filter-search-result > small,
+.reports-filter-search-result > p {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.reports-filter-search-result > p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.reports-filter-search-result > small {
+  color: var(--text-muted);
+}
+
+.reports-filter-search-result .search-highlight {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--warning) 30%, var(--bg-surface));
+  padding: 0 1px;
+}
+
+.reports-filter-search-empty {
+  padding: 18px 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
 }
 
 .report-list-meta {
@@ -4766,6 +4944,30 @@ button.today-reminder-item:focus-visible {
   max-width: 760px;
   margin-right: auto;
   margin-left: auto;
+}
+
+.report-preview-panel .report-search-current {
+  background: color-mix(in srgb, var(--warning-soft) 86%, var(--bg-surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 38%, transparent);
+  animation: report-search-locate 520ms ease-out;
+}
+
+@keyframes report-search-locate {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+  58% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 38%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-preview-panel .report-search-current {
+    animation: none;
+  }
 }
 
 .readable-markdown-preview.compact {
@@ -6791,6 +6993,10 @@ button.today-reminder-item:focus-visible {
   color: var(--danger);
 }
 
+.today-work-item-icon.paused {
+  color: var(--warning);
+}
+
 .today-focus-title strong {
   min-width: 0;
   flex: 1;
@@ -6835,6 +7041,18 @@ button.today-reminder-item:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 22%, var(--border-muted));
   background: color-mix(in srgb, var(--accent-soft) 58%, var(--bg-surface));
   color: var(--accent);
+}
+
+.today-state-pill.done {
+  border-color: color-mix(in srgb, var(--success) 25%, var(--border-muted));
+  background: color-mix(in srgb, var(--success-soft) 64%, var(--bg-surface));
+  color: var(--success);
+}
+
+.today-state-pill.paused {
+  border-color: color-mix(in srgb, var(--warning) 28%, var(--border-muted));
+  background: color-mix(in srgb, var(--warning-soft) 58%, var(--bg-surface));
+  color: var(--warning);
 }
 
 .today-state-pill.not-started {

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.2 - 2026-08-05
+
+### Fixed
+
+* 修复工作项暂停、已填写与阻碍状态的联动问题，避免仅切换状态时误显示“已填写”或生成空的项目进展记录。
+* Fixed coordination between Paused, Filled, and blocker states, preventing status-only changes from being treated as filled or creating empty timeline entries.
+
+### Improved
+
+* 优化今日工作页与报告页搜索：聚焦项目、工作项和完整进展内容，支持点击结果定位，并改进关键词高亮、结果列表与滚动展示。
+* Refined search across Today and Reports with focused results, direct navigation, clearer keyword highlighting, and cleaner result-list scrolling.
+
 ## v0.3.1 - 2026-08-05
 
 ### Improved

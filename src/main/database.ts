@@ -466,10 +466,52 @@ const migrations = [
           ON work_item_note_attachments(project_id, created_at);
       `);
     }
+  },
+  {
+    version: 10,
+    name: "repair_legacy_paused_work_item_status",
+    up(database: SqliteDatabase) {
+      repairLegacyPausedStatusMismatch(database);
+    }
   }
 ];
 
 let db: SqliteDatabase | null = null;
+
+function repairLegacyPausedStatusMismatch(connection: SqliteDatabase): void {
+  connection
+    .prepare(
+      `
+      UPDATE work_items
+      SET status = 'paused',
+          completed_at = NULL
+      WHERE status = 'active'
+        AND (
+          SELECT dwe.status_for_today
+          FROM daily_work_item_entries dwe
+          WHERE dwe.work_item_id = work_items.id
+          ORDER BY dwe.updated_at DESC, dwe.journal_date DESC, dwe.id DESC
+          LIMIT 1
+        ) = 'paused'
+        AND (
+          work_items.updated_at = (
+            SELECT dwe.updated_at
+            FROM daily_work_item_entries dwe
+            WHERE dwe.work_item_id = work_items.id
+            ORDER BY dwe.updated_at DESC, dwe.journal_date DESC, dwe.id DESC
+            LIMIT 1
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM work_item_notes win
+            WHERE win.work_item_id = work_items.id
+              AND win.updated_at = work_items.updated_at
+          )
+        )
+      `
+    )
+    .run();
+}
 
 function database(): SqliteDatabase {
   if (!db) {
@@ -769,33 +811,33 @@ function getItemsWithLatest(projectId: string, status: "active" | "done"): WorkI
         (
           SELECT latest.next_step
           FROM (
-            SELECT dwe.next_step AS next_step, dwe.updated_at AS updated_at
+            SELECT dwe.next_step AS next_step, dwe.updated_at AS updated_at, dwe.journal_date AS entry_date, 1 AS source_priority
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
-              AND ${meaningfulDailyEntrySql("dwe")}
+              AND dwe.next_step IS NOT NULL
             UNION ALL
-            SELECT pe.next_step AS next_step, pe.created_at AS updated_at
+            SELECT pe.next_step AS next_step, pe.created_at AS updated_at, pe.entry_date AS entry_date, 0 AS source_priority
             FROM progress_entries pe
             WHERE pe.work_item_id = wi.id
+              AND pe.next_step IS NOT NULL
           ) latest
-          WHERE latest.next_step IS NOT NULL AND TRIM(latest.next_step) <> ''
-          ORDER BY latest.updated_at DESC
+          ORDER BY latest.updated_at DESC, latest.entry_date DESC, latest.source_priority DESC
           LIMIT 1
         ) AS latest_next_step,
         (
           SELECT latest.blocker
           FROM (
-            SELECT dwe.blocker AS blocker, dwe.updated_at AS updated_at
+            SELECT dwe.blocker AS blocker, dwe.updated_at AS updated_at, dwe.journal_date AS entry_date, 1 AS source_priority
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
-              AND ${meaningfulDailyEntrySql("dwe")}
+              AND dwe.blocker IS NOT NULL
             UNION ALL
-            SELECT pe.blocker AS blocker, pe.created_at AS updated_at
+            SELECT pe.blocker AS blocker, pe.created_at AS updated_at, pe.entry_date AS entry_date, 0 AS source_priority
             FROM progress_entries pe
             WHERE pe.work_item_id = wi.id
+              AND pe.blocker IS NOT NULL
           ) latest
-          WHERE latest.blocker IS NOT NULL AND TRIM(latest.blocker) <> ''
-          ORDER BY latest.updated_at DESC
+          ORDER BY latest.updated_at DESC, latest.entry_date DESC, latest.source_priority DESC
           LIMIT 1
         ) AS latest_blocker,
         (
@@ -1647,7 +1689,7 @@ function getDailyEntry(journalDate: string, workItemId: string): DailyWorkItemEn
 }
 
 function getLatestDailyEntryBefore(journalDate: string, workItemId: string): DailyWorkItemEntry | null {
-  return (
+  const entry =
     (database()
       .prepare(
         `
@@ -1655,13 +1697,40 @@ function getLatestDailyEntryBefore(journalDate: string, workItemId: string): Dai
         FROM daily_work_item_entries
         WHERE work_item_id = ?
           AND journal_date < ?
-          AND ${meaningfulDailyEntrySql()}
+          AND (
+            ${meaningfulDailyEntrySql()}
+            OR next_step IS NOT NULL
+            OR blocker IS NOT NULL
+          )
         ORDER BY journal_date DESC, updated_at DESC
         LIMIT 1
         `
       )
-      .get(workItemId, journalDate) as DailyWorkItemEntry | undefined) ?? null
-  );
+      .get(workItemId, journalDate) as DailyWorkItemEntry | undefined) ?? null;
+  if (!entry) {
+    return null;
+  }
+  const getEffectiveField = (field: "next_step" | "blocker"): string | null => {
+    const row = database()
+      .prepare(
+        `
+        SELECT ${field} AS value
+        FROM daily_work_item_entries
+        WHERE work_item_id = ?
+          AND journal_date < ?
+          AND ${field} IS NOT NULL
+        ORDER BY journal_date DESC, updated_at DESC
+        LIMIT 1
+        `
+      )
+      .get(workItemId, journalDate) as { value: string } | undefined;
+    return row?.value ?? null;
+  };
+  return {
+    ...entry,
+    next_step: getEffectiveField("next_step"),
+    blocker: getEffectiveField("blocker")
+  };
 }
 
 function getOrCreateWorkItemNote(workItemId: string): WorkItemNote {
@@ -1751,11 +1820,31 @@ function normalizeDailyStatus(value: DailyWorkItemStatus | undefined): DailyWork
   return "in_progress";
 }
 
-function cleanDailyText(value?: string): string | null {
+function cleanDailyText(value?: string, preserveExplicitEmpty = false): string | null {
   if (value === undefined) {
     return null;
   }
-  return value.trim() ? value : null;
+  return value.trim() ? value : preserveExplicitEmpty ? "" : null;
+}
+
+function normalizeDailyTextForComparison(value: string | null | undefined): string {
+  return (value ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+}
+
+function dailyEntryHasRecordedFieldChanges(
+  entry: DailyWorkItemEntry | null | undefined,
+  previousEntry: DailyWorkItemEntry | null | undefined
+): boolean {
+  if (!entry) {
+    return false;
+  }
+  return Boolean(
+    entry.today_progress?.trim() ||
+      (entry.next_step !== null &&
+        normalizeDailyTextForComparison(entry.next_step) !== normalizeDailyTextForComparison(previousEntry?.next_step)) ||
+      (entry.blocker !== null &&
+        normalizeDailyTextForComparison(entry.blocker) !== normalizeDailyTextForComparison(previousEntry?.blocker))
+  );
 }
 
 function hasMarkdownContent(value?: string | null): boolean {
@@ -2005,33 +2094,33 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
         (
           SELECT latest.next_step
           FROM (
-            SELECT dwe.next_step AS next_step, dwe.updated_at AS updated_at
+            SELECT dwe.next_step AS next_step, dwe.updated_at AS updated_at, dwe.journal_date AS entry_date, 1 AS source_priority
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
-              AND ${meaningfulDailyEntrySql("dwe")}
+              AND dwe.next_step IS NOT NULL
             UNION ALL
-            SELECT pe.next_step AS next_step, pe.created_at AS updated_at
+            SELECT pe.next_step AS next_step, pe.created_at AS updated_at, pe.entry_date AS entry_date, 0 AS source_priority
             FROM progress_entries pe
             WHERE pe.work_item_id = wi.id
+              AND pe.next_step IS NOT NULL
           ) latest
-          WHERE latest.next_step IS NOT NULL AND TRIM(latest.next_step) <> ''
-          ORDER BY latest.updated_at DESC
+          ORDER BY latest.updated_at DESC, latest.entry_date DESC, latest.source_priority DESC
           LIMIT 1
         ) AS latest_next_step,
         (
           SELECT latest.blocker
           FROM (
-            SELECT dwe.blocker AS blocker, dwe.updated_at AS updated_at
+            SELECT dwe.blocker AS blocker, dwe.updated_at AS updated_at, dwe.journal_date AS entry_date, 1 AS source_priority
             FROM daily_work_item_entries dwe
             WHERE dwe.work_item_id = wi.id
-              AND ${meaningfulDailyEntrySql("dwe")}
+              AND dwe.blocker IS NOT NULL
             UNION ALL
-            SELECT pe.blocker AS blocker, pe.created_at AS updated_at
+            SELECT pe.blocker AS blocker, pe.created_at AS updated_at, pe.entry_date AS entry_date, 0 AS source_priority
             FROM progress_entries pe
             WHERE pe.work_item_id = wi.id
+              AND pe.blocker IS NOT NULL
           ) latest
-          WHERE latest.blocker IS NOT NULL AND TRIM(latest.blocker) <> ''
-          ORDER BY latest.updated_at DESC
+          ORDER BY latest.updated_at DESC, latest.entry_date DESC, latest.source_priority DESC
           LIMIT 1
         ) AS latest_blocker,
         (
@@ -2118,16 +2207,6 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
     .prepare(`SELECT * FROM projects WHERE status = 'active' ORDER BY COALESCE(sort_order, ${SORT_ORDER_FALLBACK}) ASC, updated_at DESC, created_at ASC, id ASC`)
     .all() as Project[];
 
-  const entriesToday = connection
-    .prepare(
-      `
-      SELECT COUNT(*) AS count
-      FROM daily_work_item_entries
-      WHERE journal_date = ?
-        AND ${meaningfulDailyEntrySql()}
-      `
-    )
-    .get(journalDate) as { count: number };
   const doneToday = connection
     .prepare(
       `
@@ -2137,6 +2216,12 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
       `
     )
     .get(journalDate) as { count: number };
+  const groups = [...groupMap.values()];
+  const filledEntries = groups.reduce(
+    (count, group) =>
+      count + group.items.filter((block) => dailyEntryHasRecordedFieldChanges(block.entry, block.previousEntry)).length,
+    0
+  );
 
   return {
     journalDate,
@@ -2145,10 +2230,10 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
     stats: {
       activeProjects: projects.length,
       workItems: items.length,
-      filledEntries: Number(entriesToday.count),
+      filledEntries,
       completedToday: Number(doneToday.count)
     },
-    groups: [...groupMap.values()],
+    groups,
     projects
   };
 }
@@ -2174,16 +2259,15 @@ export function upsertDailyWorkItemEntry(input: UpsertDailyWorkItemEntryInput): 
   const hasBlocker = Object.prototype.hasOwnProperty.call(input, "blocker");
   const hasStatusForToday = Object.prototype.hasOwnProperty.call(input, "statusForToday");
   const todayProgress = hasTodayProgress ? cleanDailyText(input.todayProgress) : existing?.today_progress ?? null;
-  const nextStep = hasNextStep ? cleanDailyText(input.nextStep) : existing?.next_step ?? null;
-  const blocker = hasBlocker ? cleanDailyText(input.blocker) : existing?.blocker ?? null;
+  const nextStep = hasNextStep ? cleanDailyText(input.nextStep, true) : existing?.next_step ?? null;
+  const blocker = hasBlocker ? cleanDailyText(input.blocker, true) : existing?.blocker ?? null;
   const statusForToday = hasStatusForToday
     ? normalizeDailyStatus(input.statusForToday)
     : existing?.status_for_today ?? "in_progress";
   const noteContentProvided = Object.prototype.hasOwnProperty.call(input, "workItemNoteContentMarkdown");
-  const shouldWriteDailyEntry = Boolean(todayProgress || nextStep || blocker || statusForToday !== "in_progress");
-  if (!shouldWriteDailyEntry && !noteContentProvided && !existing) {
-    throw new Error("Fill at least one of today's progress, next step, blocker, or change today's status.");
-  }
+  const shouldWriteDailyEntry = Boolean(
+    todayProgress || nextStep !== null || blocker !== null || statusForToday !== "in_progress"
+  );
 
   const now = getTimestamp();
   const currentNote = getOrCreateWorkItemNote(input.workItemId);
@@ -2211,14 +2295,11 @@ export function upsertDailyWorkItemEntry(input: UpsertDailyWorkItemEntryInput): 
       existing.blocker !== entry.blocker ||
       existing.status_for_today !== entry.status_for_today
     : Boolean(existing);
-  const shouldCompleteWorkItem = dailyEntryChanged && entry?.status_for_today === "done_today";
-  const shouldRestoreWorkItemActive =
-    dailyEntryChanged &&
-    existing?.status_for_today === "done_today" &&
-    entry?.status_for_today !== "done_today" &&
-    workItem.status === "done";
+  const targetWorkItemStatus: WorkItem["status"] =
+    statusForToday === "done_today" ? "done" : statusForToday === "paused" ? "paused" : "active";
+  const workItemStatusChanged = workItem.status !== targetWorkItemStatus;
 
-  if (!noteContentChanged && !dailyEntryChanged) {
+  if (!noteContentChanged && !dailyEntryChanged && !workItemStatusChanged) {
     return {
       entry: existing,
       workItemNote: currentNote
@@ -2268,37 +2349,26 @@ export function upsertDailyWorkItemEntry(input: UpsertDailyWorkItemEntryInput): 
         .prepare("UPDATE daily_journals SET updated_at = ? WHERE journal_date = ?")
         .run(now, journalDate);
     }
-    database()
-      .prepare("UPDATE work_items SET updated_at = ? WHERE id = ?")
-      .run(now, input.workItemId);
-    database()
-      .prepare("UPDATE projects SET updated_at = ? WHERE id = ?")
-      .run(now, input.projectId);
-    if (shouldCompleteWorkItem) {
+    if (workItemStatusChanged) {
       database()
         .prepare(
           `
           UPDATE work_items
-          SET status = 'done',
-              completed_at = COALESCE(completed_at, ?),
+          SET status = ?,
+              completed_at = CASE WHEN ? = 'done' THEN COALESCE(completed_at, ?) ELSE NULL END,
               updated_at = ?
           WHERE id = ?
           `
         )
-        .run(now, now, input.workItemId);
-    } else if (shouldRestoreWorkItemActive) {
+        .run(targetWorkItemStatus, targetWorkItemStatus, now, now, input.workItemId);
+    } else {
       database()
-        .prepare(
-          `
-          UPDATE work_items
-          SET status = 'active',
-              completed_at = NULL,
-              updated_at = ?
-          WHERE id = ? AND status = 'done'
-          `
-        )
+        .prepare("UPDATE work_items SET updated_at = ? WHERE id = ?")
         .run(now, input.workItemId);
     }
+    database()
+      .prepare("UPDATE projects SET updated_at = ? WHERE id = ?")
+      .run(now, input.projectId);
   });
   transaction();
 
@@ -3588,7 +3658,25 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
         dwe.today_progress,
         dwe.next_step,
         dwe.blocker,
-        dwe.status_for_today
+        dwe.status_for_today,
+        (
+          SELECT previous_entry.next_step
+          FROM daily_work_item_entries previous_entry
+          WHERE previous_entry.work_item_id = dwe.work_item_id
+            AND previous_entry.journal_date < dwe.journal_date
+            AND previous_entry.next_step IS NOT NULL
+          ORDER BY previous_entry.journal_date DESC, previous_entry.updated_at DESC
+          LIMIT 1
+        ) AS previous_next_step,
+        (
+          SELECT previous_entry.blocker
+          FROM daily_work_item_entries previous_entry
+          WHERE previous_entry.work_item_id = dwe.work_item_id
+            AND previous_entry.journal_date < dwe.journal_date
+            AND previous_entry.blocker IS NOT NULL
+          ORDER BY previous_entry.journal_date DESC, previous_entry.updated_at DESC
+          LIMIT 1
+        ) AS previous_blocker
       FROM daily_work_item_entries dwe
       WHERE dwe.journal_date BETWEEN ? AND ?
         AND ${meaningfulDailyEntrySql("dwe")}
@@ -3602,6 +3690,8 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
     next_step: string | null;
     blocker: string | null;
     status_for_today: DailyWorkItemStatus;
+    previous_next_step: string | null;
+    previous_blocker: string | null;
   }>;
 
   const rowsByDate = new Map<string, typeof dailyRows>();
@@ -3646,7 +3736,17 @@ export function getMonthlyHeatmap(year: number, month: number): HeatmapMonth {
     day.entryCount = entries.length;
     for (const entry of entries) {
       projectIds.add(entry.project_id);
-      const dailyFields = [entry.today_progress, entry.next_step, entry.blocker];
+      const nextStepChanged =
+        entry.next_step !== null &&
+        normalizeDailyTextForComparison(entry.next_step) !== normalizeDailyTextForComparison(entry.previous_next_step);
+      const blockerChanged =
+        entry.blocker !== null &&
+        normalizeDailyTextForComparison(entry.blocker) !== normalizeDailyTextForComparison(entry.previous_blocker);
+      const dailyFields = [
+        entry.today_progress,
+        nextStepChanged ? entry.next_step : null,
+        blockerChanged ? entry.blocker : null
+      ];
       const filledFieldCount = dailyFields.filter((value) => Boolean(value?.trim())).length;
       const entryTextLength = characterCount(...dailyFields);
       const hasText = entryTextLength > 0;
@@ -3724,7 +3824,7 @@ export function getProjectDetail(id: string): ProjectDetail {
       workItemNote: getOrCreateWorkItemNote(item.id),
       previousNoteSnapshot: getLatestWorkItemNoteSnapshotBefore(item.id, getLocalDateKey())
     }));
-  const dailyTimeline = database()
+  const dailyTimelineRows = database()
     .prepare(
       `
       SELECT
@@ -3746,12 +3846,41 @@ export function getProjectDetail(id: string): ProjectDetail {
       JOIN projects p ON p.id = dwe.project_id
       JOIN work_items wi ON wi.id = dwe.work_item_id
       WHERE dwe.project_id = ?
-        AND ${meaningfulDailyEntrySql("dwe")}
-      ORDER BY dwe.journal_date DESC, dwe.updated_at DESC
+      ORDER BY dwe.journal_date ASC, dwe.updated_at ASC
       `
     )
     .all(id) as TimelineEntry[];
-  const legacyTimeline = database()
+  const latestNextStepByWorkItem = new Map<string, string>();
+  const latestBlockerByWorkItem = new Map<string, string>();
+  const dailyTimeline = dailyTimelineRows.filter((entry) => {
+    const workItemId = entry.work_item_id;
+    if (!workItemId) {
+      return false;
+    }
+    const previousNextStep = latestNextStepByWorkItem.get(workItemId) ?? "";
+    const previousBlocker = latestBlockerByWorkItem.get(workItemId) ?? "";
+    const hasRecordedFieldChanges = Boolean(
+      entry.today_progress?.trim() ||
+        (entry.next_step !== null &&
+          normalizeDailyTextForComparison(entry.next_step) !== normalizeDailyTextForComparison(previousNextStep)) ||
+        (entry.blocker !== null &&
+          normalizeDailyTextForComparison(entry.blocker) !== normalizeDailyTextForComparison(previousBlocker))
+    );
+    if (entry.next_step !== null) {
+      latestNextStepByWorkItem.set(workItemId, entry.next_step);
+    }
+    if (entry.blocker !== null) {
+      latestBlockerByWorkItem.set(workItemId, entry.blocker);
+    }
+    const hasVisibleContent = Boolean(
+      entry.today_progress?.trim() || entry.next_step?.trim() || entry.blocker?.trim()
+    );
+    return hasRecordedFieldChanges && hasVisibleContent;
+  });
+  const dailyTimelineKeys = new Set(
+    dailyTimeline.map((entry) => `${entry.entry_date}\u0000${entry.work_item_id ?? ""}`)
+  );
+  const legacyTimelineRows = database()
     .prepare(
       `
       SELECT
@@ -3773,17 +3902,13 @@ export function getProjectDetail(id: string): ProjectDetail {
       JOIN projects p ON p.id = pe.project_id
       LEFT JOIN work_items wi ON wi.id = pe.work_item_id
       WHERE pe.project_id = ?
-        AND NOT EXISTS (
-          SELECT 1
-          FROM daily_work_item_entries dwe
-          WHERE dwe.journal_date = pe.entry_date
-            AND dwe.work_item_id = pe.work_item_id
-            AND ${meaningfulDailyEntrySql("dwe")}
-        )
       ORDER BY pe.created_at DESC
       `
     )
     .all(id) as TimelineEntry[];
+  const legacyTimeline = legacyTimelineRows.filter(
+    (entry) => !dailyTimelineKeys.has(`${entry.entry_date}\u0000${entry.work_item_id ?? ""}`)
+  );
   const timeline = [...dailyTimeline, ...legacyTimeline].sort((a, b) => {
     const byDate = b.entry_date.localeCompare(a.entry_date);
     if (byDate !== 0) {
@@ -3843,7 +3968,8 @@ function searchLegacy(term: string): SearchResult[] {
         `
         SELECT p.*
         FROM projects p
-        WHERE p.name LIKE ?
+        WHERE p.status = 'active'
+          AND p.name LIKE ?
         ORDER BY p.updated_at DESC
         LIMIT 10
         `
@@ -3869,7 +3995,8 @@ function searchLegacy(term: string): SearchResult[] {
         SELECT wi.*, p.name AS project_name
         FROM work_items wi
         JOIN projects p ON p.id = wi.project_id
-        WHERE wi.title LIKE ?
+        WHERE p.status = 'active'
+          AND wi.title LIKE ?
         ORDER BY wi.updated_at DESC
         LIMIT 10
         `
@@ -3902,6 +4029,7 @@ function searchLegacy(term: string): SearchResult[] {
         WHERE (pe.content LIKE ?
           OR pe.next_step LIKE ?
           OR pe.blocker LIKE ?)
+          AND p.status = 'active'
           AND NOT EXISTS (
             SELECT 1
             FROM daily_work_item_entries dwe
@@ -3946,6 +4074,7 @@ export function search(term: string): SearchResult[] {
   }
   const like = `%${cleaned}%`;
   const connection = database();
+  const journalDate = getLocalDateKey();
 
   const projectResults = (
     connection
@@ -3953,12 +4082,24 @@ export function search(term: string): SearchResult[] {
         `
         SELECT p.*
         FROM projects p
-        WHERE p.name LIKE ?
+        WHERE p.status = 'active'
+          AND p.name LIKE ?
+          AND EXISTS (
+            SELECT 1
+            FROM work_items visible_item
+            LEFT JOIN daily_work_item_entries visible_entry
+              ON visible_entry.work_item_id = visible_item.id
+             AND visible_entry.journal_date = ?
+             AND ${meaningfulDailyEntrySql("visible_entry")}
+            WHERE visible_item.project_id = p.id
+              AND visible_item.status <> 'archived'
+              AND (visible_item.status IN ('active', 'paused') OR visible_entry.id IS NOT NULL)
+          )
         ORDER BY p.updated_at DESC
         LIMIT 10
         `
       )
-      .all(like) as Project[]
+      .all(like, journalDate) as Project[]
   ).map<SearchResult>((project) => ({
     id: `project:${project.id}`,
     type: "project",
@@ -3979,12 +4120,19 @@ export function search(term: string): SearchResult[] {
         SELECT wi.*, p.name AS project_name
         FROM work_items wi
         JOIN projects p ON p.id = wi.project_id
-        WHERE wi.title LIKE ? OR wi.description LIKE ?
+        LEFT JOIN daily_work_item_entries visible_entry
+          ON visible_entry.work_item_id = wi.id
+         AND visible_entry.journal_date = ?
+         AND ${meaningfulDailyEntrySql("visible_entry")}
+        WHERE p.status = 'active'
+          AND wi.status <> 'archived'
+          AND (wi.status IN ('active', 'paused') OR visible_entry.id IS NOT NULL)
+          AND (wi.title LIKE ? OR wi.description LIKE ?)
         ORDER BY wi.updated_at DESC
         LIMIT 10
         `
       )
-      .all(like, like) as Array<WorkItem & { project_name: string }>
+      .all(journalDate, like, like) as Array<WorkItem & { project_name: string }>
   ).map<SearchResult>((item) => {
     const match = firstMatchingField(cleaned, [
       ["workItemTitle", item.title],
@@ -4004,192 +4152,96 @@ export function search(term: string): SearchResult[] {
     };
   });
 
-  const dailyEntryResults = (
+  const progressPageResults = (
     connection
       .prepare(
         `
-        SELECT
-          dwe.*,
-          p.name AS project_name,
-          wi.title AS work_item_title
-        FROM daily_work_item_entries dwe
-        JOIN projects p ON p.id = dwe.project_id
-        JOIN work_items wi ON wi.id = dwe.work_item_id
-        WHERE (dwe.today_progress LIKE ?
-          OR dwe.next_step LIKE ?
-          OR dwe.blocker LIKE ?)
-          AND ${meaningfulDailyEntrySql("dwe")}
-        ORDER BY dwe.updated_at DESC
-        LIMIT 20
-        `
-      )
-      .all(like, like, like) as Array<
-      DailyWorkItemEntry & { project_name: string; work_item_title: string }
-    >
-  ).map<SearchResult>((entry) => {
-    const match = firstMatchingField(cleaned, [
-      ["todayProgress", entry.today_progress],
-      ["nextStep", entry.next_step],
-      ["blocker", entry.blocker]
-    ]);
-    return {
-      id: `daily_entry:${entry.id}`,
-      type: "daily_entry",
-      title: `${entry.journal_date} / ${entry.work_item_title}`,
-      projectId: entry.project_id,
-      projectName: entry.project_name,
-      workItemId: entry.work_item_id,
-      workItemTitle: entry.work_item_title,
-      snippet: snippet(match.value, cleaned),
-      matchedField: match.field,
-      createdAt: entry.updated_at,
-      entryDate: entry.journal_date
-    };
-  });
-
-  const dailyReportResults = (
-    connection
-      .prepare(
-        `
+        WITH progress_pages AS (
+          SELECT
+            wi.id AS work_item_id,
+            wi.title AS work_item_title,
+            p.id AS project_id,
+            p.name AS project_name,
+            win.content_markdown AS current_content,
+            today_entry.today_progress AS today_progress,
+            (
+              SELECT latest_next_step.next_step
+              FROM daily_work_item_entries latest_next_step
+              WHERE latest_next_step.work_item_id = wi.id
+                AND latest_next_step.journal_date <= ?
+                AND latest_next_step.next_step IS NOT NULL
+              ORDER BY latest_next_step.journal_date DESC, latest_next_step.updated_at DESC
+              LIMIT 1
+            ) AS next_step,
+            (
+              SELECT latest_blocker.blocker
+              FROM daily_work_item_entries latest_blocker
+              WHERE latest_blocker.work_item_id = wi.id
+                AND latest_blocker.journal_date <= ?
+                AND latest_blocker.blocker IS NOT NULL
+              ORDER BY latest_blocker.journal_date DESC, latest_blocker.updated_at DESC
+              LIMIT 1
+            ) AS blocker,
+            MAX(
+              COALESCE(today_entry.updated_at, ''),
+              COALESCE(win.updated_at, ''),
+              wi.updated_at
+            ) AS matched_updated_at
+          FROM work_items wi
+          JOIN projects p ON p.id = wi.project_id
+          LEFT JOIN work_item_notes win ON win.work_item_id = wi.id
+          LEFT JOIN daily_work_item_entries today_entry
+            ON today_entry.work_item_id = wi.id
+           AND today_entry.journal_date = ?
+           AND ${meaningfulDailyEntrySql("today_entry")}
+          WHERE p.status = 'active'
+            AND wi.status <> 'archived'
+            AND (wi.status IN ('active', 'paused') OR today_entry.id IS NOT NULL)
+        )
         SELECT *
-        FROM daily_journals
-        WHERE report_markdown LIKE ?
-        ORDER BY updated_at DESC
-        LIMIT 10
-        `
-      )
-      .all(like) as DailyJournal[]
-  ).map<SearchResult>((journal) => ({
-    id: `daily_report:${journal.id}`,
-    type: "daily_report",
-    title: `Report ${journal.journal_date}`,
-    projectId: null,
-    projectName: null,
-    workItemId: null,
-    workItemTitle: null,
-    snippet: snippet(journal.report_markdown || "", cleaned),
-    matchedField: "dailyReport",
-    createdAt: journal.updated_at,
-    entryDate: journal.journal_date
-  }));
-
-  const memoResults = (
-    connection
-      .prepare(
-        `
-        SELECT
-          pm.*,
-          p.name AS project_name
-        FROM project_memos pm
-        JOIN projects p ON p.id = pm.project_id
-        WHERE pm.content_markdown LIKE ?
-        ORDER BY pm.updated_at DESC
-        LIMIT 10
-        `
-      )
-      .all(like) as Array<ProjectMemo & { project_name: string }>
-  ).map<SearchResult>((memo) => ({
-    id: `project_memo:${memo.id}`,
-    type: "project_memo",
-    title: memo.project_name,
-    projectId: memo.project_id,
-    projectName: memo.project_name,
-    workItemId: null,
-    workItemTitle: null,
-    snippet: snippet(memo.content_markdown || "", cleaned),
-    matchedField: "projectMemo",
-    createdAt: memo.updated_at
-  }));
-
-  const workItemNoteResults = (
-    connection
-      .prepare(
-        `
-        SELECT
-          win.*,
-          p.id AS project_id,
-          p.name AS project_name,
-          wi.title AS work_item_title
-        FROM work_item_notes win
-        JOIN work_items wi ON wi.id = win.work_item_id
-        JOIN projects p ON p.id = wi.project_id
-        WHERE win.content_markdown LIKE ?
-        ORDER BY win.updated_at DESC
-        LIMIT 10
-        `
-      )
-      .all(like) as Array<WorkItemNote & { project_id: string; project_name: string; work_item_title: string }>
-  ).map<SearchResult>((note) => ({
-    id: `work_item_note:${note.id}`,
-    type: "work_item_note",
-    title: note.work_item_title,
-    projectId: note.project_id,
-    projectName: note.project_name,
-    workItemId: note.work_item_id,
-    workItemTitle: note.work_item_title,
-    snippet: snippet(note.content_markdown || "", cleaned),
-    matchedField: "workItemNote",
-    createdAt: note.updated_at
-  }));
-
-  const legacyResults = (
-    connection
-      .prepare(
-        `
-        SELECT
-          pe.*,
-          p.name AS project_name,
-          wi.title AS work_item_title
-        FROM progress_entries pe
-        JOIN projects p ON p.id = pe.project_id
-        LEFT JOIN work_items wi ON wi.id = pe.work_item_id
-        WHERE (pe.content LIKE ?
-          OR pe.next_step LIKE ?
-          OR pe.blocker LIKE ?)
-          AND NOT EXISTS (
-            SELECT 1
-            FROM daily_work_item_entries dwe
-            WHERE dwe.journal_date = pe.entry_date
-              AND dwe.work_item_id = pe.work_item_id
-              AND ${meaningfulDailyEntrySql("dwe")}
-          )
-        ORDER BY pe.created_at DESC
+        FROM progress_pages
+        WHERE current_content LIKE ?
+           OR today_progress LIKE ?
+           OR next_step LIKE ?
+           OR blocker LIKE ?
+        ORDER BY matched_updated_at DESC
         LIMIT 20
         `
       )
-      .all(like, like, like) as Array<
-      ProgressEntry & { project_name: string; work_item_title: string | null }
-    >
-  ).map<SearchResult>((entry) => {
+      .all(journalDate, journalDate, journalDate, like, like, like, like) as Array<{
+      work_item_id: string;
+      work_item_title: string;
+      project_id: string;
+      project_name: string;
+      current_content: string | null;
+      today_progress: string | null;
+      next_step: string | null;
+      blocker: string | null;
+      matched_updated_at: string;
+    }>
+  ).map<SearchResult>((page) => {
     const match = firstMatchingField(cleaned, [
-      ["legacyProgress", entry.content],
-      ["legacyNextStep", entry.next_step],
-      ["legacyBlocker", entry.blocker]
+      ["workItemNote", page.current_content],
+      ["todayProgress", page.today_progress],
+      ["nextStep", page.next_step],
+      ["blocker", page.blocker]
     ]);
     return {
-      id: `progress:${entry.id}`,
+      id: `progress_page:${page.work_item_id}`,
       type: "progress",
-      title: entry.work_item_title || "Legacy project entry",
-      projectId: entry.project_id,
-      projectName: entry.project_name,
-      workItemId: entry.work_item_id,
-      workItemTitle: entry.work_item_title,
+      title: page.work_item_title,
+      projectId: page.project_id,
+      projectName: page.project_name,
+      workItemId: page.work_item_id,
+      workItemTitle: page.work_item_title,
       snippet: snippet(match.value, cleaned),
       matchedField: match.field,
-      createdAt: entry.created_at,
-      entryDate: entry.entry_date
+      createdAt: page.matched_updated_at,
+      entryDate: journalDate
     };
   });
 
-  return [
-    ...dailyEntryResults,
-    ...dailyReportResults,
-    ...memoResults,
-    ...workItemNoteResults,
-    ...legacyResults,
-    ...itemResults,
-    ...projectResults
-  ].slice(0, 30);
+  return [...progressPageResults, ...itemResults, ...projectResults].slice(0, 30);
 }
 
 function generateTodayMarkdownLegacy(): { date: string; markdown: string } {

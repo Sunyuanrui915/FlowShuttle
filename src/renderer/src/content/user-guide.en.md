@@ -62,9 +62,9 @@ The top star map represents work items that can still be advanced today. A newly
 
 In Progress and Paused items remain on Today. When there are more stars than the map can show, the upper-right “star +N” indicator summarizes the rest; every work item remains available in the list below.
 
-### Filled State and Blocker Indicator
+### Filled, Paused, and Blocker Indicators
 
-Filled means a daily record has been saved; it does not mean the item has no blocker. If Blocker / Help Needed contains text, a warning icon appears beside the work item name so it can be spotted in the list.
+Filled means Today’s Change Summary, Next Step, or Blocker was actually added or changed that day; changing status alone does not count. Next Step and Blocker carry into later dates until you edit or clear them. Paused items show a pause icon, while an active blocker takes priority and shows the warning icon.
 
 ### Saving and Finishing the Day
 
@@ -88,7 +88,7 @@ Previous Workday Reference shows the most recent current content, change summary
 
 ### Today’s Status and Editor Paper
 
-Use the control in the upper-right to choose In Progress, Done, or Paused. The status and content take effect after saving.
+Use the control in the upper-right to choose In Progress, Done, or Paused. Saving synchronizes that lifecycle state with the work item in Projects. A status-only change does not create a project timeline entry with three empty fields.
 
 Editor Paper offers Clean, Cloud Mist, Forest Whisper, and Night Voyage backgrounds. It only changes the editing canvas appearance; it does not change content or statistics.
 
@@ -156,7 +156,7 @@ Daily reports use Today’s Change Summary. Current content is the full draft an
 
 ### Why does an item say Filled and still show a warning icon?
 
-Filled only means the daily record was saved. The warning icon means the blocker field is not empty, so both can appear at the same time.
+Filled means one of the three daily change fields was actually changed that day. The warning icon means the item still has a blocker; blockers carry across dates, so an In Progress item may also show the icon.
 
 ### Why did my manual report edits disappear later?
 
