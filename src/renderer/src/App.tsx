@@ -16,6 +16,7 @@ import {
   Clock3,
   Clipboard,
   Circle,
+  CirclePause,
   Ellipsis,
   ExternalLink,
   FileDown,
@@ -187,6 +188,12 @@ interface DailyEntryEditorTarget {
   journalDate: string;
   projectId: string;
   workItemId: string;
+}
+
+interface TodaySearchTarget {
+  id: number;
+  projectId: string;
+  workItemId: string | null;
 }
 
 interface TodayVisualPulse {
@@ -599,30 +606,40 @@ function blockAppearsInTodayConstellation(block: DailyWorkItemBlock): boolean {
 
 function workItemStatusAfterDailyEntrySave(
   block: DailyWorkItemBlock,
-  entry: DailyWorkItemEntry | null
+  entry: DailyWorkItemEntry | null,
+  statusForToday?: DailyWorkItemStatus
 ): WorkItemStatus {
-  if (entry?.status_for_today === "done_today") {
+  const savedStatus = entry?.status_for_today ?? statusForToday;
+  if (savedStatus === "done_today") {
     return "done";
   }
-  if (block.entry?.status_for_today === "done_today" && block.workItem.status === "done") {
+  if (savedStatus === "paused") {
+    return "paused";
+  }
+  if (savedStatus === "in_progress") {
     return "active";
   }
   return block.workItem.status;
 }
 
-function dailyEntryCountsAsFilled(entry: DailyWorkItemEntry | null | undefined): boolean {
+function dailyEntryCountsAsFilled(
+  entry: DailyWorkItemEntry | null | undefined,
+  previousEntry: DailyWorkItemEntry | null | undefined
+): boolean {
+  if (!entry) {
+    return false;
+  }
+  const previousNextStep = normalizeDailyFormText(previousEntry?.next_step).trim();
+  const previousBlocker = normalizeDailyFormText(previousEntry?.blocker).trim();
   return Boolean(
-    entry &&
-      (entry.today_progress?.trim() ||
-        entry.next_step?.trim() ||
-        entry.blocker?.trim() ||
-        entry.status_for_today === "done_today" ||
-        entry.status_for_today === "paused")
+    entry.today_progress?.trim() ||
+      (entry.next_step !== null && normalizeDailyFormText(entry.next_step).trim() !== previousNextStep) ||
+      (entry.blocker !== null && normalizeDailyFormText(entry.blocker).trim() !== previousBlocker)
   );
 }
 
 function blockHasFilledDailyEntry(block: DailyWorkItemBlock): boolean {
-  return dailyEntryCountsAsFilled(block.entry);
+  return dailyEntryCountsAsFilled(block.entry, block.previousEntry);
 }
 
 function dailyEntryHasChangeSummary(entry: DailyWorkItemEntry | null | undefined): boolean {
@@ -637,53 +654,61 @@ function normalizeDailyFormText(value: string | null | undefined): string {
   return (value ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
+function inheritedDailyFormField(
+  currentValue: string | null | undefined,
+  previousValue: string | null | undefined
+): string {
+  return currentValue === null || currentValue === undefined ? previousValue ?? "" : currentValue;
+}
+
+function dailyStatusForWorkItem(status: WorkItemStatus): DailyWorkItemStatus {
+  if (status === "done") {
+    return "done_today";
+  }
+  if (status === "paused") {
+    return "paused";
+  }
+  return "in_progress";
+}
+
+function dailyStatusForBlock(block: DailyWorkItemBlock): DailyWorkItemStatus {
+  return block.entry?.status_for_today ?? dailyStatusForWorkItem(block.workItem.status);
+}
+
 function dailyFormBaselineForBlock(block: DailyWorkItemBlock): DailyEntryForm {
   return {
     workItemNoteContent: block.workItemNote.content_markdown ?? "",
     todayProgress: block.entry?.today_progress ?? "",
-    nextStep: block.entry ? block.entry.next_step ?? "" : block.previousEntry?.next_step ?? "",
-    blocker: block.entry ? block.entry.blocker ?? "" : block.previousEntry?.blocker ?? "",
-    statusForToday: block.entry?.status_for_today ?? "in_progress"
+    nextStep: inheritedDailyFormField(block.entry?.next_step, block.previousEntry?.next_step),
+    blocker: inheritedDailyFormField(block.entry?.blocker, block.previousEntry?.blocker),
+    statusForToday: dailyStatusForBlock(block)
   };
 }
 
-function dailyFormStorageBaselineForBlock(block: DailyWorkItemBlock): DailyEntryForm {
-  return {
-    workItemNoteContent: block.workItemNote.content_markdown ?? "",
-    todayProgress: block.entry?.today_progress ?? "",
-    nextStep: block.entry?.next_step ?? "",
-    blocker: block.entry?.blocker ?? "",
-    statusForToday: block.entry?.status_for_today ?? "in_progress"
-  };
+function dailyBlockerForDisplay(block: DailyWorkItemBlock): string {
+  return dailyFormBaselineForBlock(block).blocker.trim();
 }
 
-function dailyFormHasMeaningfulDailyContent(form: DailyEntryForm): boolean {
-  return Boolean(
-    normalizeDailyFormText(form.todayProgress).trim() ||
-      normalizeDailyFormText(form.nextStep).trim() ||
-      normalizeDailyFormText(form.blocker).trim() ||
-      form.statusForToday !== "in_progress"
-  );
-}
-
-function dailyFormPayloadForBlock(block: DailyWorkItemBlock, form: DailyEntryForm): DailyEntryForm {
-  if (block.entry) {
-    return form;
-  }
-  const displayBaseline = dailyFormBaselineForBlock(block);
-  return {
-    workItemNoteContent: form.workItemNoteContent,
-    todayProgress: form.todayProgress,
-    nextStep:
-      normalizeDailyFormText(form.nextStep) === normalizeDailyFormText(displayBaseline.nextStep)
-        ? ""
-        : form.nextStep,
-    blocker:
-      normalizeDailyFormText(form.blocker) === normalizeDailyFormText(displayBaseline.blocker)
-        ? ""
-        : form.blocker,
+function dailyFormPayloadForBlock(
+  block: DailyWorkItemBlock,
+  form: DailyEntryForm
+): Pick<DailyEntryForm, "statusForToday"> &
+  Partial<Pick<DailyEntryForm, "todayProgress" | "nextStep" | "blocker">> {
+  const baseline = dailyFormBaselineForBlock(block);
+  const payload: Pick<DailyEntryForm, "statusForToday"> &
+    Partial<Pick<DailyEntryForm, "todayProgress" | "nextStep" | "blocker">> = {
     statusForToday: form.statusForToday
   };
+  if (normalizeDailyFormText(form.todayProgress) !== normalizeDailyFormText(baseline.todayProgress)) {
+    payload.todayProgress = form.todayProgress;
+  }
+  if (normalizeDailyFormText(form.nextStep) !== normalizeDailyFormText(baseline.nextStep)) {
+    payload.nextStep = form.nextStep;
+  }
+  if (normalizeDailyFormText(form.blocker) !== normalizeDailyFormText(baseline.blocker)) {
+    payload.blocker = form.blocker;
+  }
+  return payload;
 }
 
 function dailyFormDailyFieldsEqual(a: DailyEntryForm, b: DailyEntryForm): boolean {
@@ -699,9 +724,6 @@ function hasDailyDisplayFieldChange(block: DailyWorkItemBlock, form: DailyEntryF
   return !dailyFormDailyFieldsEqual(form, dailyFormBaselineForBlock(block));
 }
 
-function hasDailyStoredFieldChange(block: DailyWorkItemBlock, form: DailyEntryForm): boolean {
-  return !dailyFormDailyFieldsEqual(form, dailyFormStorageBaselineForBlock(block));
-}
 function updateDailyViewAfterEntrySave(
   dailyView: DailyJournalView,
   workItemId: string,
@@ -753,7 +775,7 @@ interface TodayReminder {
 function buildTodayReminders(dailyView: DailyJournalView, t: Translator, language: LanguagePreference): TodayReminder[] {
   const blocks = todayBlocks(dailyView);
   const missingSummaryBlocks = blocks.filter((block) => !blockHasChangeSummary(block));
-  const blockerBlocks = blocks.filter((block) => block.entry?.blocker?.trim());
+  const blockerBlocks = blocks.filter((block) => dailyBlockerForDisplay(block));
   const reminders: TodayReminder[] = [];
 
   if (missingSummaryBlocks.length > 0) {
@@ -1079,6 +1101,7 @@ function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [todaySearchTarget, setTodaySearchTarget] = useState<TodaySearchTarget | null>(null);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [newWorkItemOpen, setNewWorkItemOpen] = useState(false);
   const [quickProjectOpen, setQuickProjectOpen] = useState(false);
@@ -1121,6 +1144,7 @@ function App() {
   const pendingTodayScrollRestoreKeyRef = useRef<string | null>(null);
   const todayConstellationTransitionSequenceRef = useRef(0);
   const todayConstellationTransitionRef = useRef<TodayConstellationTransition | null>(null);
+  const todaySearchTargetSequenceRef = useRef(0);
   const language = settingsInfo?.language ?? "zh-CN";
   const effectiveTheme = settingsInfo?.effectiveTheme ?? "light";
   const t = useMemo(() => createTranslator(language), [language]);
@@ -1254,13 +1278,7 @@ function App() {
       const next: Record<string, DailyEntryForm> = {};
       for (const group of nextDailyView.groups) {
         for (const block of group.items) {
-          next[block.workItem.id] = {
-            workItemNoteContent: block.workItemNote.content_markdown ?? "",
-            todayProgress: block.entry?.today_progress ?? "",
-            nextStep: block.entry ? block.entry.next_step ?? "" : block.previousEntry?.next_step ?? "",
-            blocker: block.entry ? block.entry.blocker ?? "" : block.previousEntry?.blocker ?? "",
-            statusForToday: block.entry?.status_for_today ?? "in_progress"
-          };
+          next[block.workItem.id] = dailyFormBaselineForBlock(block);
         }
       }
       return next;
@@ -1527,7 +1545,18 @@ function App() {
     const handle = window.setTimeout(() => {
       window.workJournal.search
         .query(term)
-        .then(setSearchResults)
+        .then((results) => {
+          const visibleResults = results
+            .filter((result) =>
+              ["project", "work_item", "progress", "daily_entry", "work_item_note"].includes(result.type)
+            )
+            .map<SearchResult>((result) =>
+              result.type === "daily_entry" || result.type === "work_item_note"
+                ? { ...result, type: "progress" }
+                : result
+            );
+          setSearchResults(visibleResults);
+        })
         .catch((error) =>
           showToast({ kind: "error", message: error instanceof Error ? error.message : t("searchFailed") })
         )
@@ -1990,9 +2019,9 @@ function App() {
         journalDate,
         projectId: quickForm.projectId,
         workItemId: quickForm.workItemId,
-        todayProgress: quickForm.content,
-        nextStep: quickForm.nextStep,
-        blocker: quickForm.blocker,
+        ...(quickForm.content.trim() ? { todayProgress: quickForm.content } : {}),
+        ...(quickForm.nextStep.trim() ? { nextStep: quickForm.nextStep } : {}),
+        ...(quickForm.blocker.trim() ? { blocker: quickForm.blocker } : {}),
         statusForToday: "in_progress"
       });
       setQuickForm((current) => ({
@@ -2002,7 +2031,7 @@ function App() {
         blocker: ""
       }));
       const nextWorkItemStatus = previousBlock
-        ? workItemStatusAfterDailyEntrySave(previousBlock, result.entry)
+        ? workItemStatusAfterDailyEntrySave(previousBlock, result.entry, "in_progress")
         : null;
       const nextBlock = previousBlock
         ? {
@@ -2090,11 +2119,9 @@ function App() {
     }
     const form = getDailyFormForBlock(block);
     const displayDailyChanged = hasDailyDisplayFieldChange(block, form);
-    const storedDailyChanged = hasDailyStoredFieldChange(block, form);
     const noteChanged = normalizeDailyFormText(form.workItemNoteContent) !== normalizeDailyFormText(block.workItemNote.content_markdown);
     const payloadDailyForm = dailyFormPayloadForBlock(block, form);
-    const hasDailyContent = dailyFormHasMeaningfulDailyContent(payloadDailyForm);
-    const dailyChanged = Boolean(block.entry) ? storedDailyChanged : displayDailyChanged && hasDailyContent;
+    const dailyChanged = displayDailyChanged;
     const wasVisible = blockAppearsInTodayConstellation(block);
     const exitNode = wasVisible ? findTodayConstellationNode(dailyView, block.workItem.id) : null;
 
@@ -2108,27 +2135,19 @@ function App() {
       return true;
     }
 
-    if (!noteChanged && !hasDailyContent && !block.entry) {
-      if (options.skipEmpty) {
-        return false;
-      }
-      if (options.showSuccess ?? true) {
-        showToast({ kind: "info", message: t("dailyEntryNoChanges") });
-      }
-      return true;
-    }
     try {
       const result = await window.workJournal.daily.upsertWorkItemEntry({
         journalDate: dailyView.journalDate,
         projectId: block.project.id,
         workItemId: block.workItem.id,
-        todayProgress: payloadDailyForm.todayProgress,
-        nextStep: payloadDailyForm.nextStep,
-        blocker: payloadDailyForm.blocker,
-        statusForToday: payloadDailyForm.statusForToday,
+        ...payloadDailyForm,
         workItemNoteContentMarkdown: form.workItemNoteContent
       });
-      const nextWorkItemStatus = workItemStatusAfterDailyEntrySave(block, result.entry);
+      const nextWorkItemStatus = workItemStatusAfterDailyEntrySave(
+        block,
+        result.entry,
+        payloadDailyForm.statusForToday
+      );
       const nextBlock = {
         ...block,
         workItem: {
@@ -2171,20 +2190,7 @@ function App() {
             )
           : current
       );
-      const nextForm = result.entry
-        ? {
-            workItemNoteContent: result.workItemNote.content_markdown ?? "",
-            todayProgress: result.entry.today_progress ?? "",
-            nextStep: result.entry.next_step ?? "",
-            blocker: result.entry.blocker ?? "",
-            statusForToday: result.entry.status_for_today
-          }
-        : dailyChanged
-          ? dailyFormBaselineForBlock({ ...block, entry: null, workItemNote: result.workItemNote })
-          : {
-              ...form,
-              workItemNoteContent: result.workItemNote.content_markdown ?? ""
-            };
+      const nextForm = dailyFormBaselineForBlock(nextBlock);
       updateDailyForm(block.workItem.id, nextForm);
       if (options.refresh ?? true) {
         await refreshActiveView();
@@ -2217,7 +2223,7 @@ function App() {
   };
 
   const handleBackDailyEntry = async (block: DailyWorkItemBlock) => {
-    if (dailyView?.journal.status === "closed") {
+    if (dailyView?.journal.status === "closed" || block.project.status !== "active") {
       setView(dailyEditorReturnView);
       return;
     }
@@ -2495,44 +2501,36 @@ function App() {
   };
 
   const handleSearchResult = (result: SearchResult) => {
-    if (result.type === "project_memo" && result.projectId) {
-      openProjectMemo(result.projectId);
-      return;
-    }
-    if (result.type === "work_item_note" && result.projectId && result.workItemId) {
-      window.workJournal.projects
-        .getDetail(result.projectId)
-        .then((nextDetail) => {
-          selectedProjectIdRef.current = result.projectId;
-          setSelectedProjectId(result.projectId);
-          setDetail(nextDetail);
-          openDailyEntryEditor(result.projectId as string, result.workItemId as string);
-        })
-        .catch((error) =>
-          showToast({ kind: "error", message: error instanceof Error ? error.message : t("projectLoadFailed") })
-        );
-      setSearchTerm("");
-      setSearchResults([]);
-      return;
-    }
-    if (
-      result.type === "daily_entry" &&
-      result.projectId &&
-      result.workItemId &&
-      result.entryDate === dailyView?.journalDate
-    ) {
-      openDailyEntryEditor(result.projectId, result.workItemId, result.entryDate);
-      setSearchTerm("");
-      setSearchResults([]);
-      return;
-    }
-    if (result.projectId) {
-      openProjectDetail(result.projectId);
-    } else {
-      setView("today");
-    }
     setSearchTerm("");
     setSearchResults([]);
+
+    if (!result.projectId) {
+      setView("today");
+      return;
+    }
+
+    const targetGroup = dailyView?.groups.find((group) => group.project.id === result.projectId);
+    const targetBlock = result.workItemId
+      ? targetGroup?.items.find((block) => block.workItem.id === result.workItemId)
+      : null;
+    if (!targetGroup || (result.workItemId && !targetBlock)) {
+      setView("today");
+      showToast({ kind: "warning", message: t("searchTargetUnavailableToday") });
+      return;
+    }
+
+    if (result.type === "progress" && targetBlock) {
+      openDailyEntryEditor(result.projectId, targetBlock.workItem.id, dailyView?.journalDate, "today");
+      return;
+    }
+
+    todaySearchTargetSequenceRef.current += 1;
+    setTodaySearchTarget({
+      id: todaySearchTargetSequenceRef.current,
+      projectId: result.projectId,
+      workItemId: result.type === "work_item" ? result.workItemId : null
+    });
+    setView("today");
   };
 
   const navItems = [
@@ -2618,8 +2616,11 @@ function App() {
 
   const saveCurrentEditor = async (options: EditorSaveOptions = {}): Promise<boolean> => {
     if (view === "daily-entry-editor") {
-      if (!dailyEditorBlock || dailyView?.journal.status === "closed") {
+      if (!dailyEditorBlock) {
         return false;
+      }
+      if (dailyView?.journal.status === "closed" || dailyEditorBlock.project.status !== "active") {
+        return true;
       }
       return saveDailyEntryBlock(dailyEditorBlock, options);
     }
@@ -2745,6 +2746,10 @@ function App() {
             isSearching={isSearching}
             onSearchTermChange={setSearchTerm}
             onSearchResult={handleSearchResult}
+            searchTarget={todaySearchTarget}
+            onSearchTargetHandled={(targetId) =>
+              setTodaySearchTarget((current) => current?.id === targetId ? null : current)
+            }
             onGenerateMarkdown={handleGenerateMarkdown}
             collapsedGroups={collapsedGroups}
             setCollapsedGroups={setCollapsedGroups}
@@ -3374,15 +3379,7 @@ function SearchBox({
                 onClick={() => onResult(result)}
               >
                 <span className="result-kind">
-                  {result.type === "daily_entry"
-                    ? t("searchKindDailyEntry")
-                    : result.type === "daily_report"
-                      ? t("searchKindDailyReport")
-                      : result.type === "project_memo"
-                        ? t("searchKindProjectMemo")
-                      : result.type === "work_item_note"
-                        ? t("searchKindWorkItemNote")
-                      : result.type === "progress"
+                  {result.type === "progress"
                     ? t("searchKindProgress")
                     : result.type === "work_item"
                       ? t("searchKindWorkItem")
@@ -3797,7 +3794,56 @@ function unescapeReadableMarkdownText(value: string): string {
   return value.replace(/\\([\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E])/g, "$1");
 }
 
-function ReadableMarkdown({ content, compact = false }: { content: string; compact?: boolean }) {
+function readableMarkdownSearchText(value: string): string {
+  return unescapeReadableMarkdownText(value)
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "")
+    .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/gm, "")
+    .replace(/[*_`~>|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function searchContextSnippet(
+  text: string,
+  term: string,
+  language: LanguagePreference,
+  maxLength = 120,
+  preferredContextBefore?: number
+): string {
+  const needle = term.trim();
+  if (!needle) {
+    return text.length <= maxLength ? text : `${text.slice(0, maxLength).trimEnd()}…`;
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  const matchIndex = text
+    .toLocaleLowerCase(localeFor(language))
+    .indexOf(needle.toLocaleLowerCase(localeFor(language)));
+  if (matchIndex < 0) {
+    return `${text.slice(0, maxLength).trimEnd()}…`;
+  }
+
+  const windowLength = Math.max(maxLength, needle.length + 24);
+  const contextBefore = Math.min(
+    preferredContextBefore ?? Math.floor((windowLength - needle.length) * 0.42),
+    windowLength - needle.length
+  );
+  const start = Math.max(0, matchIndex - contextBefore);
+  const end = Math.min(text.length, start + windowLength);
+  return `${start > 0 ? "…" : ""}${text.slice(start, end).trim()}${end < text.length ? "…" : ""}`;
+}
+
+function ReadableMarkdown({
+  content,
+  compact = false,
+  searchTerm = ""
+}: {
+  content: string;
+  compact?: boolean;
+  searchTerm?: string;
+}) {
   const readableContent = compact ? normalizeReferenceMarkdownSpacing(content) : content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const lines = readableContent.split("\n");
   const elements: ReactNode[] = [];
@@ -3807,7 +3853,7 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
   const flushCodeBlock = (key: string) => {
     elements.push(
       <pre className="readable-markdown-code" key={key}>
-        <code>{codeLines.join("\n")}</code>
+        <code><HighlightedSearchText text={codeLines.join("\n")} term={searchTerm} /></code>
       </pre>
     );
     codeLines = [];
@@ -3848,13 +3894,21 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
     if (heading) {
       const headingLevel = heading[1].length;
       if (headingLevel === 1) {
-        elements.push(<h2 key={`heading-${index}`}>{unescapeReadableMarkdownText(heading[2])}</h2>);
+        elements.push(
+          <h2 key={`heading-${index}`}>
+            <HighlightedSearchText text={unescapeReadableMarkdownText(heading[2])} term={searchTerm} />
+          </h2>
+        );
       } else if (headingLevel === 2) {
-        elements.push(<h3 key={`heading-${index}`}>{unescapeReadableMarkdownText(heading[2])}</h3>);
+        elements.push(
+          <h3 key={`heading-${index}`}>
+            <HighlightedSearchText text={unescapeReadableMarkdownText(heading[2])} term={searchTerm} />
+          </h3>
+        );
       } else {
         elements.push(
           <h4 className={`readable-markdown-heading-level-${headingLevel}`} key={`heading-${index}`}>
-            {unescapeReadableMarkdownText(heading[2])}
+            <HighlightedSearchText text={unescapeReadableMarkdownText(heading[2])} term={searchTerm} />
           </h4>
         );
       }
@@ -3866,7 +3920,7 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
       elements.push(
         <p className="readable-markdown-list-line" key={`list-${index}`}>
           <span aria-hidden="true">•</span>
-          <span>{unescapeReadableMarkdownText(unordered[1])}</span>
+          <span><HighlightedSearchText text={unescapeReadableMarkdownText(unordered[1])} term={searchTerm} /></span>
         </p>
       );
       return;
@@ -3877,7 +3931,7 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
       elements.push(
         <p className="readable-markdown-list-line" key={`ordered-${index}`}>
           <span>{ordered[1]}.</span>
-          <span>{unescapeReadableMarkdownText(ordered[2])}</span>
+          <span><HighlightedSearchText text={unescapeReadableMarkdownText(ordered[2])} term={searchTerm} /></span>
         </p>
       );
       return;
@@ -3885,7 +3939,7 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
 
     elements.push(
       <p className="readable-markdown-paragraph" key={`paragraph-${index}`}>
-        {unescapeReadableMarkdownText(line)}
+        <HighlightedSearchText text={unescapeReadableMarkdownText(line)} term={searchTerm} />
       </p>
     );
   });
@@ -3896,7 +3950,11 @@ function ReadableMarkdown({ content, compact = false }: { content: string; compa
 
   return (
     <div className={`readable-markdown-preview ${compact ? "compact" : ""}`}>
-      {elements.length > 0 ? elements : <p className="readable-markdown-paragraph">{content}</p>}
+      {elements.length > 0 ? elements : (
+        <p className="readable-markdown-paragraph">
+          <HighlightedSearchText text={content} term={searchTerm} />
+        </p>
+      )}
     </div>
   );
 }
@@ -4085,9 +4143,16 @@ function TodayGlassActionButton({
 function todayWorkItemDisplayStatus(
   block: DailyWorkItemBlock,
   t: Translator
-): { label: string; className: "filled" | "active" | "not-started" } {
+): { label: string; className: "filled" | "done" | "paused" | "active" | "not-started" } {
   if (blockHasFilledDailyEntry(block)) {
     return { label: t("filled"), className: "filled" };
+  }
+  const statusForToday = dailyStatusForBlock(block);
+  if (statusForToday === "done_today") {
+    return { label: t("statusDone"), className: "done" };
+  }
+  if (statusForToday === "paused") {
+    return { label: t("statusPaused"), className: "paused" };
   }
   if (
     block.entry ||
@@ -4116,6 +4181,8 @@ function TodayPage({
   isSearching,
   onSearchTermChange,
   onSearchResult,
+  searchTarget,
+  onSearchTargetHandled,
   onGenerateMarkdown,
   collapsedGroups,
   setCollapsedGroups,
@@ -4141,6 +4208,8 @@ function TodayPage({
   isSearching: boolean;
   onSearchTermChange: (term: string) => void;
   onSearchResult: (result: SearchResult) => void;
+  searchTarget: TodaySearchTarget | null;
+  onSearchTargetHandled: (targetId: number) => void;
   onGenerateMarkdown: () => void;
   collapsedGroups: Record<string, boolean>;
   setCollapsedGroups: (value: Record<string, boolean>) => void;
@@ -4165,6 +4234,7 @@ function TodayPage({
   const [isLocatorSearchOpen, setIsLocatorSearchOpen] = useState(false);
   const [locatorQuery, setLocatorQuery] = useState("");
   const [locatorSort, setLocatorSort] = useState<"default" | "recent">("default");
+  const todayPageRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (dailyView.groups.some((group) => group.project.id === selectedProjectKey)) {
@@ -4181,6 +4251,13 @@ function TodayPage({
       setSelectedProjectKey(activeVisualPulse.projectId);
     }
   }, [activeVisualPulse, dailyView.groups]);
+
+  useEffect(() => {
+    if (searchTarget && dailyView.groups.some((group) => group.project.id === searchTarget.projectId)) {
+      setLocatorQuery("");
+      setSelectedProjectKey(searchTarget.projectId);
+    }
+  }, [dailyView.groups, searchTarget]);
 
   const visibleProjectGroups = useMemo(() => {
     const normalizedQuery = locatorQuery.trim().toLocaleLowerCase();
@@ -4201,8 +4278,35 @@ function TodayPage({
   const selectedGroup = dailyView.groups.find((group) => group.project.id === selectedProjectKey) ?? null;
   const focusedBlocks = selectedGroup?.items ?? [];
 
+  useLayoutEffect(() => {
+    if (!searchTarget || selectedProjectKey !== searchTarget.projectId) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const root = todayPageRef.current;
+      if (!root) {
+        return;
+      }
+      const selector = searchTarget.workItemId ? "[data-work-item-id]" : "[data-project-id]";
+      const dataKey = searchTarget.workItemId ? "workItemId" : "projectId";
+      const targetId = searchTarget.workItemId ?? searchTarget.projectId;
+      const targetElement = Array.from(root.querySelectorAll<HTMLElement>(selector)).find(
+        (element) => element.dataset[dataKey] === targetId
+      );
+      if (!targetElement) {
+        return;
+      }
+      targetElement.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      targetElement.focus({ preventScroll: true });
+      onSearchTargetHandled(searchTarget.id);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusedBlocks, onSearchTargetHandled, searchTarget, selectedProjectKey]);
+
   return (
-    <section className="page daily-page">
+    <section ref={todayPageRef} className="page daily-page">
       <PageHeader
         className="today-header-row"
         title={t("todayWorkPageTitle")}
@@ -4312,6 +4416,7 @@ function TodayPage({
                   className={`today-locator-item${selectedProjectKey === group.project.id ? " active" : ""}`}
                   type="button"
                   key={group.project.id}
+                  data-project-id={group.project.id}
                   onClick={() => setSelectedProjectKey(group.project.id)}
                 >
                   <ProjectIdentityMark projectId={group.project.id} />
@@ -4374,10 +4479,12 @@ function TodayPage({
                 {focusedBlocks.length > 0 ? (
                   focusedBlocks.map((block) => {
                 const displayStatus = todayWorkItemDisplayStatus(block, t);
-                const hasBlocker = Boolean(block.entry?.blocker?.trim());
+                const effectiveForm = dailyFormBaselineForBlock(block);
+                const hasBlocker = Boolean(effectiveForm.blocker.trim());
+                const isPaused = dailyStatusForBlock(block) === "paused";
                 const recentText =
                   block.entry?.today_progress?.trim() ||
-                  block.entry?.next_step?.trim() ||
+                  effectiveForm.nextStep.trim() ||
                   block.previousEntry?.today_progress?.trim() ||
                   block.workItemNote.content_markdown?.trim() ||
                   block.workItem.description?.trim() ||
@@ -4401,13 +4508,19 @@ function TodayPage({
                   >
                     <span className="today-focus-title">
                       <span
-                        className={`today-work-item-icon${hasBlocker ? " blocked" : ""}`}
-                        role={hasBlocker ? "img" : undefined}
-                        aria-label={hasBlocker ? t("hasBlocker") : undefined}
-                        aria-hidden={hasBlocker ? undefined : true}
-                        title={hasBlocker ? t("hasBlocker") : undefined}
+                        className={`today-work-item-icon${hasBlocker ? " blocked" : isPaused ? " paused" : ""}`}
+                        role={hasBlocker || isPaused ? "img" : undefined}
+                        aria-label={hasBlocker ? t("hasBlocker") : isPaused ? t("statusPaused") : undefined}
+                        aria-hidden={hasBlocker || isPaused ? undefined : true}
+                        title={hasBlocker ? t("hasBlocker") : isPaused ? t("statusPaused") : undefined}
                       >
-                        {hasBlocker ? <AlertTriangle size={17} /> : <FileText size={17} />}
+                        {hasBlocker ? (
+                          <AlertTriangle size={17} />
+                        ) : isPaused ? (
+                          <CirclePause size={17} />
+                        ) : (
+                          <FileText size={17} />
+                        )}
                       </span>
                       <strong title={block.workItem.title}>{block.workItem.title}</strong>
                     </span>
@@ -4474,7 +4587,7 @@ function TodayMonthOverviewBar({
 }) {
   const blocks = todayBlocks(dailyView);
   const missingSummaryCount = blocks.filter((block) => !blockHasChangeSummary(block)).length;
-  const blockerCount = blocks.filter((block) => block.entry?.blocker?.trim()).length;
+  const blockerCount = blocks.filter((block) => dailyBlockerForDisplay(block)).length;
   const { year, month, day } = dateKeyParts(dailyView.journalDate);
   const selectedDate = new Date(year, month - 1, day);
   const monday = new Date(selectedDate);
@@ -4627,7 +4740,7 @@ function todayConstellationSeed(value: string): number {
 }
 
 function todayConstellationState(block: DailyWorkItemBlock): TodayConstellationState {
-  return block.entry?.blocker?.trim()
+  return dailyBlockerForDisplay(block)
     ? "blocked"
     : blockHasFilledDailyEntry(block)
       ? "filled"
@@ -5665,7 +5778,7 @@ function TodayOverviewCard({
 }) {
   const blocks = todayBlocks(dailyView);
   const missingSummaryCount = blocks.filter((block) => !blockHasChangeSummary(block)).length;
-  const blockerCount = blocks.filter((block) => block.entry?.blocker?.trim()).length;
+  const blockerCount = blocks.filter((block) => dailyBlockerForDisplay(block)).length;
   const latestSavedAt = latestTimestamp(
     blocks.flatMap((block) => [block.entry?.updated_at, block.workItemNote?.updated_at])
   );
@@ -5915,9 +6028,11 @@ function DailyWorkItemSummaryCard({
   const entry = block.entry;
   const progressText = entry?.today_progress?.trim();
   const nextStepText = entry?.next_step?.trim();
-  const blockerText = entry?.blocker?.trim();
+  const blockerText = dailyBlockerForDisplay(block);
+  const entryBlockerText = entry?.blocker?.trim();
+  const isPaused = dailyStatusForBlock(block) === "paused";
   const summaryFilled = blockHasChangeSummary(block);
-  const hasDailyText = Boolean(progressText || nextStepText || blockerText);
+  const hasDailyText = Boolean(progressText || nextStepText || entryBlockerText);
   const itemStatus = workItemRowStatus(block, t);
   const previousText =
     block.previousEntry?.today_progress?.trim() ||
@@ -5925,7 +6040,7 @@ function DailyWorkItemSummaryCard({
     block.workItem.description?.trim() ||
     t("noPreviousWorkdayReference");
   const hintLabel = summaryFilled ? t("todayEntrySummary") : hasDailyText ? t("dailyEditorTitle") : t("previousWorkdayReference");
-  const hintText = progressText || nextStepText || blockerText || previousText;
+  const hintText = progressText || nextStepText || entryBlockerText || previousText;
   const latestSavedAt = latestBlockSavedAt(block);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -5944,8 +6059,14 @@ function DailyWorkItemSummaryCard({
       onClick={onOpen}
       onKeyDown={handleKeyDown}
     >
-      <div className="daily-entry-row-icon">
-        <FileText size={17} />
+      <div className={`daily-entry-row-icon${blockerText ? " blocked" : isPaused ? " paused" : ""}`}>
+        {blockerText ? (
+          <AlertTriangle size={17} />
+        ) : isPaused ? (
+          <CirclePause size={17} />
+        ) : (
+          <FileText size={17} />
+        )}
       </div>
       <div className="daily-entry-row-main">
         <div className="daily-entry-row-title">
@@ -6834,7 +6955,7 @@ function WorkItemRow({
           disabled={item.status === "done" || !onComplete}
           aria-label={t("completeAria")}
         >
-          {item.status === "done" && <Check size={15} />}
+          {item.status === "done" && <Check size={14} strokeWidth={2.4} />}
         </button>
       ) : (
         <span className="check-button-placeholder" aria-hidden="true" />
@@ -7149,7 +7270,10 @@ function ReportsPage({
   const [previewMode, setPreviewMode] = useState<"rule" | "ai">("rule");
   const [timeFilter, setTimeFilter] = useState<ReportTimeFilter>("all");
   const [reportQuery, setReportQuery] = useState("");
+  const [reportLocateRequest, setReportLocateRequest] = useState(0);
   const [projectFilter, setProjectFilter] = useState("all");
+  const reportListRef = useRef<HTMLDivElement>(null);
+  const reportPreviewPanelRef = useRef<HTMLElement>(null);
   const [refineTarget, setRefineTarget] = useState<ReportItem | null>(null);
   const [isRefining, setIsRefining] = useState(false);
   const [reportEdit, setReportEdit] = useState<{
@@ -7238,7 +7362,8 @@ function ReportsPage({
       onSelect: onSelectMonthlyReport
     }
   }[activeTab];
-  const normalizedQuery = reportQuery.trim().toLocaleLowerCase(localeFor(language));
+  const reportSearchLocale = localeFor(language);
+  const normalizedQuery = reportQuery.trim().toLocaleLowerCase(reportSearchLocale);
   const projectOptions = projects.filter((project) => project.name.trim());
   const reportMatchesProject = (report: ReportItem, projectId: string) => {
     if (projectId === "all") {
@@ -7257,11 +7382,7 @@ function ReportsPage({
       .toLocaleLowerCase(localeFor(language));
     return reportText.includes(projectName);
   };
-  const baseFilteredItems = tabConfig.items.filter((report) => {
-    const matchesTime = reportMatchesTimeFilter(report, timeFilter);
-    if (!matchesTime) {
-      return false;
-    }
+  const reportMatchesQuery = (report: ReportItem) => {
     if (!normalizedQuery) {
       return true;
     }
@@ -7276,16 +7397,39 @@ function ReportsPage({
       report.aiRefinedMarkdown ?? ""
     ]
       .join(" ")
-      .toLocaleLowerCase(localeFor(language));
+      .toLocaleLowerCase(reportSearchLocale);
     return searchText.includes(normalizedQuery);
-  });
+  };
+  const baseFilteredItems = tabConfig.items.filter((report) => reportMatchesTimeFilter(report, timeFilter));
   const filteredItems = baseFilteredItems.filter((report) => reportMatchesProject(report, projectFilter));
+  const reportSearchResults = normalizedQuery ? tabConfig.items.filter(reportMatchesQuery) : [];
+  const reportListItems = normalizedQuery ? tabConfig.items : filteredItems;
+  const reportSearchPreview = (report: ReportItem, compact = false) => {
+    const readableVersions = [
+      readableMarkdownSearchText(report.markdown),
+      readableMarkdownSearchText(report.aiRefinedMarkdown ?? "")
+    ].filter(Boolean);
+    const matchingVersion = normalizedQuery
+      ? readableVersions.find((value) => value.toLocaleLowerCase(reportSearchLocale).includes(normalizedQuery))
+      : readableVersions[0];
+    return searchContextSnippet(
+      matchingVersion ?? readableVersions[0] ?? "",
+      reportQuery,
+      language,
+      compact ? 84 : 120,
+      compact ? 14 : undefined
+    );
+  };
   const projectFilterOptions = projectOptions.map((project) => ({
     id: project.id,
     name: project.name,
     count: baseFilteredItems.filter((report) => reportMatchesProject(report, project.id)).length
   }));
-  const selectedReport = filteredItems.find((report) => report.id === tabConfig.selectedId) ?? filteredItems[0] ?? null;
+  const selectedReport =
+    reportListItems.find((report) => report.id === tabConfig.selectedId) ??
+    reportSearchResults[0] ??
+    reportListItems[0] ??
+    null;
   const hasAiVersion = Boolean(selectedReport?.reportKind !== "daily" && selectedReport?.aiRefinedMarkdown);
   const currentMarkdown =
     previewMode === "ai" && hasAiVersion && selectedReport?.aiRefinedMarkdown
@@ -7321,11 +7465,9 @@ function ReportsPage({
       aiSettings.baseUrl &&
       aiSettings.model
   );
-  const aiRefineButtonTitle = selectedReport?.reportKind === "daily"
-    ? t("aiRefineDailyUnavailable")
-    : selectedReport && !selectedReportCanUseAiRefine
-      ? t("aiConfigureFirst")
-      : undefined;
+  const aiRefineButtonTitle = selectedReport && !selectedReportCanUseAiRefine
+    ? t("aiConfigureFirst")
+    : undefined;
   const aiRefineDisabledReasonId = aiRefineButtonTitle ? "ai-refine-disabled-reason" : undefined;
   const timeFilterOptions: Array<{ value: ReportTimeFilter; label: string }> = [
     { value: "all", label: t("reportTimeAll") },
@@ -7338,7 +7480,7 @@ function ReportsPage({
   const hasActiveFilters = timeFilter !== "all" || Boolean(normalizedQuery) || projectFilter !== "all";
   const filterSummary = hasActiveFilters
     ? t("reportFilterSummaryActive")
-        .replace("{filtered}", String(filteredItems.length))
+        .replace("{filtered}", String(normalizedQuery ? reportSearchResults.length : filteredItems.length))
         .replace("{total}", String(tabConfig.items.length))
     : t("reportFilterSummaryAll").replace("{count}", String(tabConfig.items.length));
   const emptyTitle = tabConfig.items.length === 0 ? tabConfig.emptyTitle : t("reportFilteredEmptyTitle");
@@ -7348,6 +7490,13 @@ function ReportsPage({
     setReportQuery("");
     setProjectFilter("all");
   };
+  const selectReportSearchResult = (report: ReportItem) => {
+    tabConfig.onSelect(report.id);
+    if (normalizedQuery) {
+      setReportLocateRequest((current) => current + 1);
+    }
+  };
+  const reportSearchResultIds = reportSearchResults.map((report) => report.id).join("|");
 
   const handleStartReportEdit = () => {
     if (!selectedReport) {
@@ -7428,6 +7577,74 @@ function ReportsPage({
     setReportEdit(null);
     setIsSavingReport(false);
   }, [activeTab, selectedReport?.id]);
+
+  useEffect(() => {
+    if (!selectedReport || !normalizedQuery || isEditingReport) {
+      return;
+    }
+    const matchesQuery = (value: string | null | undefined) =>
+      Boolean(value?.toLocaleLowerCase(reportSearchLocale).includes(normalizedQuery));
+    if (matchesQuery(currentMarkdown)) {
+      return;
+    }
+    if (matchesQuery(selectedReport.markdown)) {
+      setPreviewMode("rule");
+    } else if (selectedReport.reportKind !== "daily" && matchesQuery(selectedReport.aiRefinedMarkdown)) {
+      setPreviewMode("ai");
+    }
+  }, [
+    currentMarkdown,
+    isEditingReport,
+    normalizedQuery,
+    reportSearchLocale,
+    selectedReport?.aiRefinedMarkdown,
+    selectedReport?.id,
+    selectedReport?.markdown,
+    selectedReport?.reportKind
+  ]);
+
+  useEffect(() => {
+    if (!normalizedQuery || isEditingReport || reportSearchResults.length === 0) {
+      return;
+    }
+    tabConfig.onSelect(reportSearchResults[0].id);
+    setReportLocateRequest((current) => current + 1);
+  }, [activeTab, isEditingReport, normalizedQuery, reportSearchResultIds]);
+
+  useLayoutEffect(() => {
+    if (!normalizedQuery || isEditingReport) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const selectedListItem = Array.from(
+        reportListRef.current?.querySelectorAll<HTMLElement>("[data-report-id]") ?? []
+      ).find((element) => element.dataset.reportId === selectedReport?.id);
+      selectedListItem?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+      const scrollContainer = reportPreviewPanelRef.current?.querySelector<HTMLElement>(
+        ".readable-markdown-preview"
+      );
+      if (!scrollContainer) {
+        return;
+      }
+      scrollContainer
+        .querySelectorAll("mark.report-search-current")
+        .forEach((element) => element.classList.remove("report-search-current"));
+      const firstMatch = scrollContainer.querySelector<HTMLElement>("mark.search-highlight");
+      if (!firstMatch) {
+        return;
+      }
+      firstMatch.classList.add("report-search-current");
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const matchRect = firstMatch.getBoundingClientRect();
+      const targetTop = Math.max(
+        0,
+        scrollContainer.scrollTop + matchRect.top - containerRect.top - Math.min(120, scrollContainer.clientHeight * 0.24)
+      );
+      scrollContainer.scrollTo({ top: targetTop, behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentVersion, isEditingReport, normalizedQuery, reportLocateRequest, selectedReport?.id]);
 
   useEffect(() => {
     if (projectFilter !== "all" && !projects.some((project) => project.id === projectFilter)) {
@@ -7567,12 +7784,13 @@ function ReportsPage({
             )}
           </div>
 
-          <label className="reports-search-field">
+          <label className="reports-search-field reports-filter-search-field">
             <div className="reports-search-box">
               <Search size={16} />
               <input
                 value={reportQuery}
                 type="search"
+                aria-label={t("reportsSearchPlaceholder")}
                 placeholder={t("reportsSearchPlaceholder")}
                 disabled={isEditingReport}
                 onChange={(event) => setReportQuery(event.target.value)}
@@ -7580,7 +7798,7 @@ function ReportsPage({
               {reportQuery.trim() && (
                 <button
                   type="button"
-                  aria-label={t("clearReportFilters")}
+                  aria-label={t("clearSearch")}
                   disabled={isEditingReport}
                   onClick={() => setReportQuery("")}
                 >
@@ -7590,94 +7808,132 @@ function ReportsPage({
             </div>
           </label>
 
-          <div className="reports-filter-section">
-            <span>{t("reportTimeRange")}</span>
-            <div className="reports-filter-options">
-              {timeFilterOptions.map((option) => (
-                <button
-                  className={timeFilter === option.value ? "active" : ""}
-                  key={option.value}
-                  type="button"
-                  disabled={isEditingReport}
-                  onClick={() => setTimeFilter(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
+          {normalizedQuery ? (
+            <div className="reports-filter-search-results">
+              <div className="reports-filter-search-heading">
+                <strong>{t("searchResults")}</strong>
+                <small aria-live="polite">
+                  {t("reportFilterCount").replace("{count}", String(reportSearchResults.length))}
+                </small>
+              </div>
+              <div className="reports-filter-search-list">
+                {reportSearchResults.length === 0 ? (
+                  <div className="reports-filter-search-empty">{t("searchNoResults")}</div>
+                ) : (
+                  reportSearchResults.map((report) => {
+                    const preview = reportSearchPreview(report, true);
+                    const isSelected = selectedReport?.id === report.id;
+                    return (
+                      <button
+                        className={`reports-filter-search-result${isSelected ? " active" : ""}`}
+                        key={report.id}
+                        type="button"
+                        aria-current={isSelected ? "true" : undefined}
+                        disabled={isEditingReport}
+                        onClick={() => selectReportSearchResult(report)}
+                      >
+                        <span className="reports-filter-search-result-title">
+                          <FileText size={15} aria-hidden="true" />
+                          <strong><HighlightedSearchText text={report.title} term={reportQuery} /></strong>
+                        </span>
+                        <p>{preview ? <HighlightedSearchText text={preview} term={reportQuery} /> : t("none")}</p>
+                        <small>{report.meta}</small>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="reports-filter-section">
+                <span>{t("reportTimeRange")}</span>
+                <div className="reports-filter-options">
+                  {timeFilterOptions.map((option) => (
+                    <button
+                      className={timeFilter === option.value ? "active" : ""}
+                      key={option.value}
+                      type="button"
+                      disabled={isEditingReport}
+                      onClick={() => setTimeFilter(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          <div className="reports-filter-section reports-project-section">
-            <span>{t("reportProjectFilter")}</span>
-            <div className="reports-filter-options reports-project-options">
-              <button
-                className={projectFilter === "all" ? "active" : ""}
-                type="button"
-                disabled={isEditingReport}
-                onClick={() => setProjectFilter("all")}
-              >
-                <span>{t("reportProjectAll")}</span>
-                <em>{baseFilteredItems.length}</em>
-              </button>
-              {projectFilterOptions.length === 0 ? (
-                <small>{t("reportProjectNoOptions")}</small>
-              ) : (
-                projectFilterOptions.map((project) => (
+              <div className="reports-filter-section reports-project-section">
+                <span>{t("reportProjectFilter")}</span>
+                <div className="reports-filter-options reports-project-options">
                   <button
-                    className={projectFilter === project.id ? "active" : ""}
-                    key={project.id}
+                    className={projectFilter === "all" ? "active" : ""}
                     type="button"
-                    title={project.name}
                     disabled={isEditingReport}
-                    onClick={() => setProjectFilter(project.id)}
+                    onClick={() => setProjectFilter("all")}
                   >
-                    <span>{project.name}</span>
-                    <em>{project.count}</em>
+                    <span>{t("reportProjectAll")}</span>
+                    <em>{baseFilteredItems.length}</em>
                   </button>
-                ))
-              )}
-            </div>
-          </div>
-
+                  {projectFilterOptions.length === 0 ? (
+                    <small>{t("reportProjectNoOptions")}</small>
+                  ) : (
+                    projectFilterOptions.map((project) => (
+                      <button
+                        className={projectFilter === project.id ? "active" : ""}
+                        key={project.id}
+                        type="button"
+                        title={project.name}
+                        disabled={isEditingReport}
+                        onClick={() => setProjectFilter(project.id)}
+                      >
+                        <span>{project.name}</span>
+                        <em>{project.count}</em>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </aside>
 
         <section className="reports-list-panel">
           <header className="reports-list-header">
-            <div>
-              <span className="eyebrow">{t("reportArchiveList")}</span>
-              <h2>{tabConfig.heading}</h2>
+            <div className="reports-list-title-row">
+              <div>
+                <span className="eyebrow">{t("reportArchiveList")}</span>
+                <h2>{tabConfig.heading}</h2>
+              </div>
+              <small aria-live="polite">
+                {t("reportFilterCount").replace("{count}", String(reportListItems.length))}
+              </small>
             </div>
-            <small>{t("reportFilterCount").replace("{count}", String(filteredItems.length))}</small>
           </header>
 
-          <div className="report-list">
-            {filteredItems.length === 0 ? (
+          <div ref={reportListRef} className="report-list">
+            {reportListItems.length === 0 ? (
               <div className="reports-list-empty">
                 <strong>{emptyTitle}</strong>
                 <p>{emptyBody}</p>
               </div>
             ) : (
-              filteredItems.map((report) => {
+              reportListItems.map((report) => {
                 const isSelected = selectedReport?.id === report.id;
-                const preview = unescapeReadableMarkdownText(report.markdown)
-                  .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-                  .replace(/^\s{0,3}#{1,6}\s*/gm, "")
-                  .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/gm, "")
-                  .replace(/[*_`~>|]/g, "")
-                  .replace(/\s+/g, " ")
-                  .trim();
+                const preview = reportSearchPreview(report);
                 return (
                   <button
                     className={`report-list-item ${isSelected ? "active" : ""}`}
                     key={report.id}
                     type="button"
+                    data-report-id={report.id}
                     aria-current={isSelected ? "true" : undefined}
                     disabled={isEditingReport}
-                    onClick={() => tabConfig.onSelect(report.id)}
+                    onClick={() => selectReportSearchResult(report)}
                   >
                     <span className="report-list-heading">
                       <span className="report-kind-pill">{report.typeLabel}</span>
-                      <strong>{report.title}</strong>
+                      <strong><HighlightedSearchText text={report.title} term={reportQuery} /></strong>
                     </span>
                     <span className="report-list-meta">
                       <span>{report.meta}</span>
@@ -7689,7 +7945,9 @@ function ReportsPage({
                         <span>{report.aiRefinedAt ? formatTimestamp(report.aiRefinedAt, language, t) : t("none")}</span>
                       </span>
                     )}
-                    <p>{preview ? `${preview.slice(0, 120)}${preview.length > 120 ? "..." : ""}` : t("none")}</p>
+                    <p>
+                      {preview ? <HighlightedSearchText text={preview} term={reportQuery} /> : t("none")}
+                    </p>
                     {report.reportKind !== "daily" && report.aiIsStale && (
                       <small className="stale-badge">{t("aiReportStale")}</small>
                     )}
@@ -7700,7 +7958,7 @@ function ReportsPage({
           </div>
         </section>
 
-        <section className="report-preview-panel">
+        <section ref={reportPreviewPanelRef} className="report-preview-panel">
           {selectedReport ? (
             <>
               <header className="report-preview-header">
@@ -7737,28 +7995,32 @@ function ReportsPage({
                   </div>
                 ) : (
                   <div className="button-row">
-                    <HoverTooltip
-                      className="report-ai-tooltip-trigger"
-                      content={aiRefineButtonTitle}
-                      showWhen="always"
-                      focusable={Boolean(aiRefineButtonTitle)}
-                    >
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        aria-label={aiRefineButtonTitle ? `${t("aiRefine")}: ${aiRefineButtonTitle}` : t("aiRefine")}
-                        aria-describedby={aiRefineDisabledReasonId}
-                        onClick={() => handleRequestAiRefine(selectedReport)}
-                        disabled={isRefining || selectedReport.reportKind === "daily" || !selectedReportCanUseAiRefine}
-                      >
-                        <Sparkles size={17} />
-                        {isRefining ? t("aiRefining") : t("aiRefine")}
-                      </button>
-                    </HoverTooltip>
-                    {aiRefineButtonTitle && (
-                      <span id={aiRefineDisabledReasonId} className="sr-only">
-                        {aiRefineButtonTitle}
-                      </span>
+                    {selectedReport.reportKind !== "daily" && (
+                      <>
+                        <HoverTooltip
+                          className="report-ai-tooltip-trigger"
+                          content={aiRefineButtonTitle}
+                          showWhen="always"
+                          focusable={Boolean(aiRefineButtonTitle)}
+                        >
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            aria-label={aiRefineButtonTitle ? `${t("aiRefine")}: ${aiRefineButtonTitle}` : t("aiRefine")}
+                            aria-describedby={aiRefineDisabledReasonId}
+                            onClick={() => handleRequestAiRefine(selectedReport)}
+                            disabled={isRefining || !selectedReportCanUseAiRefine}
+                          >
+                            <Sparkles size={17} />
+                            {isRefining ? t("aiRefining") : t("aiRefine")}
+                          </button>
+                        </HoverTooltip>
+                        {aiRefineButtonTitle && (
+                          <span id={aiRefineDisabledReasonId} className="sr-only">
+                            {aiRefineButtonTitle}
+                          </span>
+                        )}
+                      </>
                     )}
                     <button className="secondary-button" type="button" onClick={() => selectedPayload && onCopy(selectedPayload)}>
                       <Clipboard size={17} />
@@ -7837,7 +8099,7 @@ function ReportsPage({
                   />
                 </div>
               ) : (
-                <ReadableMarkdown content={currentMarkdown} />
+                <ReadableMarkdown content={currentMarkdown} searchTerm={reportQuery} />
               )}
             </>
           ) : (
