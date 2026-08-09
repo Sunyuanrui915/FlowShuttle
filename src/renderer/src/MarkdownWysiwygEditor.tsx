@@ -7,13 +7,21 @@ import TaskList from "@tiptap/extension-task-list";
 import { Markdown } from "@tiptap/markdown";
 import { Extension } from "@tiptap/core";
 import { EditorContent, useEditor, type Editor as TiptapEditor } from "@tiptap/react";
-import type { Node as ProseMirrorNode, Slice } from "@tiptap/pm/model";
+import {
+  DOMParser as ProseMirrorDOMParser,
+  DOMSerializer,
+  type Node as ProseMirrorNode,
+  type Slice
+} from "@tiptap/pm/model";
+import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Sparkles, X } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
+import { assertAttachmentSizeBytes } from "../../shared/attachmentLimits";
 import type { LanguagePreference } from "../../shared/types";
+import { useAiSelectionPolish } from "./AiSelectionPolish";
 
 type EditorTheme = "light" | "dark";
 type EditorFeedbackKind = "success" | "error" | "warning" | "info";
@@ -44,8 +52,12 @@ export interface MarkdownEditorLabels {
   saveImageAsUnsupported: string;
   imageSaved: string;
   imageSaveFailed: string;
+  imageTooLarge: string;
   clipboardEmpty: string;
   highlightPlaceholder: string;
+  aiSelectionPolishToggle: string;
+  aiSelectionPolishOn: string;
+  aiSelectionPolishOff: string;
 }
 
 interface MarkdownWysiwygEditorProps {
@@ -78,6 +90,12 @@ interface PreviewImage {
   alt: string;
 }
 
+interface AiPolishTextSegment {
+  from: number;
+  to: number;
+  text: string;
+}
+
 const defaultLabels: MarkdownEditorLabels = {
   toolbarLabel: "Editor toolbar",
   contextMenuLabel: "Editor menu",
@@ -103,8 +121,12 @@ const defaultLabels: MarkdownEditorLabels = {
   saveImageAsUnsupported: "Only attachment images can be saved.",
   imageSaved: "Image saved",
   imageSaveFailed: "Failed to save image",
+  imageTooLarge: "Images must be 50 MB or smaller",
   clipboardEmpty: "Clipboard has no text",
-  highlightPlaceholder: "Highlight this note"
+  highlightPlaceholder: "Highlight this note",
+  aiSelectionPolishToggle: "AI Polish",
+  aiSelectionPolishOn: "On",
+  aiSelectionPolishOff: "Off"
 };
 
 function normalizePlainText(value: string): string {
@@ -213,6 +235,92 @@ function clipboardPayloadToBlob(payload: { data: ArrayBuffer; mimeType: string }
 function getEditorMarkdown(editor: TiptapEditor): string {
   const editorWithMarkdown = editor as TiptapEditor & { getMarkdown?: () => string };
   return normalizePlainText(editorWithMarkdown.getMarkdown?.() ?? "").replace(/\n+$/g, "");
+}
+
+function aiPolishTextSegments(doc: ProseMirrorNode, from: number, to: number): AiPolishTextSegment[] | null {
+  const segments: AiPolishTextSegment[] = [];
+  let unsupported = false;
+
+  doc.nodesBetween(from, to, (node, position) => {
+    if (unsupported) {
+      return false;
+    }
+    if (node.isTextblock) {
+      if (node.type.spec.code) {
+        unsupported = true;
+        return false;
+      }
+
+      const contentStart = position + 1;
+      const segmentFrom = Math.max(from, contentStart);
+      const segmentTo = Math.min(to, contentStart + node.content.size);
+      const localFrom = segmentFrom - contentStart;
+      const localTo = segmentTo - contentStart;
+
+      if (localFrom < localTo) {
+        node.nodesBetween(localFrom, localTo, (child) => {
+          if (child.isLeaf && !child.isText) {
+            unsupported = true;
+          }
+          return !unsupported;
+        });
+      }
+
+      const text = node.textBetween(localFrom, localTo, "", "\n");
+      if (text.includes("\n")) {
+        unsupported = true;
+        return false;
+      }
+      segments.push({ from: segmentFrom, to: segmentTo, text });
+      return false;
+    }
+    if (node.isLeaf && !node.isText) {
+      unsupported = true;
+      return false;
+    }
+    return true;
+  });
+
+  return unsupported || segments.length === 0 ? null : segments;
+}
+
+function replaceAiPolishSelectionWithPlainText(
+  editor: TiptapEditor,
+  from: number,
+  to: number,
+  replacement: string
+): boolean {
+  try {
+    const { doc, schema } = editor.state;
+    const context = doc.resolve(from);
+    const serializer = DOMSerializer.fromSchema(schema);
+    const container = document.createElement("div");
+    const marks = context.marks();
+
+    normalizePlainText(replacement)
+      .split(/\n+/)
+      .forEach((block) => {
+        const paragraph = document.createElement("p");
+        if (block) {
+          paragraph.appendChild(serializer.serializeNode(schema.text(block, marks)));
+        }
+        container.appendChild(paragraph);
+      });
+
+    const slice = ProseMirrorDOMParser.fromSchema(schema).parseSlice(container, {
+      preserveWhitespace: true,
+      context
+    });
+    const transaction = editor.state.tr
+      .setSelection(TextSelection.create(doc, from, to))
+      .replaceSelection(slice)
+      .scrollIntoView();
+    editor.view.dispatch(transaction);
+    editor.commands.focus();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const pendingSelectionScrollFrames = new WeakMap<TiptapEditor, number>();
@@ -386,11 +494,17 @@ function insertPlainText(editor: TiptapEditor, text: string): void {
   requestSelectionIntoView(editor);
 }
 
-async function uploadAndInsertImages(editor: TiptapEditor, files: Array<File | Blob>, upload: (file: File | Blob) => Promise<string>): Promise<boolean> {
+async function uploadAndInsertImages(
+  editor: TiptapEditor,
+  files: Array<File | Blob>,
+  upload: (file: File | Blob) => Promise<string>,
+  imageTooLargeMessage: string
+): Promise<boolean> {
   if (files.length === 0) {
     return false;
   }
 
+  files.forEach((file) => assertAttachmentSizeBytes(file.size, imageTooLargeMessage));
   const urls = await Promise.all(files.map((file) => upload(file)));
   urls.forEach((src, index) => {
     if (src) {
@@ -402,7 +516,11 @@ async function uploadAndInsertImages(editor: TiptapEditor, files: Array<File | B
   return urls.some(Boolean);
 }
 
-async function pasteClipboardImage(editor: TiptapEditor, upload: ((file: File | Blob) => Promise<string>) | undefined): Promise<boolean> {
+async function pasteClipboardImage(
+  editor: TiptapEditor,
+  upload: ((file: File | Blob) => Promise<string>) | undefined,
+  imageTooLargeMessage: string
+): Promise<boolean> {
   if (!upload) {
     return false;
   }
@@ -412,7 +530,7 @@ async function pasteClipboardImage(editor: TiptapEditor, upload: ((file: File | 
     return false;
   }
 
-  return uploadAndInsertImages(editor, [clipboardPayloadToBlob(payload)], upload);
+  return uploadAndInsertImages(editor, [clipboardPayloadToBlob(payload)], upload, imageTooLargeMessage);
 }
 
 function removeImageNodeBySrc(editor: TiptapEditor, src: string): void {
@@ -462,11 +580,15 @@ const FlowShuttleKeyboardExtension = Extension.create({
 function Toolbar({
   editor,
   labels,
-  disabled
+  disabled,
+  aiSelectionPolishEnabled,
+  onToggleAiSelectionPolish
 }: {
   editor: TiptapEditor | null;
   labels: MarkdownEditorLabels;
   disabled?: boolean;
+  aiSelectionPolishEnabled: boolean;
+  onToggleAiSelectionPolish: () => void;
 }): JSX.Element {
   const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph");
   const toolbarSelectionRef = useRef<{ from: number; to: number } | null>(null);
@@ -574,6 +696,37 @@ function Toolbar({
       {button("quote", "66", () => editor?.chain().focus().toggleBlockquote().run() ?? false, labels.quote, "markdown-editor-icon-button")}
       {button("code", "CB", () => editor?.chain().focus().toggleCodeBlock().run() ?? false, labels.codeBlock, "markdown-editor-icon-button")}
       {button("highlight", "HL", () => editor?.chain().focus().toggleHighlight().run() ?? false, labels.highlightBlock, "markdown-editor-icon-button")}
+      {!disabled && (
+        <>
+          <span className="markdown-editor-toolbar-spacer" />
+          <button
+            className={`markdown-editor-ai-polish-toggle${aiSelectionPolishEnabled ? " is-on" : ""}`}
+            type="button"
+            aria-pressed={aiSelectionPolishEnabled}
+            aria-label={`${labels.aiSelectionPolishToggle}: ${
+              aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff
+            }`}
+            title={`${labels.aiSelectionPolishToggle}: ${
+              aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff
+            }`}
+            disabled={!editor}
+            onMouseDown={keepSelection}
+            onClick={() => {
+              if (!editor) {
+                return;
+              }
+              restoreToolbarSelection();
+              onToggleAiSelectionPolish();
+              toolbarSelectionRef.current = null;
+              editor.commands.focus();
+            }}
+          >
+            <Sparkles size={14} aria-hidden="true" />
+            <span>{labels.aiSelectionPolishToggle}</span>
+            <small>{aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff}</small>
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -598,11 +751,15 @@ export function MarkdownWysiwygEditor({
   const uploadRef = useRef(onImageUpload);
   const imageErrorRef = useRef(onImageError);
   const editorRef = useRef<TiptapEditor | null>(null);
+  const aiSelectionPolish = useAiSelectionPolish();
+  const aiSelectionPolishRef = useRef(aiSelectionPolish);
+  const aiSelectionPolishOwner = useId();
   const syncingRef = useRef(false);
   const lastMarkdownRef = useRef(normalizePlainText(value || ""));
   const [contextMenu, setContextMenu] = useState<EditorContextMenu | null>(null);
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [aiSelectionPolishEnabled, setAiSelectionPolishEnabled] = useState(false);
 
   useEffect(() => {
     uploadRef.current = onImageUpload;
@@ -611,6 +768,95 @@ export function MarkdownWysiwygEditor({
   useEffect(() => {
     imageErrorRef.current = onImageError;
   }, [onImageError]);
+
+  useEffect(() => {
+    aiSelectionPolishRef.current = aiSelectionPolish;
+  }, [aiSelectionPolish]);
+
+  const updateAiSelectionPolishCandidate = useCallback(
+    (currentEditor: TiptapEditor) => {
+      const controller = aiSelectionPolishRef.current;
+      const { selection, doc } = currentEditor.state;
+      const { from, to, head } = selection;
+      if (
+        !aiSelectionPolishEnabled ||
+        disabled ||
+        !currentEditor.isFocused ||
+        selection.empty
+      ) {
+        controller.clearCandidate(aiSelectionPolishOwner);
+        return;
+      }
+
+      const segments = aiPolishTextSegments(doc, from, to);
+      if (!segments) {
+        controller.clearCandidate(aiSelectionPolishOwner);
+        return;
+      }
+      const sourceText = segments.map((segment) => segment.text).join("\n");
+      if (!sourceText.trim()) {
+        controller.clearCandidate(aiSelectionPolishOwner);
+        return;
+      }
+
+      let focus: { top: number; right: number; bottom: number; left: number };
+      try {
+        focus = currentEditor.view.coordsAtPos(head);
+      } catch {
+        controller.clearCandidate(aiSelectionPolishOwner);
+        return;
+      }
+      const isCurrent = () => {
+        const editorAtReplacement = editorRef.current;
+        if (!editorAtReplacement || from < 0 || to > editorAtReplacement.state.doc.content.size) {
+          return false;
+        }
+        const currentSegments = aiPolishTextSegments(editorAtReplacement.state.doc, from, to);
+        return Boolean(
+          currentSegments &&
+          currentSegments.length === segments.length &&
+          currentSegments.every(
+            (segment, index) =>
+              segment.from === segments[index].from &&
+              segment.to === segments[index].to &&
+              segment.text === segments[index].text
+          )
+        );
+      };
+
+      controller.setCandidate(aiSelectionPolishOwner, {
+        sourceText,
+        anchor: {
+          top: focus.top,
+          right: focus.right,
+          bottom: focus.bottom,
+          left: focus.left
+        },
+        isCurrent,
+        replace: (replacement) => {
+          const editorAtReplacement = editorRef.current;
+          if (!editorAtReplacement || !isCurrent()) {
+            return "selection-changed";
+          }
+          const replacementSegments = normalizePlainText(replacement).split("\n");
+          if (replacementSegments.length !== segments.length) {
+            return replaceAiPolishSelectionWithPlainText(editorAtReplacement, from, to, replacement)
+              ? "ok"
+              : "replace-failed";
+          }
+          const transaction = editorAtReplacement.state.tr;
+          for (let index = segments.length - 1; index >= 0; index -= 1) {
+            const segment = segments[index];
+            transaction.insertText(replacementSegments[index], segment.from, segment.to);
+          }
+          editorAtReplacement.view.dispatch(transaction);
+          editorAtReplacement.commands.focus();
+          return "ok";
+        }
+      });
+    },
+    [aiSelectionPolishEnabled, aiSelectionPolishOwner, disabled]
+  );
 
   const extensions = useMemo(
     () => [
@@ -670,7 +916,7 @@ export function MarkdownWysiwygEditor({
           event.preventDefault();
           void (async () => {
             try {
-              await uploadAndInsertImages(currentEditor, imageFiles, uploadRef.current!);
+              await uploadAndInsertImages(currentEditor, imageFiles, uploadRef.current!, resolvedLabels.imageTooLarge);
             } catch (error) {
               imageErrorRef.current?.(error);
             }
@@ -683,7 +929,7 @@ export function MarkdownWysiwygEditor({
           event.preventDefault();
           void (async () => {
             try {
-              await pasteClipboardImage(currentEditor, uploadRef.current);
+              await pasteClipboardImage(currentEditor, uploadRef.current, resolvedLabels.imageTooLarge);
             } catch (error) {
               imageErrorRef.current?.(error);
             }
@@ -707,14 +953,23 @@ export function MarkdownWysiwygEditor({
         onChange(markdown);
       }
       requestSelectionIntoView(updatedEditor);
+      updateAiSelectionPolishCandidate(updatedEditor);
     },
     onSelectionUpdate: ({ editor: updatedEditor }) => {
       editorRef.current = updatedEditor;
+      updateAiSelectionPolishCandidate(updatedEditor);
+    },
+    onFocus: ({ editor: focusedEditor }) => {
+      updateAiSelectionPolishCandidate(focusedEditor);
+    },
+    onBlur: () => {
+      aiSelectionPolishRef.current.clearCandidate(aiSelectionPolishOwner);
     },
     onDestroy: () => {
       if (editorRef.current) {
         cancelSelectionIntoView(editorRef.current);
       }
+      aiSelectionPolishRef.current.clearCandidate(aiSelectionPolishOwner);
       editorRef.current = null;
     }
   });
@@ -731,6 +986,44 @@ export function MarkdownWysiwygEditor({
   useEffect(() => {
     editor?.setEditable(!disabled);
   }, [disabled, editor]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    if (aiSelectionPolishEnabled) {
+      updateAiSelectionPolishCandidate(editor);
+    } else {
+      aiSelectionPolish.clearCandidate(aiSelectionPolishOwner);
+    }
+  }, [aiSelectionPolish, aiSelectionPolishEnabled, aiSelectionPolishOwner, editor, updateAiSelectionPolishCandidate]);
+
+  useEffect(() => {
+    if (!editor || !aiSelectionPolishEnabled || disabled) {
+      return;
+    }
+
+    let frame: number | null = null;
+    const scheduleCandidatePositionUpdate = () => {
+      if (frame !== null) {
+        return;
+      }
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        updateAiSelectionPolishCandidate(editor);
+      });
+    };
+
+    document.addEventListener("scroll", scheduleCandidatePositionUpdate, { capture: true, passive: true });
+    window.addEventListener("resize", scheduleCandidatePositionUpdate);
+    return () => {
+      document.removeEventListener("scroll", scheduleCandidatePositionUpdate, true);
+      window.removeEventListener("resize", scheduleCandidatePositionUpdate);
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [aiSelectionPolishEnabled, disabled, editor, updateAiSelectionPolishCandidate]);
 
   useEffect(() => {
     if (!editor) {
@@ -826,7 +1119,7 @@ export function MarkdownWysiwygEditor({
     }
 
     try {
-      if (await pasteClipboardImage(currentEditor, uploadRef.current)) {
+      if (await pasteClipboardImage(currentEditor, uploadRef.current, resolvedLabels.imageTooLarge)) {
         return;
       }
     } catch (error) {
@@ -1020,7 +1313,13 @@ export function MarkdownWysiwygEditor({
           </div>
         ) : (
           <div className={`markdown-wysiwyg-editor ${compact ? "compact" : ""} ${disabled ? "editor-disabled" : ""}`} spellCheck={false}>
-            <Toolbar editor={editor} labels={resolvedLabels} disabled={disabled} />
+            <Toolbar
+              editor={editor}
+              labels={resolvedLabels}
+              disabled={disabled}
+              aiSelectionPolishEnabled={aiSelectionPolishEnabled}
+              onToggleAiSelectionPolish={() => setAiSelectionPolishEnabled((current) => !current)}
+            />
             <EditorContent className="tiptap-editor-content" editor={editor} />
           </div>
         )}

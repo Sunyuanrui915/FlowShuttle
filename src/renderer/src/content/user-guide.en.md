@@ -144,7 +144,9 @@ When moving to another computer, copy the entire data directory rather than only
 
 Settings lets you change appearance and language, manage the local data directory, configure AI, and view version updates.
 
-AI report refinement is disabled by default. To enable it, configure an OpenAI-compatible service with your own API key. AI is only called when you actively trigger refinement; rule-based local reports continue to work without AI.
+AI features are disabled by default. To enable them, configure an OpenAI-compatible service with your own API key. Report refinement calls AI only when you actively trigger it; rule-based local reports continue to work without AI.
+
+Each editable rich-text editor has an AI Polish toggle in its toolbar. It starts off whenever you enter an editor and affects only that editor. Turn it on and select text to reveal the lightweight action. Only the selected text is sent after you click AI Polish. Long selections are no longer stopped by the app at 60 seconds. While generating, the preview shows connection, full-review, and live writing progress; you can cancel or press `Esc` at any time. Replacement is enabled only after the complete result arrives, and cancellation or failure leaves the original untouched. Read-only content never shows a replacement action.
 
 Flow Shuttle can show a background, low-pressure update hint but does not download or force-install updates automatically. From Version & Update, you can check manually and view the Release summary or download progress. After a download, the app only exits and installs when you choose Restart and Install. Expand Details to open the Release page or visit the GitHub repository to leave a star.
 

@@ -41,7 +41,7 @@
 - 项目进展时间线。
 - 工作活跃度热力图。
 - 内置使用指南，帮助理解项目、工作项、当前内容和今日变更摘要。
-- 可选 AI 报告提炼。
+- 可选 AI 报告提炼与编辑器划词润色。
 - 本地 SQLite 存储，不强制登录，不主动上传工作内容。
 
 ### 截图预览
@@ -68,7 +68,7 @@
 
 [下载最新版本](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-当前版本为 `v0.3.2`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
+当前版本为 `v0.3.3`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
 
 Flow Shuttle 未进行代码签名，Windows 可能出现安全提示。如果只是日常使用流梭，不需要从源码运行项目。
 
@@ -104,7 +104,7 @@ Flow Shuttle 默认把数据保存在本地数据目录中。应用不强制登�
 
 你可以在 Settings / 设置页面中查看当前数据目录、数据库文件和配置文件，也可以手动迁移数据目录。手动搬运不是云同步，不会自动合并两台电脑的数据。
 
-如果启用 AI 报告提炼，报告内容会发送给你自己配置的 AI 服务。未配置 AI 时，该能力不会自动调用外部服务。
+如果启用 AI 报告提炼，或在编辑器中主动使用 AI 润色，对应的报告或选中文字会发送给你自己配置的 AI 服务。未配置 AI 时，这些能力不会自动调用外部服务。
 
 ### Roadmap
 
@@ -138,7 +138,7 @@ Flow Shuttle is built to help connect each day’s work into a continuous thread
 - Project progress timeline.
 - Work activity heatmap.
 - Built-in user guide for understanding projects, work items, current content, and today’s change summary.
-- Optional AI report refinement.
+- Optional AI report refinement and editor selection polishing.
 - Local SQLite storage with no required login or forced upload of work content.
 
 ### Screenshots
@@ -165,7 +165,7 @@ Regular users can download the Windows installer from GitHub Releases:
 
 [Download the latest version](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-The current version is `v0.3.2`. Flow Shuttle is still an early public release. It is local-first by default, does not require login, and does not upload your work content by itself.
+The current version is `v0.3.3`. Flow Shuttle is still an early public release. It is local-first by default, does not require login, and does not upload your work content by itself.
 
 Flow Shuttle is not code-signed yet, so Windows may show a security warning. If you only use Flow Shuttle day to day, you do not need to run the project from source.
 
@@ -201,7 +201,7 @@ Flow Shuttle stores data in a local data directory by default. The app does not 
 
 The current data directory, database file, and config file can be viewed from Settings. Manual data transfer is not cloud sync and does not automatically merge data from multiple computers.
 
-If AI report refinement is enabled, report content is sent to the AI service configured by you. When AI is not configured, the feature does not call external services automatically.
+If AI report refinement is enabled, or you explicitly use AI Polish in an editor, the corresponding report or selected text is sent to the AI service configured by you. When AI is not configured, these features do not call external services automatically.
 
 ### Roadmap
 

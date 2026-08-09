@@ -8441,6 +8441,40 @@ button.today-reminder-item:focus-visible {
   font-size: 13px;
 }
 
+.markdown-editor-toolbar-spacer {
+  flex: 1 1 10px;
+  min-width: 4px;
+}
+
+.markdown-editor-toolbar .markdown-editor-ai-polish-toggle {
+  flex: 0 0 auto;
+  gap: 6px;
+  min-width: 104px;
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border-muted));
+  background: color-mix(in srgb, var(--accent-soft) 30%, transparent);
+  padding: 0 9px;
+}
+
+.markdown-editor-ai-polish-toggle svg {
+  color: var(--accent);
+}
+
+.markdown-editor-ai-polish-toggle small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.markdown-editor-toolbar .markdown-editor-ai-polish-toggle.is-on {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border-muted));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.markdown-editor-ai-polish-toggle.is-on small {
+  color: var(--accent);
+}
+
 .markdown-editor-content {
   flex: 1;
   width: 100%;
@@ -9153,6 +9187,201 @@ button.today-reminder-item:focus-visible {
   height: 1px;
   margin: 5px 4px;
   background: var(--border-muted);
+}
+
+.ai-selection-polish-trigger {
+  position: fixed;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 112px;
+  min-height: 38px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--control-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--control-glass-strong) 92%, var(--accent-soft));
+  color: var(--accent);
+  padding: 0 13px;
+  box-shadow:
+    0 12px 28px color-mix(in srgb, var(--text-heading) 16%, transparent),
+    inset 0 1px 0 var(--control-highlight);
+  font-size: 13px;
+  font-weight: 760;
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+
+.ai-selection-polish-trigger:hover:not(:disabled),
+.ai-selection-polish-trigger:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 68%, var(--control-border));
+  background: color-mix(in srgb, var(--accent-soft) 54%, var(--control-glass-strong));
+  outline: none;
+  box-shadow:
+    0 14px 30px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 0 0 3px var(--focus-ring);
+}
+
+.ai-selection-polish-trigger.is-loading {
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.ai-selection-polish-trigger.is-loading .ai-selection-polish-spinner {
+  display: inline-flex;
+  animation: ai-selection-polish-spin 850ms linear infinite;
+}
+
+.ai-selection-polish-cancel-icon {
+  opacity: 0.7;
+}
+
+.ai-selection-polish-trigger.is-loading:hover .ai-selection-polish-cancel-icon,
+.ai-selection-polish-trigger.is-loading:focus-visible .ai-selection-polish-cancel-icon {
+  color: var(--danger);
+  opacity: 1;
+}
+
+.ai-selection-polish-backdrop {
+  position: fixed;
+  z-index: 110;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--overlay) 88%, transparent);
+  padding: 24px;
+  backdrop-filter: blur(2px);
+}
+
+.ai-selection-polish-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(820px, 100%);
+  max-height: min(760px, 92vh);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+}
+
+.ai-selection-polish-dialog-header {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 34px;
+  align-items: start;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-muted);
+  padding: 18px 20px;
+}
+
+.ai-selection-polish-dialog-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--control-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent-soft) 48%, var(--control-glass-strong));
+  color: var(--accent);
+}
+
+.ai-selection-polish-dialog-icon .ai-selection-polish-spinner {
+  animation: ai-selection-polish-spin 850ms linear infinite;
+}
+
+.ai-selection-polish-dialog-header h2 {
+  margin: 0;
+  color: var(--text-heading);
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.ai-selection-polish-dialog-header p {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ai-selection-polish-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px;
+}
+
+.ai-selection-polish-comparison > section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-muted);
+  border-radius: 9px;
+  background: var(--bg-surface-muted);
+}
+
+.ai-selection-polish-comparison > section > span {
+  border-bottom: 1px solid var(--border-muted);
+  color: var(--text-secondary);
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.ai-selection-polish-comparison pre {
+  flex: 1;
+  min-height: 150px;
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  color: var(--text-primary);
+  padding: 13px 14px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ai-selection-polish-comparison.is-streaming > section:last-of-type {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-muted));
+}
+
+.ai-selection-polish-comparison pre.is-streaming:not(.is-empty)::after {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  background: var(--accent);
+  content: "";
+  vertical-align: -0.12em;
+  animation: ai-selection-polish-caret 900ms steps(1, end) infinite;
+}
+
+.ai-selection-polish-comparison pre.is-empty {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.ai-selection-polish-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  border-top: 1px solid var(--border-muted);
+  padding: 14px 20px;
+}
+
+@keyframes ai-selection-polish-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ai-selection-polish-caret {
+  50% {
+    opacity: 0;
+  }
 }
 
 .image-lightbox-backdrop {
@@ -10795,6 +11024,12 @@ textarea:focus {
 
 .settings-ai-panel .settings-actions {
   padding-top: 0;
+}
+
+@media (max-width: 720px) {
+  .ai-selection-polish-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .settings-storage-panel .settings-data-grid {

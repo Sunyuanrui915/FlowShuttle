@@ -1,6 +1,6 @@
 {
   "name": "flowshuttle",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Local-first personal work progress journal",
   "main": "out/main/index.js",
   "author": "Flow Shuttle",
@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify:security-boundaries": "node --experimental-strip-types --test scripts/verify-security-boundaries.mjs",
     "build": "npm run typecheck && electron-vite build",
     "dist:dir": "npm run build && electron-builder --dir",
     "dist:win": "npm run build && electron-builder --win nsis",

@@ -5,6 +5,8 @@ import { closeSync, existsSync, mkdirSync, openSync, renameSync, rmSync, statSyn
 import { writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { getLocalDateKey, getTimestamp } from "./date";
+import { assertSafeDirectoryRemoval } from "./securityBoundaries";
+import { assertAttachmentSizeBytes } from "../shared/attachmentLimits";
 import { countTextMetricCharacters } from "../shared/textMetrics";
 import {
   buildSettingsInfo,
@@ -603,10 +605,7 @@ function assertInside(baseDirectory: string, targetPath: string): void {
 function removeDirectoryInside(baseDirectory: string, targetPath: string, errorMessage: string): void {
   const base = resolve(baseDirectory);
   const target = resolve(targetPath);
-  assertInside(base, target);
-  if (pathsEqual(base, target)) {
-    throw new Error("Refusing to delete attachment root.");
-  }
+  assertSafeDirectoryRemoval(base, target);
   if (!existsSync(target)) {
     return;
   }
@@ -614,6 +613,12 @@ function removeDirectoryInside(baseDirectory: string, targetPath: string, errorM
     rmSync(target, { recursive: true, force: true });
   } catch (error) {
     throw new Error(error instanceof Error ? error.message : errorMessage);
+  }
+}
+
+function assertDirectoriesSafeForRemoval(baseDirectory: string, targetPaths: string[]): void {
+  for (const targetPath of new Set(targetPaths)) {
+    assertSafeDirectoryRemoval(baseDirectory, targetPath);
   }
 }
 
@@ -1093,6 +1098,15 @@ function extensionForMimeType(mimeType: string): string {
   throw new Error("Unsupported image type.");
 }
 
+function attachmentBuffer(data: ArrayBuffer, emptyMessage: string): Buffer {
+  assertAttachmentSizeBytes(data.byteLength);
+  const buffer = Buffer.from(data);
+  if (buffer.length === 0) {
+    throw new Error(emptyMessage);
+  }
+  return buffer;
+}
+
 export async function saveProjectMemoAttachment(input: SaveMemoAttachmentInput): Promise<SaveMemoAttachmentResult> {
   const project = getProject(input.projectId);
   const memo = getOrCreateProjectMemo(project.id);
@@ -1103,10 +1117,7 @@ export async function saveProjectMemoAttachment(input: SaveMemoAttachmentInput):
   const targetDirectory = projectMemoAttachmentsDirectory(project.id);
   const targetPath = resolve(getCurrentDataDirectory(), relativePath);
   assertInside(attachmentsDirectory(), targetPath);
-  const buffer = Buffer.from(input.data);
-  if (buffer.length === 0) {
-    throw new Error("Empty memo image.");
-  }
+  const buffer = attachmentBuffer(input.data, "Empty memo image.");
 
   mkdirSync(targetDirectory, { recursive: true });
   await writeFile(targetPath, buffer, { flag: "wx" });
@@ -1155,10 +1166,7 @@ export async function saveDailyWorkItemAttachment(
   const targetDirectory = dailyEntryAttachmentsDirectory(journalDate, workItem.id);
   const targetPath = resolve(getCurrentDataDirectory(), relativePath);
   assertInside(attachmentsDirectory(), targetPath);
-  const buffer = Buffer.from(input.data);
-  if (buffer.length === 0) {
-    throw new Error("Empty daily entry image.");
-  }
+  const buffer = attachmentBuffer(input.data, "Empty daily entry image.");
 
   mkdirSync(targetDirectory, { recursive: true });
   await writeFile(targetPath, buffer, { flag: "wx" });
@@ -1208,10 +1216,7 @@ export async function saveWorkItemNoteAttachment(
   const targetDirectory = workItemNoteAttachmentsDirectory(workItem.id);
   const targetPath = resolve(getCurrentDataDirectory(), relativePath);
   assertInside(attachmentsDirectory(), targetPath);
-  const buffer = Buffer.from(input.data);
-  if (buffer.length === 0) {
-    throw new Error("Empty work item note image.");
-  }
+  const buffer = attachmentBuffer(input.data, "Empty work item note image.");
 
   mkdirSync(targetDirectory, { recursive: true });
   await writeFile(targetPath, buffer, { flag: "wx" });
@@ -1256,6 +1261,12 @@ export function deleteProject(id: string): void {
       .prepare("SELECT id FROM work_items WHERE project_id = ?")
       .all(id) as Array<{ id: string }>
   ).map((row) => workItemNoteAttachmentsDirectory(row.id));
+  const attachmentRoot = attachmentsDirectory();
+  assertDirectoriesSafeForRemoval(attachmentRoot, [
+    attachmentDirectory,
+    ...dailyAttachmentDirectories,
+    ...workItemNoteAttachmentDirectories
+  ]);
   const transaction = database().transaction(() => {
     database()
       .prepare(
@@ -1299,12 +1310,12 @@ export function deleteProject(id: string): void {
     database().prepare("DELETE FROM projects WHERE id = ?").run(id);
   });
   transaction();
-  removeDirectoryInside(attachmentsDirectory(), attachmentDirectory, "Project memo attachments deletion failed.");
+  removeDirectoryInside(attachmentRoot, attachmentDirectory, "Project memo attachments deletion failed.");
   for (const directory of dailyAttachmentDirectories) {
-    removeDirectoryInside(attachmentsDirectory(), directory, "Daily entry attachments deletion failed.");
+    removeDirectoryInside(attachmentRoot, directory, "Daily entry attachments deletion failed.");
   }
   for (const directory of workItemNoteAttachmentDirectories) {
-    removeDirectoryInside(attachmentsDirectory(), directory, "Work item note attachments deletion failed.");
+    removeDirectoryInside(attachmentRoot, directory, "Work item note attachments deletion failed.");
   }
 }
 
@@ -1470,6 +1481,8 @@ export function deleteWorkItem(id: string): void {
       .prepare("SELECT DISTINCT journal_date, work_item_id FROM daily_entry_attachments WHERE work_item_id = ?")
       .all(id) as Array<{ journal_date: string; work_item_id: string }>
   ).map((row) => dailyEntryAttachmentsDirectory(row.journal_date, row.work_item_id));
+  const attachmentRoot = attachmentsDirectory();
+  assertDirectoriesSafeForRemoval(attachmentRoot, [noteAttachmentDirectory, ...dailyAttachmentDirectories]);
   const transaction = database().transaction(() => {
     database().prepare("DELETE FROM daily_work_item_entries WHERE work_item_id = ?").run(id);
     database().prepare("DELETE FROM progress_entries WHERE work_item_id = ?").run(id);
@@ -1482,9 +1495,9 @@ export function deleteWorkItem(id: string): void {
   });
   transaction();
   for (const directory of dailyAttachmentDirectories) {
-    removeDirectoryInside(attachmentsDirectory(), directory, "Daily entry attachments deletion failed.");
+    removeDirectoryInside(attachmentRoot, directory, "Daily entry attachments deletion failed.");
   }
-  removeDirectoryInside(attachmentsDirectory(), noteAttachmentDirectory, "Work item note attachments deletion failed.");
+  removeDirectoryInside(attachmentRoot, noteAttachmentDirectory, "Work item note attachments deletion failed.");
 }
 
 export function createProgress(input: CreateProgressInput): ProgressEntry {
