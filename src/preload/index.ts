@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   AiDraftDailyChangeInput,
+  AiPolishSelectionInput,
+  AiPolishSelectionProgress,
   AppUpdateStatus,
   DailyAutoReportEvent,
   DailyAutoReportRequest,
@@ -193,7 +195,18 @@ const api: WorkJournalApi = {
     clearApiKey: () => ipcRenderer.invoke("ai:clear-api-key"),
     testConnection: () => ipcRenderer.invoke("ai:test-connection"),
     refineReport: (input: AiRefineReportInput) => ipcRenderer.invoke("ai:refine-report", input),
-    draftDailyChange: (input: AiDraftDailyChangeInput) => ipcRenderer.invoke("ai:draft-daily-change", input)
+    draftDailyChange: (input: AiDraftDailyChangeInput) => ipcRenderer.invoke("ai:draft-daily-change", input),
+    polishSelection: (input: AiPolishSelectionInput) => ipcRenderer.invoke("ai:polish-selection", input),
+    cancelPolishSelection: (requestId: string) => ipcRenderer.invoke("ai:cancel-polish-selection", requestId),
+    onPolishSelectionProgress: (callback: (progress: AiPolishSelectionProgress) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: AiPolishSelectionProgress) => {
+        callback(progress);
+      };
+      ipcRenderer.on("ai:polish-selection-progress", listener);
+      return () => {
+        ipcRenderer.removeListener("ai:polish-selection-progress", listener);
+      };
+    }
   }
 };
 

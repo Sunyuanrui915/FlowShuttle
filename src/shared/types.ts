@@ -44,6 +44,26 @@ export interface AiOperationResult {
   error?: string;
 }
 
+export interface AiPolishSelectionInput {
+  requestId: string;
+  text: string;
+}
+
+export interface AiPolishSelectionResult {
+  success: boolean;
+  polishedText?: string;
+  error?: string;
+}
+
+export type AiPolishSelectionProgressPhase = "connecting" | "thinking" | "writing";
+
+export interface AiPolishSelectionProgress {
+  requestId: string;
+  phase: AiPolishSelectionProgressPhase;
+  delta?: string;
+  receivedCharacters: number;
+}
+
 export interface AiRefineReportInput {
   reportId: string;
   reportType: PeriodReportType;
@@ -731,5 +751,8 @@ export interface WorkJournalApi {
     testConnection: () => Promise<AiOperationResult>;
     refineReport: (input: AiRefineReportInput) => Promise<AiRefineReportResult>;
     draftDailyChange: (input: AiDraftDailyChangeInput) => Promise<AiDraftDailyChangeResult>;
+    polishSelection: (input: AiPolishSelectionInput) => Promise<AiPolishSelectionResult>;
+    cancelPolishSelection: (requestId: string) => Promise<AiOperationResult>;
+    onPolishSelectionProgress: (callback: (progress: AiPolishSelectionProgress) => void) => () => void;
   };
 }

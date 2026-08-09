@@ -69,6 +69,10 @@ import editorPaperNightVoyage from "./assets/editor-paper/night-voyage.webp";
 import userGuideEn from "./content/user-guide.en.md?raw";
 import userGuideZhCn from "./content/user-guide.zh-CN.md?raw";
 import { createTranslator, languageOptions, type Translator } from "./i18n";
+import {
+  AiSelectionPolishProvider,
+  type AiSelectionPolishLabels
+} from "./AiSelectionPolish";
 import { MarkdownWysiwygEditor, type MarkdownEditorLabels } from "./MarkdownWysiwygEditor";
 import {
   isMarkdownFenceClosing,
@@ -1059,8 +1063,40 @@ function markdownEditorLabels(t: Translator): MarkdownEditorLabels {
     saveImageAsUnsupported: t("editorSaveImageAsUnsupported"),
     imageSaved: t("editorImageSaved"),
     imageSaveFailed: t("editorImageSaveFailed"),
+    imageTooLarge: t("editorImageTooLarge"),
     clipboardEmpty: t("editorClipboardEmpty"),
-    highlightPlaceholder: t("editorHighlightPlaceholder")
+    highlightPlaceholder: t("editorHighlightPlaceholder"),
+    aiSelectionPolishToggle: t("aiSelectionPolishAction"),
+    aiSelectionPolishOn: t("aiEnabledOption"),
+    aiSelectionPolishOff: t("aiDisabled")
+  };
+}
+
+function aiSelectionPolishLabels(t: Translator): AiSelectionPolishLabels {
+  return {
+    action: t("aiSelectionPolishAction"),
+    loading: t("aiSelectionPolishLoading"),
+    cancelLoading: t("aiSelectionPolishCancelLoading"),
+    streamingTitle: t("aiSelectionPolishStreamingTitle"),
+    connecting: t("aiSelectionPolishConnecting"),
+    thinking: t("aiSelectionPolishThinking"),
+    writing: (count) => t("aiSelectionPolishWriting").replace("{count}", count.toLocaleString()),
+    waitingForText: t("aiSelectionPolishWaitingForText"),
+    previewTitle: t("aiSelectionPolishPreviewTitle"),
+    previewDescription: t("aiSelectionPolishPreviewDescription"),
+    original: t("aiSelectionPolishOriginal"),
+    polished: t("aiSelectionPolishResult"),
+    replace: t("aiSelectionPolishReplace"),
+    cancel: t("cancel"),
+    close: t("close"),
+    retry: t("retry"),
+    notConfiguredTitle: t("aiSelectionPolishNotConfiguredTitle"),
+    notConfiguredBody: t("aiSelectionPolishNotConfiguredBody"),
+    failedTitle: t("aiSelectionPolishFailedTitle"),
+    unchangedTitle: t("aiSelectionPolishUnchangedTitle"),
+    unchangedBody: t("aiSelectionPolishUnchangedBody"),
+    selectionChanged: t("aiSelectionPolishSelectionChanged"),
+    replaceFailed: t("aiSelectionPolishReplaceFailed")
   };
 }
 
@@ -1148,6 +1184,7 @@ function App() {
   const language = settingsInfo?.language ?? "zh-CN";
   const effectiveTheme = settingsInfo?.effectiveTheme ?? "light";
   const t = useMemo(() => createTranslator(language), [language]);
+  const selectionPolishLabels = useMemo(() => aiSelectionPolishLabels(t), [t]);
 
   const showToast = (toastValue: Toast) => {
     setToast({ ...toastValue, message: compactToastMessage(toastValue.message) });
@@ -2675,7 +2712,8 @@ function App() {
   }, []);
 
   return (
-    <div className={appShellClassName} spellCheck={false}>
+    <AiSelectionPolishProvider settings={settingsInfo?.ai ?? null} labels={selectionPolishLabels}>
+      <div className={appShellClassName} spellCheck={false}>
       <aside className="sidebar">
         <div className="brand" aria-label={t("appFullName")}>
           <span className="brand-mark" aria-hidden="true">
@@ -3282,8 +3320,9 @@ function App() {
         />
       )}
 
-      {toast && <ToastMessage toast={toast} />}
-    </div>
+        {toast && <ToastMessage toast={toast} />}
+      </div>
+    </AiSelectionPolishProvider>
   );
 }
 
@@ -3337,6 +3376,42 @@ function SearchBox({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const trimmedTerm = term.trim();
+  const shortcutLabel = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform) ? "⌘F" : "Ctrl+F";
+
+  useEffect(() => {
+    const handleFindShortcut = (event: globalThis.KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        event.shiftKey ||
+        !(event.ctrlKey || event.metaKey) ||
+        event.key.toLowerCase() !== "f"
+      ) {
+        return;
+      }
+
+      const activeElement = document.activeElement as HTMLElement | null;
+      const activeModal = document.querySelector<HTMLElement>(
+        '[aria-modal="true"][role="dialog"], [aria-modal="true"][role="alertdialog"]'
+      );
+      const isAnotherEditableTarget = Boolean(
+        activeElement &&
+          activeElement !== inputRef.current &&
+          (activeElement.matches("input, textarea, select") || activeElement.isContentEditable)
+      );
+      if (activeModal || isAnotherEditableTarget) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    };
+
+    window.addEventListener("keydown", handleFindShortcut, true);
+    return () => window.removeEventListener("keydown", handleFindShortcut, true);
+  }, []);
 
   return (
     <div className="search-wrap">
@@ -3347,6 +3422,7 @@ function SearchBox({
         onChange={(event) => onTermChange(event.target.value)}
         placeholder={t("searchPlaceholder")}
         aria-label={t("searchAria")}
+        aria-keyshortcuts="Control+F Meta+F"
         spellCheck={false}
       />
       {term && (
@@ -3364,7 +3440,7 @@ function SearchBox({
           <X size={14} />
         </button>
       )}
-      <span className="shortcut">Ctrl+F</span>
+      <span className="shortcut">{shortcutLabel}</span>
       {trimmedTerm && (
         <div className="search-popover">
           <div className="search-heading">{isSearching ? t("searchLoading") : t("searchResults")}</div>
@@ -9673,7 +9749,12 @@ function SettingsPage({
       model: settings.ai.model,
       apiKey: ""
     });
-  }, [settings.ai.enabled, settings.ai.provider, settings.ai.baseUrl, settings.ai.model]);
+  }, [
+    settings.ai.enabled,
+    settings.ai.provider,
+    settings.ai.baseUrl,
+    settings.ai.model
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -10011,12 +10092,12 @@ function SettingsPage({
                     {aiBusy === "test" ? t("testing") : t("aiTestConnection")}
                   </button>
                   <button
-                    className="ghost-button danger-ghost"
+                    className="secondary-button danger"
                     type="button"
                     onClick={clearAiKey}
                     disabled={aiBusy !== null || !settings.ai.apiKeyConfigured}
                   >
-                    <X size={17} />
+                    <Trash2 size={16} />
                     {t("aiClearApiKey")}
                   </button>
                   <button className="primary-button" type="button" onClick={saveAi} disabled={aiBusy !== null}>

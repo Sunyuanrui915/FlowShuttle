@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.3.3 - 2026-08-09
+
+### Fixed
+
+* 修复 Today 页面 `Ctrl+F` 无法聚焦搜索框的问题。
+* Fixed `Ctrl+F` not focusing the Today search field.
+
+### Improved
+
+* 在可编辑的富文本编辑器中加入按需开启的“AI 润色”：选中文字后即可直接润色并查看实时生成进度；结果生成后可预览、确认替换或取消，支持长文本和段落调整，原文不会被静默覆盖。
+* Introduced opt-in AI Polish for editable rich-text editors. Select text to polish it with live generation progress, then preview, confirm replacement, or cancel. Long selections and paragraph adjustments are supported, and the original is never silently overwritten.
+* 优化 AI 设置中“清除 Key”按钮的视觉样式。
+* Refined the Clear Key control in AI settings.
+* 加强 AI 服务配置、请求处理和图片附件操作的安全性与稳定性。
+* Improved security and reliability around AI service configuration, request handling, and image attachments.
+
 ## v0.3.2 - 2026-08-05
 
 ### Fixed

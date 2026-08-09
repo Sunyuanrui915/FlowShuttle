@@ -54,7 +54,16 @@ import {
   useExistingDatabaseDirectory,
   writeMarkdownFile
 } from "./database";
-import { clearAiApiKey, draftDailyChange, getAiSettings, refineAiReport, saveAiSettings, testAiConnection } from "./ai";
+import {
+  cancelAiSelectionPolish,
+  clearAiApiKey,
+  draftDailyChange,
+  getAiSettings,
+  polishAiSelection,
+  refineAiReport,
+  saveAiSettings,
+  testAiConnection
+} from "./ai";
 import { getLocalDateKey } from "./date";
 import { applyThemeFromConfig, getThemePreference, loadConfig, setLanguagePreference, setThemePreference } from "./settings";
 import {
@@ -66,9 +75,11 @@ import {
   quitAndInstallAppUpdate,
   scheduleBackgroundUpdateCheck
 } from "./updater";
+import { assertAttachmentSizeBytes } from "../shared/attachmentLimits";
 import type {
   AiRefineReportInput,
   AiDraftDailyChangeInput,
+  AiPolishSelectionInput,
   AiSaveSettingsInput,
   CreateProgressInput,
   CreateProjectInput,
@@ -453,6 +464,7 @@ function registerIpc(): void {
       return null;
     }
     const png = image.toPNG();
+    assertAttachmentSizeBytes(png.byteLength);
     const data = png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength);
     return {
       mimeType: "image/png",
@@ -586,6 +598,20 @@ function registerIpc(): void {
   ipcMain.handle("ai:test-connection", () => testAiConnection());
   ipcMain.handle("ai:refine-report", (_event, input: AiRefineReportInput) => refineAiReport(input));
   ipcMain.handle("ai:draft-daily-change", (_event, input: AiDraftDailyChangeInput) => draftDailyChange(input));
+  ipcMain.handle("ai:polish-selection", (event, input: AiPolishSelectionInput) => {
+    const sender = event.sender;
+    return polishAiSelection(input, (progress) => {
+      try {
+        if (sender.isDestroyed()) {
+          return;
+        }
+        sender.send("ai:polish-selection-progress", progress);
+      } catch {
+        // The renderer may close between the destruction check and delivery.
+      }
+    });
+  });
+  ipcMain.handle("ai:cancel-polish-selection", (_event, requestId: string) => cancelAiSelectionPolish(requestId));
 }
 
 app.on("second-instance", () => {
