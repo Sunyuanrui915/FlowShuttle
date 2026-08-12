@@ -642,6 +642,14 @@ export interface ClipboardImagePayload {
   data: ArrayBuffer;
 }
 
+export type {
+  FeedbackScreenshotPayload,
+  FeedbackSubmitInput,
+  FeedbackSubmitResult
+} from "./feedback";
+
+import type { FeedbackSubmitInput, FeedbackSubmitResult } from "./feedback";
+
 export interface WorkJournalApi {
   appInfo: {
     getVersion: () => Promise<string>;
@@ -743,6 +751,9 @@ export interface WorkJournalApi {
     useExistingDataDirectory: () => Promise<DataDirectoryChangeResult>;
     reloadDataDirectory: () => Promise<DataDirectoryChangeResult>;
     onChanged: (callback: (settings: SettingsInfo) => void) => () => void;
+  };
+  feedback: {
+    submit: (input: FeedbackSubmitInput) => Promise<FeedbackSubmitResult>;
   };
   ai: {
     getSettings: () => Promise<AiSettingsInfo>;

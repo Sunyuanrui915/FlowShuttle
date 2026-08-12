@@ -92,6 +92,8 @@ Use the control in the upper-right to choose In Progress, Done, or Paused. Savin
 
 Editor Paper offers Clean, Cloud Mist, Forest Whisper, and Night Voyage backgrounds. It only changes the editing canvas appearance; it does not change content or statistics.
 
+The editor toolbar supports body text and H1-H6 headings, three-level ordered and unordered lists, list indentation, bold, italic, underline, strikethrough, text color, highlight color, Format Painter, and Clear Formatting. Select an image to resize it from the corner handles or choose no border, a light border, a dark border, a shadow, or a frame.
+
 ## 6. Generating, Editing, and Exporting Reports
 
 ### Generate Reports
@@ -142,7 +144,7 @@ When moving to another computer, copy the entire data directory rather than only
 
 ## 10. Settings, AI, and Updates
 
-Settings lets you change appearance and language, manage the local data directory, configure AI, and view version updates.
+Settings lets you change appearance and language, manage the local data directory, configure AI, view version updates, and explicitly send feedback below About Flow Shuttle.
 
 AI features are disabled by default. To enable them, configure an OpenAI-compatible service with your own API key. Report refinement calls AI only when you actively trigger it; rule-based local reports continue to work without AI.
 

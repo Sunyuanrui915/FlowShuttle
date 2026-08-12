@@ -76,6 +76,7 @@ import {
   scheduleBackgroundUpdateCheck
 } from "./updater";
 import { assertAttachmentSizeBytes } from "../shared/attachmentLimits";
+import { submitFeedbackToEndpoint } from "../shared/feedback";
 import type {
   AiRefineReportInput,
   AiDraftDailyChangeInput,
@@ -101,6 +102,8 @@ import type {
   DailyAutoReportEvent,
   DailyAutoReportRequestResult
 } from "../shared/types";
+
+declare const __FLOW_SHUTTLE_FEEDBACK_ENDPOINT__: string;
 
 const appDisplayName = "Flow Shuttle";
 const userDataDirectoryName = "Flow Shuttle";
@@ -583,6 +586,14 @@ function registerIpc(): void {
     notifySettingsChanged();
     return result;
   });
+
+  ipcMain.handle("feedback:submit", (_event, input: unknown) =>
+    submitFeedbackToEndpoint(input, {
+      endpoint: typeof __FLOW_SHUTTLE_FEEDBACK_ENDPOINT__ === "string"
+        ? __FLOW_SHUTTLE_FEEDBACK_ENDPOINT__
+        : ""
+    })
+  );
 
   ipcMain.handle("ai:get-settings", () => getAiSettings());
   ipcMain.handle("ai:save-settings", (_event, input: AiSaveSettingsInput) => {

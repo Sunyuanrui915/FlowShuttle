@@ -1,6 +1,4 @@
 import HardBreak from "@tiptap/extension-hard-break";
-import Highlight from "@tiptap/extension-highlight";
-import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
@@ -13,19 +11,105 @@ import {
   type Node as ProseMirrorNode,
   type Slice
 } from "@tiptap/pm/model";
-import { TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { Sparkles, X } from "lucide-react";
+import {
+  Baseline,
+  Bold,
+  Check,
+  ChevronDown,
+  Ellipsis,
+  Eraser,
+  Frame,
+  Highlighter,
+  IndentDecrease,
+  IndentIncrease,
+  Italic,
+  Layers,
+  List,
+  ListOrdered,
+  ListRestart,
+  ListStart,
+  PaintRoller,
+  PencilLine,
+  Quote,
+  RemoveFormatting,
+  Sparkles,
+  Square,
+  SquareCheckBig,
+  SquareCode,
+  SquareDashed,
+  Strikethrough,
+  Underline,
+  X
+} from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { assertAttachmentSizeBytes } from "../../shared/attachmentLimits";
 import type { LanguagePreference } from "../../shared/types";
 import { useAiSelectionPolish } from "./AiSelectionPolish";
+import {
+  FlowShuttleImage,
+  sanitizeImagePresentation,
+  type ImagePresentation
+} from "./editorImagePresentation";
+import {
+  DEFAULT_HIGHLIGHT_TOOL_COLOR,
+  DEFAULT_TEXT_COLOR,
+  FlowShuttleHighlight,
+  FlowShuttleTextColor,
+  FlowShuttleUnderline,
+  HIGHLIGHT_COLOR_OPTIONS,
+  TEXT_COLOR_OPTIONS,
+  countEditorCharacters,
+  highlightColorIndicator,
+  normalizeControlledInlineFormattingMarkdown,
+  resolveHighlightColorToggle,
+  resolveTextColorToggle,
+  sanitizeHighlightColor,
+  sanitizeTextColor,
+  textColorFallback,
+  type HighlightColor,
+  type TextColor
+} from "./editorInlineFormatting";
+import {
+  FlowShuttleListBehavior,
+  FlowShuttleOrderedList,
+  MAX_ORDERED_LIST_VALUE,
+  canContinueOrderedList,
+  canIndentListItem,
+  canOutdentListItem,
+  getActiveListType,
+  getActiveListItemType,
+  getCurrentOrderedListNumber,
+  formatOrderedListMarker,
+  indentListItem,
+  outdentListItem,
+  setCurrentOrderedListSequence,
+  type OrderedListMarkerLevel
+} from "./editorListBehavior";
 
 type EditorTheme = "light" | "dark";
 type EditorFeedbackKind = "success" | "error" | "warning" | "info";
-type BlockType = "paragraph" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "bullet" | "number" | "check" | "quote" | "code" | "highlight";
+type ParagraphType = "paragraph" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+type BlockType = ParagraphType | "bullet" | "number" | "check" | "quote" | "code";
+type ToolbarMenuKind = "paragraph" | "textColor" | "highlightColor" | "more";
+
+interface InlineFormattingSnapshot {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strike: boolean;
+  textColor: TextColor | null;
+  highlightColor: HighlightColor | null;
+}
+
+interface FormatPainterState {
+  sourceFrom: number;
+  sourceTo: number;
+  snapshot: InlineFormattingSnapshot;
+}
 
 export interface MarkdownEditorLabels {
   toolbarLabel: string;
@@ -38,8 +122,37 @@ export interface MarkdownEditorLabels {
   heading4: string;
   heading5: string;
   heading6: string;
+  bold: string;
+  italic: string;
+  underline: string;
+  strikethrough: string;
+  textColor: string;
+  highlightColor: string;
+  defaultColor: string;
+  noBackground: string;
+  more: string;
+  formatPainter: string;
+  clearFormatting: string;
+  colorBlack: string;
+  colorYellow: string;
+  colorGray: string;
+  colorRed: string;
+  colorOrange: string;
+  colorGreen: string;
+  colorBlue: string;
+  colorPink: string;
+  colorPurple: string;
+  characterUnit: string;
   bulletedList: string;
   numberedList: string;
+  numberingOptions: string;
+  continuePreviousNumbering: string;
+  startNewList: string;
+  changeNumberValue: string;
+  numberValue: string;
+  applyNumberValue: string;
+  increaseIndent: string;
+  decreaseIndent: string;
   taskList: string;
   quote: string;
   codeBlock: string;
@@ -53,6 +166,13 @@ export interface MarkdownEditorLabels {
   imageSaved: string;
   imageSaveFailed: string;
   imageTooLarge: string;
+  imageAppearance: string;
+  imageNoBorder: string;
+  imageLightBorder: string;
+  imageDarkBorder: string;
+  imageShadow: string;
+  imageFrame: string;
+  imageResizeHint: string;
   clipboardEmpty: string;
   highlightPlaceholder: string;
   aiSelectionPolishToggle: string;
@@ -85,9 +205,36 @@ interface EditorContextMenu {
   imageAlt?: string;
 }
 
+interface OrderedListNumberingMenu {
+  anchorX: number;
+  anchorY: number;
+  currentNumber: number;
+  canContinue: boolean;
+  markerFontFamily: string;
+  markerFontSize: string;
+  markerFontWeight: string;
+  markerLabel: string;
+  markerLineHeight: string;
+  markerRight: number;
+  markerTop: number;
+}
+
 interface PreviewImage {
   src: string;
   alt: string;
+}
+
+interface SelectedImageControls {
+  position: number;
+  presentation: ImagePresentation;
+  rect: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+    width: number;
+    height: number;
+  };
 }
 
 interface AiPolishTextSegment {
@@ -107,8 +254,37 @@ const defaultLabels: MarkdownEditorLabels = {
   heading4: "H4",
   heading5: "H5",
   heading6: "H6",
+  bold: "Bold",
+  italic: "Italic",
+  underline: "Underline",
+  strikethrough: "Strikethrough",
+  textColor: "Text color",
+  highlightColor: "Highlight color",
+  defaultColor: "Default",
+  noBackground: "No background",
+  more: "More",
+  formatPainter: "Format painter",
+  clearFormatting: "Clear formatting",
+  colorBlack: "Black",
+  colorYellow: "Yellow",
+  colorGray: "Gray",
+  colorRed: "Red",
+  colorOrange: "Orange",
+  colorGreen: "Green",
+  colorBlue: "Blue",
+  colorPink: "Pink",
+  colorPurple: "Purple",
+  characterUnit: " chars",
   bulletedList: "Bulleted list",
   numberedList: "Numbered list",
+  numberingOptions: "Set numbering",
+  continuePreviousNumbering: "Continue previous numbering",
+  startNewList: "Start new list",
+  changeNumberValue: "Change number value",
+  numberValue: "Number value",
+  applyNumberValue: "Apply",
+  increaseIndent: "Increase indent",
+  decreaseIndent: "Decrease indent",
   taskList: "Task list",
   quote: "Quote",
   codeBlock: "Code block",
@@ -122,6 +298,13 @@ const defaultLabels: MarkdownEditorLabels = {
   imageSaved: "Image saved",
   imageSaveFailed: "Failed to save image",
   imageTooLarge: "Images must be 50 MB or smaller",
+  imageAppearance: "Image background",
+  imageNoBorder: "No border",
+  imageLightBorder: "Light border",
+  imageDarkBorder: "Dark border",
+  imageShadow: "Shadow",
+  imageFrame: "Frame",
+  imageResizeHint: "Drag a corner handle to resize proportionally",
   clipboardEmpty: "Clipboard has no text",
   highlightPlaceholder: "Highlight this note",
   aiSelectionPolishToggle: "AI Polish",
@@ -177,7 +360,9 @@ function normalizeLegacyHardBreaksForImport(value: string): string {
 }
 
 function normalizeMarkdownForImport(value: string): string {
-  const normalized = normalizeLegacyHardBreaksForImport(normalizePlainText(value));
+  const normalized = normalizeLegacyHardBreaksForImport(
+    normalizeControlledInlineFormattingMarkdown(normalizePlainText(value))
+  );
   if (/\\\n|<br\s*\/?>(?!\n)/i.test(normalized)) {
     return normalized;
   }
@@ -219,6 +404,127 @@ function clampMenuPosition(x: number, y: number): { x: number; y: number } {
   };
 }
 
+function orderedListItemContent(listItem: HTMLLIElement): HTMLElement | null {
+  return (
+    Array.from(listItem.children).find(
+      (child) => child.tagName !== "OL" && child.tagName !== "UL"
+    ) as HTMLElement | undefined
+  ) ?? null;
+}
+
+function orderedListMarkerLevel(listItem: HTMLLIElement): OrderedListMarkerLevel {
+  let level = 1;
+  let ancestor = listItem.parentElement?.parentElement ?? null;
+  while (ancestor) {
+    if (ancestor.tagName === "LI") {
+      level += 1;
+    }
+    ancestor = ancestor.parentElement;
+  }
+  return Math.min(level, 3) as OrderedListMarkerLevel;
+}
+
+function orderedListItemAtMarkerPoint(root: HTMLElement, x: number, y: number): HTMLLIElement | null {
+  const listItems = Array.from(root.querySelectorAll<HTMLLIElement>("ol > li"));
+  for (let index = listItems.length - 1; index >= 0; index -= 1) {
+    const listItem = listItems[index];
+    const content = orderedListItemContent(listItem);
+    if (!content) {
+      continue;
+    }
+
+    const rect = content.getBoundingClientRect();
+    const parsedLineHeight = Number.parseFloat(window.getComputedStyle(content).lineHeight);
+    const lineHeight = Number.isFinite(parsedLineHeight) ? parsedLineHeight : 24;
+    const markerBandBottom = Math.min(rect.bottom, rect.top + Math.max(lineHeight, 18));
+    if (
+      x >= rect.left - 36 &&
+      x <= rect.left - 2 &&
+      y >= rect.top - 3 &&
+      y <= markerBandBottom + 3
+    ) {
+      return listItem;
+    }
+  }
+  return null;
+}
+
+function selectOrderedListItem(editor: TiptapEditor, listItem: HTMLLIElement): boolean {
+  const content = orderedListItemContent(listItem);
+  if (!content) {
+    return false;
+  }
+
+  try {
+    const position = editor.view.posAtDOM(content, 0);
+    const safePosition = Math.max(0, Math.min(position, editor.state.doc.content.size));
+    const selection = TextSelection.near(editor.state.doc.resolve(safePosition), 1);
+    editor.view.dispatch(editor.state.tr.setSelection(selection));
+    editor.view.focus();
+    return getCurrentOrderedListNumber(editor) !== null;
+  } catch {
+    return false;
+  }
+}
+
+function numberingMenuPosition(
+  menu: OrderedListNumberingMenu,
+  editingNumberValue: boolean
+): { left: number; top: number } {
+  const menuWidth = 232;
+  const menuHeight = editingNumberValue ? 190 : 116;
+  const left = Math.max(8, Math.min(menu.anchorX - 8, window.innerWidth - menuWidth - 8));
+  const top = menu.anchorY + menuHeight + 8 <= window.innerHeight
+    ? menu.anchorY + 6
+    : Math.max(8, menu.anchorY - menuHeight - 10);
+  return { left, top };
+}
+
+function selectedImageControls(editor: TiptapEditor, disabled: boolean): SelectedImageControls | null {
+  const { selection } = editor.state;
+  if (
+    disabled ||
+    !editor.isEditable ||
+    !(selection instanceof NodeSelection) ||
+    selection.node.type.name !== "image"
+  ) {
+    return null;
+  }
+
+  const nodeDom = editor.view.nodeDOM(selection.from);
+  if (!(nodeDom instanceof HTMLElement)) {
+    return null;
+  }
+  const wrapper = nodeDom.matches("[data-resize-wrapper]")
+    ? nodeDom
+    : nodeDom.querySelector<HTMLElement>("[data-resize-wrapper]") ?? nodeDom;
+  const rect = wrapper.getBoundingClientRect();
+
+  return {
+    position: selection.from,
+    presentation: sanitizeImagePresentation(selection.node.attrs.presentation),
+    rect: {
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height
+    }
+  };
+}
+
+function imageToolbarPosition(controls: SelectedImageControls): { left: number; top: number } {
+  const toolbarWidth = 202;
+  const toolbarHeight = 42;
+  const preferredLeft = controls.rect.left + controls.rect.width / 2 - toolbarWidth / 2;
+  const left = Math.max(8, Math.min(preferredLeft, window.innerWidth - toolbarWidth - 8));
+  const top = controls.rect.top - toolbarHeight - 8 >= 8
+    ? controls.rect.top - toolbarHeight - 8
+    : Math.min(window.innerHeight - toolbarHeight - 8, controls.rect.bottom + 8);
+  return { left, top };
+}
+
 function getClipboardImageFiles(event: ClipboardEvent): File[] {
   const files = Array.from(event.clipboardData?.files || []).filter((file): file is File => file.type.startsWith("image/"));
   const itemFiles = Array.from(event.clipboardData?.items || [])
@@ -234,7 +540,14 @@ function clipboardPayloadToBlob(payload: { data: ArrayBuffer; mimeType: string }
 
 function getEditorMarkdown(editor: TiptapEditor): string {
   const editorWithMarkdown = editor as TiptapEditor & { getMarkdown?: () => string };
-  return normalizePlainText(editorWithMarkdown.getMarkdown?.() ?? "").replace(/\n+$/g, "");
+  return normalizeControlledInlineFormattingMarkdown(
+    normalizePlainText(editorWithMarkdown.getMarkdown?.() ?? "")
+  ).replace(/\n+$/g, "");
+}
+
+function getEditorCharacterCount(editor: TiptapEditor): number {
+  const text = editor.state.doc.textBetween(0, editor.state.doc.content.size, "\n", "");
+  return countEditorCharacters(text);
 }
 
 function aiPolishTextSegments(doc: ProseMirrorNode, from: number, to: number): AiPolishTextSegment[] | null {
@@ -454,13 +767,14 @@ function getActiveBlockType(editor: TiptapEditor | null): BlockType {
       return `h${level}` as BlockType;
     }
   }
-  if (editor.isActive("bulletList")) {
+  const activeListType = getActiveListType(editor);
+  if (activeListType === "bulletList") {
     return "bullet";
   }
-  if (editor.isActive("orderedList")) {
+  if (activeListType === "orderedList") {
     return "number";
   }
-  if (editor.isActive("taskList")) {
+  if (activeListType === "taskList") {
     return "check";
   }
   if (editor.isActive("blockquote")) {
@@ -469,10 +783,32 @@ function getActiveBlockType(editor: TiptapEditor | null): BlockType {
   if (editor.isActive("codeBlock")) {
     return "code";
   }
-  if (editor.isActive("highlight")) {
-    return "highlight";
+  return "paragraph";
+}
+
+function activeParagraphType(editor: TiptapEditor | null): ParagraphType {
+  if (!editor) {
+    return "paragraph";
+  }
+  for (const level of [1, 2, 3, 4, 5, 6] as const) {
+    if (editor.isActive("heading", { level })) {
+      return `h${level}` as ParagraphType;
+    }
   }
   return "paragraph";
+}
+
+function toolbarMenuPosition(
+  anchor: DOMRect,
+  width: number,
+  height: number
+): { left: number; top: number } {
+  const margin = 8;
+  const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - width - margin));
+  const top = anchor.bottom + height + margin <= window.innerHeight
+    ? anchor.bottom + 6
+    : Math.max(margin, anchor.top - height - 6);
+  return { left, top };
 }
 
 function insertPlainText(editor: TiptapEditor, text: string): void {
@@ -550,9 +886,24 @@ function removeImageNodeBySrc(editor: TiptapEditor, src: string): void {
 
 const FlowShuttleKeyboardExtension = Extension.create({
   name: "flowShuttleKeyboardBehavior",
+  priority: 110,
 
   addKeyboardShortcuts() {
     return {
+      Tab: () => {
+        const { editor } = this;
+        if (!getActiveListItemType(editor)) {
+          return false;
+        }
+        return canIndentListItem(editor) ? indentListItem(editor) : true;
+      },
+      "Shift-Tab": () => {
+        const { editor } = this;
+        if (!getActiveListItemType(editor)) {
+          return false;
+        }
+        return canOutdentListItem(editor) ? outdentListItem(editor) : true;
+      },
       Backspace: () => {
         const { editor } = this;
         if (!editor.isActive("blockquote")) {
@@ -577,6 +928,51 @@ const FlowShuttleKeyboardExtension = Extension.create({
   }
 });
 
+function readInlineFormattingSnapshot(editor: TiptapEditor): InlineFormattingSnapshot {
+  return {
+    bold: editor.isActive("bold"),
+    italic: editor.isActive("italic"),
+    underline: editor.isActive("underline"),
+    strike: editor.isActive("strike"),
+    textColor: sanitizeTextColor(editor.getAttributes("flowShuttleTextColor").color),
+    highlightColor: sanitizeHighlightColor(editor.getAttributes("highlight").color)
+  };
+}
+
+function applyInlineFormattingSnapshot(
+  editor: TiptapEditor,
+  snapshot: InlineFormattingSnapshot
+): boolean {
+  const chain = editor.chain().focus()
+    .unsetMark("bold")
+    .unsetMark("italic")
+    .unsetMark("underline")
+    .unsetMark("strike")
+    .unsetMark("flowShuttleTextColor")
+    .unsetMark("highlight");
+
+  if (snapshot.bold) {
+    chain.setMark("bold");
+  }
+  if (snapshot.italic) {
+    chain.setMark("italic");
+  }
+  if (snapshot.underline) {
+    chain.setMark("underline");
+  }
+  if (snapshot.strike) {
+    chain.setMark("strike");
+  }
+  if (snapshot.textColor) {
+    chain.setMark("flowShuttleTextColor", { color: snapshot.textColor });
+  }
+  if (snapshot.highlightColor) {
+    chain.setMark("highlight", { color: snapshot.highlightColor });
+  }
+
+  return chain.run();
+}
+
 function Toolbar({
   editor,
   labels,
@@ -591,14 +987,29 @@ function Toolbar({
   onToggleAiSelectionPolish: () => void;
 }): JSX.Element {
   const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph");
+  const [toolbarMenu, setToolbarMenu] = useState<{
+    kind: ToolbarMenuKind;
+    left: number;
+    top: number;
+  } | null>(null);
+  const [, setToolbarRevision] = useState(0);
+  const [rememberedTextColor, setRememberedTextColor] = useState<TextColor>(DEFAULT_TEXT_COLOR);
+  const [rememberedHighlightColor, setRememberedHighlightColor] = useState<HighlightColor | null>(
+    DEFAULT_HIGHLIGHT_TOOL_COLOR
+  );
+  const [formatPainterState, setFormatPainterState] = useState<FormatPainterState | null>(null);
   const toolbarSelectionRef = useRef<{ from: number; to: number } | null>(null);
+  const toolbarMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!editor) {
       return;
     }
 
-    const update = () => setActiveBlock(getActiveBlockType(editor));
+    const update = () => {
+      setActiveBlock(getActiveBlockType(editor));
+      setToolbarRevision((current) => current + 1);
+    };
     update();
     editor.on("selectionUpdate", update);
     editor.on("transaction", update);
@@ -607,6 +1018,47 @@ function Toolbar({
       editor.off("transaction", update);
     };
   }, [editor]);
+
+  useEffect(() => {
+    if (!toolbarMenu) {
+      return;
+    }
+    const closeToolbarMenu = () => {
+      toolbarSelectionRef.current = null;
+      setToolbarMenu(null);
+    };
+    const closeFromOutside = (event: MouseEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-markdown-toolbar-menu-trigger]")
+      ) {
+        return;
+      }
+      if (!toolbarMenuRef.current?.contains(event.target as Node)) {
+        closeToolbarMenu();
+      }
+    };
+    const closeFromKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeToolbarMenu();
+        editor?.commands.focus();
+      }
+    };
+    const close = () => closeToolbarMenu();
+    document.addEventListener("mousedown", closeFromOutside);
+    document.addEventListener("keydown", closeFromKeyboard);
+    document.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("blur", close);
+    return () => {
+      document.removeEventListener("mousedown", closeFromOutside);
+      document.removeEventListener("keydown", closeFromKeyboard);
+      document.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("blur", close);
+    };
+  }, [editor, toolbarMenu]);
 
   const captureToolbarSelection = () => {
     if (!editor) {
@@ -652,11 +1104,117 @@ function Toolbar({
     }
   };
 
+  const activateFormatPainter = (): void => {
+    if (!editor || disabled) {
+      return;
+    }
+    if (formatPainterState) {
+      setFormatPainterState(null);
+      toolbarSelectionRef.current = null;
+      editor.commands.focus();
+      return;
+    }
+
+    restoreToolbarSelection();
+    const { selection } = editor.state;
+    if (!selection.$from.parent.isTextblock || !selection.$to.parent.isTextblock) {
+      toolbarSelectionRef.current = null;
+      return;
+    }
+    setFormatPainterState({
+      sourceFrom: selection.from,
+      sourceTo: selection.to,
+      snapshot: readInlineFormattingSnapshot(editor)
+    });
+    toolbarSelectionRef.current = null;
+    editor.commands.focus();
+  };
+
+  const clearFormatting = (): void => {
+    setFormatPainterState(null);
+    run(() => editor?.chain().focus().unsetAllMarks().run() ?? false);
+  };
+
+  useEffect(() => {
+    if (!editor || disabled) {
+      return;
+    }
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!editor.isFocused) {
+        return;
+      }
+      const usesModKey = event.ctrlKey || event.metaKey;
+      if (usesModKey && event.altKey && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        activateFormatPainter();
+        return;
+      }
+      if (usesModKey && !event.altKey && (event.key === "\\" || event.code === "Backslash")) {
+        event.preventDefault();
+        clearFormatting();
+      }
+    };
+    document.addEventListener("keydown", handleShortcut);
+    return () => document.removeEventListener("keydown", handleShortcut);
+  }, [disabled, editor, formatPainterState]);
+
+  useEffect(() => {
+    if (!editor || !formatPainterState) {
+      return;
+    }
+
+    const editorElement = editor.view.dom;
+    editorElement.classList.add("is-format-painter-active");
+
+    const applyToCurrentSelection = () => {
+      if (editor.isDestroyed) {
+        return;
+      }
+      const { selection } = editor.state;
+      const isSourceSelection = selection.from === formatPainterState.sourceFrom
+        && selection.to === formatPainterState.sourceTo;
+      if (!(selection instanceof TextSelection) || selection.empty || isSourceSelection) {
+        return;
+      }
+      if (applyInlineFormattingSnapshot(editor, formatPainterState.snapshot)) {
+        requestSelectionIntoView(editor);
+      }
+      setFormatPainterState(null);
+    };
+
+    const applyAfterMouseSelection = (event: MouseEvent) => {
+      if (event.target instanceof Node && editorElement.contains(event.target)) {
+        window.requestAnimationFrame(applyToCurrentSelection);
+      }
+    };
+    const applyAfterKeyboardSelection = () => {
+      if (editor.isFocused) {
+        window.requestAnimationFrame(applyToCurrentSelection);
+      }
+    };
+    const cancelFromKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setFormatPainterState(null);
+      }
+    };
+
+    document.addEventListener("mouseup", applyAfterMouseSelection, true);
+    document.addEventListener("keyup", applyAfterKeyboardSelection);
+    document.addEventListener("keydown", cancelFromKeyboard);
+    return () => {
+      editorElement.classList.remove("is-format-painter-active");
+      document.removeEventListener("mouseup", applyAfterMouseSelection, true);
+      document.removeEventListener("keyup", applyAfterKeyboardSelection);
+      document.removeEventListener("keydown", cancelFromKeyboard);
+    };
+  }, [editor, formatPainterState]);
+
   const button = (
     key: BlockType,
-    label: string,
+    content: ReactNode,
     action: () => boolean,
-    title?: string,
+    title: string,
     className?: string
   ): JSX.Element => (
     <button
@@ -664,16 +1222,17 @@ function Toolbar({
       type="button"
       className={className}
       aria-pressed={activeBlock === key}
-      title={title || label}
+      aria-label={title}
+      title={title}
       disabled={disabled || !editor}
       onMouseDown={keepSelection}
       onClick={() => run(action)}
     >
-      {label}
+      {content}
     </button>
   );
 
-  const headings: Array<[BlockType, string, string, () => boolean]> = [
+  const headings: Array<[ParagraphType, string, string, () => boolean]> = [
     ["paragraph", "P", labels.paragraph, () => editor?.chain().focus().setParagraph().run() ?? false],
     ["h1", "H1", labels.heading1, () => editor?.chain().focus().toggleHeading({ level: 1 }).run() ?? false],
     ["h2", "H2", labels.heading2, () => editor?.chain().focus().toggleHeading({ level: 2 }).run() ?? false],
@@ -683,51 +1242,467 @@ function Toolbar({
     ["h6", "H6", labels.heading6, () => editor?.chain().focus().toggleHeading({ level: 6 }).run() ?? false]
   ];
 
+  const currentParagraph = activeParagraphType(editor);
+  const currentParagraphLabel = headings.find(([key]) => key === currentParagraph)?.[2] ?? labels.paragraph;
+  const textColorIsActive = Boolean(editor?.isActive("flowShuttleTextColor"));
+  const highlightIsActive = Boolean(editor?.isActive("highlight"));
+  const textColorLabels: Record<TextColor, string> = {
+    black: labels.colorBlack,
+    gray: labels.colorGray,
+    blue: labels.colorBlue,
+    green: labels.colorGreen,
+    red: labels.colorRed,
+    orange: labels.colorOrange,
+    yellow: labels.colorYellow,
+    purple: labels.colorPurple,
+    pink: labels.colorPink
+  };
+  const highlightColorLabels: Record<HighlightColor, string> = {
+    black: labels.colorBlack,
+    gray: labels.colorGray,
+    blue: labels.colorBlue,
+    green: labels.colorGreen,
+    red: labels.colorRed,
+    orange: labels.colorOrange,
+    yellow: labels.colorYellow,
+    purple: labels.colorPurple,
+    pink: labels.colorPink
+  };
+
+  const openToolbarMenu = (
+    kind: ToolbarMenuKind,
+    anchor: HTMLButtonElement
+  ) => {
+    if (!editor || disabled) {
+      return;
+    }
+    const dimensions = kind === "paragraph"
+      ? { width: 176, height: 246 }
+      : kind === "more"
+        ? { width: 218, height: 84 }
+        : kind === "highlightColor"
+          ? { width: 206, height: 116 }
+          : { width: 206, height: 78 };
+    const position = toolbarMenuPosition(anchor.getBoundingClientRect(), dimensions.width, dimensions.height);
+    setToolbarMenu((current) => {
+      if (current?.kind === kind) {
+        toolbarSelectionRef.current = null;
+        return null;
+      }
+      return { kind, ...position };
+    });
+  };
+
+  const formatButton = (
+    key: string,
+    content: ReactNode,
+    active: boolean,
+    action: () => boolean,
+    title: string
+  ) => (
+    <button
+      key={key}
+      type="button"
+      className="markdown-editor-icon-button"
+      aria-pressed={active}
+      aria-label={title}
+      title={title}
+      disabled={disabled || !editor}
+      onMouseDown={keepSelection}
+      onClick={() => run(action)}
+    >
+      {content}
+    </button>
+  );
+
+  const toolbarMenuPortal = toolbarMenu && typeof document !== "undefined"
+    ? createPortal(
+        <div
+          ref={toolbarMenuRef}
+          className={`markdown-editor-toolbar-menu is-${toolbarMenu.kind}`}
+          role="menu"
+          aria-label={
+            toolbarMenu.kind === "paragraph"
+              ? labels.heading
+              : toolbarMenu.kind === "textColor"
+                ? labels.textColor
+                : toolbarMenu.kind === "highlightColor"
+                  ? labels.highlightColor
+                  : labels.more
+          }
+          style={{ left: toolbarMenu.left, top: toolbarMenu.top }}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {toolbarMenu.kind === "paragraph" && headings.map(([key, prefix, title, action]) => (
+            <button
+              key={key}
+              type="button"
+              role="menuitemradio"
+              aria-checked={currentParagraph === key}
+              onClick={() => {
+                run(action);
+                setToolbarMenu(null);
+              }}
+            >
+              <span className="markdown-editor-paragraph-prefix">{prefix}</span>
+              <span>{title}</span>
+              {currentParagraph === key && <Check size={15} strokeWidth={1.9} aria-hidden="true" />}
+            </button>
+          ))}
+          {toolbarMenu.kind === "textColor" && (
+            <div className="markdown-editor-color-grid" role="group" aria-label={labels.textColor}>
+              {TEXT_COLOR_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className="markdown-editor-color-choice"
+                  role="menuitemradio"
+                  aria-checked={rememberedTextColor === option.value}
+                  aria-label={textColorLabels[option.value]}
+                  title={textColorLabels[option.value]}
+                  onClick={() => {
+                    setRememberedTextColor(option.value);
+                    run(() => editor?.chain().focus().setMark("flowShuttleTextColor", { color: option.value }).run() ?? false);
+                    setToolbarMenu(null);
+                  }}
+                >
+                  <span style={{ backgroundColor: option.fallback }} />
+                  {rememberedTextColor === option.value && <Check size={13} strokeWidth={2.2} aria-hidden="true" />}
+                </button>
+              ))}
+            </div>
+          )}
+          {toolbarMenu.kind === "highlightColor" && (
+            <>
+              <button
+                type="button"
+                className="markdown-editor-color-reset"
+                role="menuitemradio"
+                aria-checked={rememberedHighlightColor === null}
+                onClick={() => {
+                  setRememberedHighlightColor(null);
+                  run(() => editor?.chain().focus().unsetMark("highlight").run() ?? false);
+                  setToolbarMenu(null);
+                }}
+              >
+                <Eraser size={16} strokeWidth={1.8} aria-hidden="true" />
+                <span>{labels.noBackground}</span>
+                {rememberedHighlightColor === null && <Check size={13} strokeWidth={2.2} aria-hidden="true" />}
+              </button>
+              <div className="markdown-editor-color-grid is-highlight" role="group" aria-label={labels.highlightColor}>
+                {HIGHLIGHT_COLOR_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className="markdown-editor-color-choice"
+                    role="menuitemradio"
+                    aria-checked={rememberedHighlightColor === option.value}
+                    aria-label={highlightColorLabels[option.value]}
+                    title={highlightColorLabels[option.value]}
+                    onClick={() => {
+                      setRememberedHighlightColor(option.value);
+                      run(() => editor?.chain().focus().setMark("highlight", { color: option.value }).run() ?? false);
+                      setToolbarMenu(null);
+                    }}
+                  >
+                    <span style={{ backgroundColor: option.fallback }} />
+                    {rememberedHighlightColor === option.value && <Check size={13} strokeWidth={2.2} aria-hidden="true" />}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {toolbarMenu.kind === "more" && (
+            <>
+              <button
+                type="button"
+                className={`markdown-editor-more-menu-item${formatPainterState ? " is-active" : ""}`}
+                role="menuitemcheckbox"
+                aria-checked={Boolean(formatPainterState)}
+                aria-keyshortcuts="Control+Alt+C"
+                onClick={() => {
+                  activateFormatPainter();
+                  setToolbarMenu(null);
+                }}
+              >
+                <PaintRoller size={16} strokeWidth={1.8} aria-hidden="true" />
+                <span>{labels.formatPainter}</span>
+                <span className="markdown-editor-menu-shortcut" aria-hidden="true">
+                  <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>C</kbd>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="markdown-editor-more-menu-item"
+                role="menuitem"
+                aria-keyshortcuts={"Control+\\"}
+                onClick={() => {
+                  clearFormatting();
+                  setToolbarMenu(null);
+                }}
+              >
+                <RemoveFormatting size={16} strokeWidth={1.8} aria-hidden="true" />
+                <span>{labels.clearFormatting}</span>
+                <span className="markdown-editor-menu-shortcut" aria-hidden="true">
+                  <kbd>Ctrl</kbd><kbd>{"\\"}</kbd>
+                </span>
+              </button>
+            </>
+          )}
+        </div>,
+        document.body
+      )
+    : null;
+
+  const increaseIndentAvailable = Boolean(editor && canIndentListItem(editor));
+  const decreaseIndentAvailable = Boolean(editor && canOutdentListItem(editor));
+
   return (
-    <div className="markdown-editor-toolbar" role="toolbar" aria-label={labels.toolbarLabel}>
-      <div className="markdown-editor-heading-group" aria-label={labels.heading}>
-        {headings.map(([key, label, title, action]) => button(key, label, action, title))}
+    <>
+      <div className="markdown-editor-toolbar" role="toolbar" aria-label={labels.toolbarLabel}>
+        <button
+          type="button"
+          className="markdown-editor-paragraph-trigger"
+          data-markdown-toolbar-menu-trigger
+          aria-label={labels.heading}
+          aria-expanded={toolbarMenu?.kind === "paragraph"}
+          title={labels.heading}
+          disabled={disabled || !editor}
+          onMouseDown={keepSelection}
+          onClick={(event) => openToolbarMenu("paragraph", event.currentTarget)}
+        >
+          <span>{currentParagraphLabel}</span>
+          <ChevronDown size={14} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+        <span className="markdown-editor-toolbar-divider" />
+        <div className="markdown-editor-format-group">
+          {formatButton(
+            "bold",
+            <Bold size={16} strokeWidth={1.8} aria-hidden="true" />,
+            Boolean(editor?.isActive("bold")),
+            () => editor?.chain().focus().toggleBold().run() ?? false,
+            labels.bold
+          )}
+          {formatButton(
+            "italic",
+            <Italic size={16} strokeWidth={1.8} aria-hidden="true" />,
+            Boolean(editor?.isActive("italic")),
+            () => editor?.chain().focus().toggleItalic().run() ?? false,
+            labels.italic
+          )}
+          {formatButton(
+            "underline",
+            <Underline size={16} strokeWidth={1.8} aria-hidden="true" />,
+            Boolean(editor?.isActive("underline")),
+            () => editor?.chain().focus().toggleMark("underline").run() ?? false,
+            labels.underline
+          )}
+          {formatButton(
+            "strike",
+            <Strikethrough size={16} strokeWidth={1.8} aria-hidden="true" />,
+            Boolean(editor?.isActive("strike")),
+            () => editor?.chain().focus().toggleStrike().run() ?? false,
+            labels.strikethrough
+          )}
+          <div className="markdown-editor-color-control" role="group" aria-label={labels.textColor}>
+            <button
+              type="button"
+              className="markdown-editor-color-apply"
+              aria-pressed={textColorIsActive}
+              aria-label={labels.textColor}
+              title={`${labels.textColor}: ${textColorLabels[rememberedTextColor]}`}
+              disabled={disabled || !editor}
+              onMouseDown={keepSelection}
+              onClick={() => run(() => {
+                const color = resolveTextColorToggle(textColorIsActive, rememberedTextColor);
+                return color
+                  ? editor?.chain().focus().setMark("flowShuttleTextColor", { color }).run() ?? false
+                  : editor?.chain().focus().unsetMark("flowShuttleTextColor").run() ?? false;
+              })}
+            >
+              <Baseline
+                size={16}
+                strokeWidth={1.8}
+                aria-hidden="true"
+                style={{
+                  color: rememberedTextColor === "black"
+                    ? "var(--text-primary)"
+                    : textColorFallback(rememberedTextColor) ?? undefined
+                }}
+              />
+            </button>
+            <button
+              type="button"
+              className="markdown-editor-color-menu-trigger"
+              data-markdown-toolbar-menu-trigger
+              aria-label={labels.textColor}
+              aria-haspopup="menu"
+              aria-expanded={toolbarMenu?.kind === "textColor"}
+              title={labels.textColor}
+              disabled={disabled || !editor}
+              onMouseDown={keepSelection}
+              onClick={(event) => openToolbarMenu("textColor", event.currentTarget)}
+            >
+              <ChevronDown size={10} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="markdown-editor-color-control" role="group" aria-label={labels.highlightColor}>
+            <button
+              type="button"
+              className="markdown-editor-color-apply"
+              aria-pressed={highlightIsActive}
+              aria-label={labels.highlightColor}
+              title={`${labels.highlightColor}: ${
+                rememberedHighlightColor
+                  ? highlightColorLabels[rememberedHighlightColor]
+                  : labels.noBackground
+              }`}
+              disabled={disabled || !editor}
+              onMouseDown={keepSelection}
+              onClick={() => run(() => {
+                const color = resolveHighlightColorToggle(highlightIsActive, rememberedHighlightColor);
+                return color
+                  ? editor?.chain().focus().setMark("highlight", { color }).run() ?? false
+                  : editor?.chain().focus().unsetMark("highlight").run() ?? false;
+              })}
+            >
+              <Highlighter
+                size={16}
+                strokeWidth={1.8}
+                aria-hidden="true"
+                style={{
+                  color: rememberedHighlightColor === "black"
+                    ? "var(--text-primary)"
+                    : highlightColorIndicator(rememberedHighlightColor) ?? undefined
+                }}
+              />
+            </button>
+            <button
+              type="button"
+              className="markdown-editor-color-menu-trigger"
+              data-markdown-toolbar-menu-trigger
+              aria-label={labels.highlightColor}
+              aria-haspopup="menu"
+              aria-expanded={toolbarMenu?.kind === "highlightColor"}
+              title={labels.highlightColor}
+              disabled={disabled || !editor}
+              onMouseDown={keepSelection}
+              onClick={(event) => openToolbarMenu("highlightColor", event.currentTarget)}
+            >
+              <ChevronDown size={10} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+        <span className="markdown-editor-toolbar-divider" />
+        {button(
+          "number",
+          <ListOrdered size={16} strokeWidth={1.8} aria-hidden="true" />,
+          () => editor?.chain().focus().toggleOrderedList().run() ?? false,
+          labels.numberedList,
+          "markdown-editor-icon-button"
+        )}
+        {button(
+          "bullet",
+          <List size={16} strokeWidth={1.8} aria-hidden="true" />,
+          () => editor?.chain().focus().toggleBulletList().run() ?? false,
+          labels.bulletedList,
+          "markdown-editor-icon-button"
+        )}
+        {button(
+          "check",
+          <SquareCheckBig size={16} strokeWidth={1.8} aria-hidden="true" />,
+          () => editor?.chain().focus().toggleTaskList().run() ?? false,
+          labels.taskList,
+          "markdown-editor-icon-button"
+        )}
+        <button
+          type="button"
+          className="markdown-editor-icon-button"
+          aria-label={labels.increaseIndent}
+          title={labels.increaseIndent}
+          disabled={disabled || !editor || !increaseIndentAvailable}
+          onMouseDown={keepSelection}
+          onClick={() => run(() => editor ? indentListItem(editor) : false)}
+        >
+          <IndentIncrease size={16} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="markdown-editor-icon-button"
+          aria-label={labels.decreaseIndent}
+          title={labels.decreaseIndent}
+          disabled={disabled || !editor || !decreaseIndentAvailable}
+          onMouseDown={keepSelection}
+          onClick={() => run(() => editor ? outdentListItem(editor) : false)}
+        >
+          <IndentDecrease size={16} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+        <span className="markdown-editor-toolbar-divider" />
+        {button(
+          "quote",
+          <Quote size={16} strokeWidth={1.8} aria-hidden="true" />,
+          () => editor?.chain().focus().toggleBlockquote().run() ?? false,
+          labels.quote,
+          "markdown-editor-icon-button"
+        )}
+        {button(
+          "code",
+          <SquareCode size={16} strokeWidth={1.8} aria-hidden="true" />,
+          () => editor?.chain().focus().toggleCodeBlock().run() ?? false,
+          labels.codeBlock,
+          "markdown-editor-icon-button"
+        )}
+        <span className="markdown-editor-toolbar-divider" />
+        <button
+          type="button"
+          className="markdown-editor-icon-button markdown-editor-more-trigger"
+          data-markdown-toolbar-menu-trigger
+          aria-label={labels.more}
+          aria-haspopup="menu"
+          aria-expanded={toolbarMenu?.kind === "more"}
+          aria-pressed={Boolean(formatPainterState)}
+          title={labels.more}
+          disabled={disabled || !editor}
+          onMouseDown={keepSelection}
+          onClick={(event) => openToolbarMenu("more", event.currentTarget)}
+        >
+          <Ellipsis size={18} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+        {!disabled && (
+          <>
+            <span className="markdown-editor-toolbar-spacer" />
+            <button
+              className={`markdown-editor-ai-polish-toggle${aiSelectionPolishEnabled ? " is-on" : ""}`}
+              type="button"
+              aria-pressed={aiSelectionPolishEnabled}
+              aria-label={`${labels.aiSelectionPolishToggle}: ${
+                aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff
+              }`}
+              title={`${labels.aiSelectionPolishToggle}: ${
+                aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff
+              }`}
+              disabled={!editor}
+              onMouseDown={keepSelection}
+              onClick={() => {
+                if (!editor) {
+                  return;
+                }
+                restoreToolbarSelection();
+                onToggleAiSelectionPolish();
+                toolbarSelectionRef.current = null;
+                editor.commands.focus();
+              }}
+            >
+              <Sparkles size={14} aria-hidden="true" />
+              <span>{labels.aiSelectionPolishToggle}</span>
+              <small>{aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff}</small>
+            </button>
+          </>
+        )}
       </div>
-      <span className="markdown-editor-toolbar-divider" />
-      {button("bullet", "\u2022", () => editor?.chain().focus().toggleBulletList().run() ?? false, labels.bulletedList, "markdown-editor-icon-button")}
-      {button("number", "1.", () => editor?.chain().focus().toggleOrderedList().run() ?? false, labels.numberedList, "markdown-editor-icon-button")}
-      {button("check", "\u2611", () => editor?.chain().focus().toggleTaskList().run() ?? false, labels.taskList, "markdown-editor-icon-button")}
-      <span className="markdown-editor-toolbar-divider" />
-      {button("quote", "66", () => editor?.chain().focus().toggleBlockquote().run() ?? false, labels.quote, "markdown-editor-icon-button")}
-      {button("code", "CB", () => editor?.chain().focus().toggleCodeBlock().run() ?? false, labels.codeBlock, "markdown-editor-icon-button")}
-      {button("highlight", "HL", () => editor?.chain().focus().toggleHighlight().run() ?? false, labels.highlightBlock, "markdown-editor-icon-button")}
-      {!disabled && (
-        <>
-          <span className="markdown-editor-toolbar-spacer" />
-          <button
-            className={`markdown-editor-ai-polish-toggle${aiSelectionPolishEnabled ? " is-on" : ""}`}
-            type="button"
-            aria-pressed={aiSelectionPolishEnabled}
-            aria-label={`${labels.aiSelectionPolishToggle}: ${
-              aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff
-            }`}
-            title={`${labels.aiSelectionPolishToggle}: ${
-              aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff
-            }`}
-            disabled={!editor}
-            onMouseDown={keepSelection}
-            onClick={() => {
-              if (!editor) {
-                return;
-              }
-              restoreToolbarSelection();
-              onToggleAiSelectionPolish();
-              toolbarSelectionRef.current = null;
-              editor.commands.focus();
-            }}
-          >
-            <Sparkles size={14} aria-hidden="true" />
-            <span>{labels.aiSelectionPolishToggle}</span>
-            <small>{aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff}</small>
-          </button>
-        </>
-      )}
-    </div>
+      {toolbarMenuPortal}
+    </>
   );
 }
 
@@ -757,9 +1732,24 @@ export function MarkdownWysiwygEditor({
   const syncingRef = useRef(false);
   const lastMarkdownRef = useRef(normalizePlainText(value || ""));
   const [contextMenu, setContextMenu] = useState<EditorContextMenu | null>(null);
+  const [numberingMenu, setNumberingMenu] = useState<OrderedListNumberingMenu | null>(null);
+  const [editingNumberValue, setEditingNumberValue] = useState(false);
+  const [numberValue, setNumberValue] = useState("1");
+  const [selectedImage, setSelectedImage] = useState<SelectedImageControls | null>(null);
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [characterCount, setCharacterCount] = useState(() => countEditorCharacters(value || ""));
   const [aiSelectionPolishEnabled, setAiSelectionPolishEnabled] = useState(false);
+  const numberingMenuRef = useRef<HTMLDivElement | null>(null);
+  const numberInputRef = useRef<HTMLInputElement | null>(null);
+
+  const closeNumberingMenu = useCallback((focusEditor = false) => {
+    setNumberingMenu(null);
+    setEditingNumberValue(false);
+    if (focusEditor) {
+      editorRef.current?.commands.focus();
+    }
+  }, []);
 
   useEffect(() => {
     uploadRef.current = onImageUpload;
@@ -863,23 +1853,25 @@ export function MarkdownWysiwygEditor({
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4, 5, 6] },
         hardBreak: false,
-        link: false
+        link: false,
+        orderedList: false,
+        underline: false
       }),
+      FlowShuttleOrderedList,
+      FlowShuttleListBehavior,
       FlowShuttleHardBreak,
       FlowShuttleKeyboardExtension,
+      FlowShuttleUnderline,
+      FlowShuttleTextColor,
       TaskList,
       TaskItem.configure({ nested: true }),
-      Image.configure({
+      FlowShuttleImage.configure({
         allowBase64: false,
         HTMLAttributes: {
           class: "markdown-editor-image"
         }
       }),
-      Highlight.configure({
-        HTMLAttributes: {
-          class: "markdown-editor-highlight-inline"
-        }
-      }),
+      FlowShuttleHighlight,
       Placeholder.configure({
         placeholder
       }),
@@ -942,8 +1934,10 @@ export function MarkdownWysiwygEditor({
     },
     onCreate: ({ editor: createdEditor }) => {
       editorRef.current = createdEditor;
+      setCharacterCount(getEditorCharacterCount(createdEditor));
     },
     onUpdate: ({ editor: updatedEditor }) => {
+      setCharacterCount(getEditorCharacterCount(updatedEditor));
       if (syncingRef.current) {
         return;
       }
@@ -982,6 +1976,92 @@ export function MarkdownWysiwygEditor({
       }
     };
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor) {
+      setSelectedImage(null);
+      return;
+    }
+
+    const root = editor.view.dom as HTMLElement;
+    let frame: number | null = null;
+    const refresh = () => {
+      frame = null;
+      setSelectedImage(selectedImageControls(editor, Boolean(disabled)));
+    };
+    const scheduleRefresh = () => {
+      if (frame === null) {
+        frame = window.requestAnimationFrame(refresh);
+      }
+    };
+
+    refresh();
+    editor.on("selectionUpdate", scheduleRefresh);
+    editor.on("transaction", scheduleRefresh);
+    root.addEventListener("flow-shuttle-image-resize", scheduleRefresh);
+    document.addEventListener("scroll", scheduleRefresh, true);
+    window.addEventListener("resize", scheduleRefresh);
+
+    return () => {
+      editor.off("selectionUpdate", scheduleRefresh);
+      editor.off("transaction", scheduleRefresh);
+      root.removeEventListener("flow-shuttle-image-resize", scheduleRefresh);
+      document.removeEventListener("scroll", scheduleRefresh, true);
+      window.removeEventListener("resize", scheduleRefresh);
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [disabled, editor]);
+
+  useEffect(() => {
+    if (!editingNumberValue || !numberingMenu) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      numberInputRef.current?.focus();
+      numberInputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editingNumberValue, numberingMenu]);
+
+  useEffect(() => {
+    if (!numberingMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!numberingMenuRef.current?.contains(event.target as Node)) {
+        closeNumberingMenu();
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeNumberingMenu(true);
+      }
+    };
+    const close = () => closeNumberingMenu();
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("blur", close);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("blur", close);
+    };
+  }, [closeNumberingMenu, numberingMenu]);
+
+  useEffect(() => {
+    if (disabled) {
+      closeNumberingMenu();
+    }
+  }, [closeNumberingMenu, disabled]);
 
   useEffect(() => {
     editor?.setEditable(!disabled);
@@ -1038,6 +2118,7 @@ export function MarkdownWysiwygEditor({
     try {
       editor.commands.setContent(normalizeMarkdownForImport(next), { contentType: "markdown", emitUpdate: false });
       lastMarkdownRef.current = next;
+      setCharacterCount(getEditorCharacterCount(editor));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setEditorError(message);
@@ -1056,6 +2137,7 @@ export function MarkdownWysiwygEditor({
       if (disabled) {
         return;
       }
+      closeNumberingMenu();
       const target = event.target as HTMLElement | null;
       const image = target?.closest<HTMLImageElement>("img.markdown-editor-image");
       const selectionText = window.getSelection()?.toString().trim() || "";
@@ -1068,26 +2150,85 @@ export function MarkdownWysiwygEditor({
         imageAlt: image?.getAttribute("alt") || undefined
       });
     };
+    const openNumberingMenuAtPoint = (event: MouseEvent): boolean => {
+      if (!disabled) {
+        const listItem = orderedListItemAtMarkerPoint(root, event.clientX, event.clientY);
+        if (listItem) {
+          event.preventDefault();
+          setContextMenu(null);
+          if (selectOrderedListItem(editor, listItem)) {
+            const currentNumber = getCurrentOrderedListNumber(editor);
+            const content = orderedListItemContent(listItem);
+            if (currentNumber !== null && content) {
+              const rect = content.getBoundingClientRect();
+              const contentStyle = window.getComputedStyle(content);
+              setNumberValue(String(currentNumber));
+              setEditingNumberValue(false);
+              setNumberingMenu({
+                anchorX: event.clientX,
+                anchorY: rect.top + Math.min(rect.height, 24),
+                currentNumber,
+                canContinue: canContinueOrderedList(editor),
+                markerFontFamily: contentStyle.fontFamily,
+                markerFontSize: contentStyle.fontSize,
+                markerFontWeight: contentStyle.fontWeight,
+                markerLabel: formatOrderedListMarker(
+                  currentNumber,
+                  orderedListMarkerLevel(listItem)
+                ),
+                markerLineHeight: contentStyle.lineHeight,
+                markerRight: rect.left - 7,
+                markerTop: rect.top
+              });
+              return true;
+            }
+          }
+        }
+      }
+
+      return false;
+    };
+
+    const handleMouseDown = (event: MouseEvent) => {
+      if (event.button === 0 && openNumberingMenuAtPoint(event)) {
+        event.stopPropagation();
+      }
+    };
+
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       const image = target?.closest<HTMLImageElement>("img.markdown-editor-image");
       if (image) {
-        setPreviewImage({
-          src: image.getAttribute("src") || "",
-          alt: image.getAttribute("alt") || resolvedLabels.saveImageAs
-        });
+        closeNumberingMenu();
+        setContextMenu(null);
       } else {
         setContextMenu(null);
       }
     };
+    const handleDoubleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const image = target?.closest<HTMLImageElement>("img.markdown-editor-image");
+      if (!image) {
+        return;
+      }
+      event.preventDefault();
+      setPreviewImage({
+        src: image.getAttribute("src") || "",
+        alt: image.getAttribute("alt") || resolvedLabels.saveImageAs
+      });
+    };
 
     root.addEventListener("contextmenu", handleContextMenu);
+    root.addEventListener("mousedown", handleMouseDown, true);
     root.addEventListener("click", handleClick);
+    root.addEventListener("dblclick", handleDoubleClick);
     return () => {
       root.removeEventListener("contextmenu", handleContextMenu);
+      root.removeEventListener("mousedown", handleMouseDown, true);
       root.removeEventListener("click", handleClick);
+      root.removeEventListener("dblclick", handleDoubleClick);
     };
-  }, [disabled, editor, resolvedLabels.saveImageAs]);
+  }, [closeNumberingMenu, disabled, editor, resolvedLabels.saveImageAs]);
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -1210,6 +2351,106 @@ export function MarkdownWysiwygEditor({
     await runNativeEditorAction(action);
   };
 
+  const parsedNumberValue = Number.parseInt(numberValue, 10);
+  const numberValueIsValid = /^\d+$/.test(numberValue.trim())
+    && parsedNumberValue >= 1
+    && parsedNumberValue <= MAX_ORDERED_LIST_VALUE;
+
+  const runNumberingAction = (
+    mode: "new" | "continue" | "custom",
+    customStart?: number
+  ) => {
+    const currentEditor = editorRef.current;
+    if (!currentEditor || disabled) {
+      return;
+    }
+    if (setCurrentOrderedListSequence(currentEditor, mode, customStart)) {
+      closeNumberingMenu();
+    }
+  };
+
+  const applyImagePresentation = (presentation: ImagePresentation) => {
+    const currentEditor = editorRef.current;
+    if (!currentEditor || !selectedImage || disabled) {
+      return;
+    }
+    const targetNode = currentEditor.state.doc.nodeAt(selectedImage.position);
+    if (targetNode?.type.name !== "image") {
+      setSelectedImage(null);
+      return;
+    }
+    currentEditor
+      .chain()
+      .focus()
+      .setNodeSelection(selectedImage.position)
+      .updateAttributes("image", { presentation })
+      .run();
+  };
+
+  const imagePresentationOptions: Array<{
+    value: ImagePresentation;
+    label: string;
+    icon: ReactNode;
+  }> = [
+    {
+      value: "none",
+      label: resolvedLabels.imageNoBorder,
+      icon: <SquareDashed size={18} strokeWidth={1.7} aria-hidden="true" />
+    },
+    {
+      value: "light",
+      label: resolvedLabels.imageLightBorder,
+      icon: <Square size={18} strokeWidth={1.35} aria-hidden="true" />
+    },
+    {
+      value: "dark",
+      label: resolvedLabels.imageDarkBorder,
+      icon: <Square size={18} strokeWidth={2.55} aria-hidden="true" />
+    },
+    {
+      value: "shadow",
+      label: resolvedLabels.imageShadow,
+      icon: <Layers size={18} strokeWidth={1.75} aria-hidden="true" />
+    },
+    {
+      value: "frame",
+      label: resolvedLabels.imageFrame,
+      icon: <Frame size={18} strokeWidth={1.75} aria-hidden="true" />
+    }
+  ];
+
+  const imageStyleToolbarPortal = selectedImage && !disabled
+    ? createPortal(
+        <div
+          className="markdown-editor-image-toolbar"
+          role="toolbar"
+          aria-label={resolvedLabels.imageAppearance}
+          title={resolvedLabels.imageResizeHint}
+          style={imageToolbarPosition(selectedImage)}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <span className="sr-only">{resolvedLabels.imageResizeHint}</span>
+          {imagePresentationOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-label={option.label}
+              aria-pressed={selectedImage.presentation === option.value}
+              title={option.label}
+              onClick={() => applyImagePresentation(option.value)}
+            >
+              {option.icon}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )
+    : null;
+
   const lightbox = previewImage
     ? createPortal(
         <div
@@ -1292,6 +2533,97 @@ export function MarkdownWysiwygEditor({
       )
     : null;
 
+  const numberingMenuPortal = numberingMenu
+    ? createPortal(
+        <div
+          ref={numberingMenuRef}
+          className="markdown-editor-numbering-menu"
+          role="menu"
+          aria-label={resolvedLabels.numberingOptions}
+          style={numberingMenuPosition(numberingMenu, editingNumberValue)}
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!numberingMenu.canContinue}
+            onClick={() => runNumberingAction("continue")}
+          >
+            <ListRestart size={17} strokeWidth={1.8} aria-hidden="true" />
+            <span>{resolvedLabels.continuePreviousNumbering}</span>
+          </button>
+          <button type="button" role="menuitem" onClick={() => runNumberingAction("new")}>
+            <ListStart size={17} strokeWidth={1.8} aria-hidden="true" />
+            <span>{resolvedLabels.startNewList}</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            aria-expanded={editingNumberValue}
+            onClick={() => {
+              setNumberValue(String(numberingMenu.currentNumber));
+              setEditingNumberValue(true);
+            }}
+          >
+            <PencilLine size={17} strokeWidth={1.8} aria-hidden="true" />
+            <span>{resolvedLabels.changeNumberValue}</span>
+          </button>
+          {editingNumberValue && (
+            <div className="markdown-editor-numbering-input-row">
+              <label>
+                <span>{resolvedLabels.numberValue}</span>
+                <input
+                  ref={numberInputRef}
+                  type="number"
+                  min={1}
+                  max={MAX_ORDERED_LIST_VALUE}
+                  step={1}
+                  inputMode="numeric"
+                  value={numberValue}
+                  onChange={(event) => setNumberValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && numberValueIsValid) {
+                      event.preventDefault();
+                      runNumberingAction("custom", parsedNumberValue);
+                    }
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={!numberValueIsValid}
+                onClick={() => runNumberingAction("custom", parsedNumberValue)}
+              >
+                {resolvedLabels.applyNumberValue}
+              </button>
+            </div>
+          )}
+        </div>,
+        document.body
+      )
+    : null;
+
+  const numberingMarkerPortal = numberingMenu
+    ? createPortal(
+        <span
+          className="markdown-editor-number-marker-selection"
+          aria-hidden="true"
+          style={{
+            fontFamily: numberingMenu.markerFontFamily,
+            fontSize: numberingMenu.markerFontSize,
+            fontWeight: numberingMenu.markerFontWeight,
+            left: numberingMenu.markerRight,
+            lineHeight: numberingMenu.markerLineHeight,
+            top: numberingMenu.markerTop
+          }}
+        >
+          {numberingMenu.markerLabel}
+        </span>,
+        document.body
+      )
+    : null;
+
   return (
     <>
       <div
@@ -1321,10 +2653,18 @@ export function MarkdownWysiwygEditor({
               onToggleAiSelectionPolish={() => setAiSelectionPolishEnabled((current) => !current)}
             />
             <EditorContent className="tiptap-editor-content" editor={editor} />
+            {!disabled && (
+              <span className="markdown-editor-character-count" aria-live="polite">
+                {characterCount}{resolvedLabels.characterUnit}
+              </span>
+            )}
           </div>
         )}
       </div>
       {contextMenuPortal}
+      {numberingMarkerPortal}
+      {numberingMenuPortal}
+      {imageStyleToolbarPortal}
       {lightbox}
     </>
   );

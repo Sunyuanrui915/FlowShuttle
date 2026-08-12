@@ -69,6 +69,7 @@ import editorPaperNightVoyage from "./assets/editor-paper/night-voyage.webp";
 import userGuideEn from "./content/user-guide.en.md?raw";
 import userGuideZhCn from "./content/user-guide.zh-CN.md?raw";
 import { createTranslator, languageOptions, type Translator } from "./i18n";
+import { FeedbackEntryRow, FeedbackModal } from "./FeedbackModal";
 import {
   AiSelectionPolishProvider,
   type AiSelectionPolishLabels
@@ -1049,8 +1050,37 @@ function markdownEditorLabels(t: Translator): MarkdownEditorLabels {
     heading4: t("editorHeading4"),
     heading5: t("editorHeading5"),
     heading6: t("editorHeading6"),
+    bold: t("editorBold"),
+    italic: t("editorItalic"),
+    underline: t("editorUnderline"),
+    strikethrough: t("editorStrikethrough"),
+    textColor: t("editorTextColor"),
+    highlightColor: t("editorHighlightColor"),
+    defaultColor: t("editorDefaultColor"),
+    noBackground: t("editorNoBackground"),
+    more: t("editorMore"),
+    formatPainter: t("editorFormatPainter"),
+    clearFormatting: t("editorClearFormatting"),
+    colorBlack: t("editorColorBlack"),
+    colorYellow: t("editorColorYellow"),
+    colorGray: t("editorColorGray"),
+    colorRed: t("editorColorRed"),
+    colorOrange: t("editorColorOrange"),
+    colorGreen: t("editorColorGreen"),
+    colorBlue: t("editorColorBlue"),
+    colorPink: t("editorColorPink"),
+    colorPurple: t("editorColorPurple"),
+    characterUnit: t("editorCharacterUnit"),
     bulletedList: t("editorBulletedList"),
     numberedList: t("editorNumberedList"),
+    numberingOptions: t("editorNumberingOptions"),
+    continuePreviousNumbering: t("editorContinuePreviousNumbering"),
+    startNewList: t("editorStartNewList"),
+    changeNumberValue: t("editorChangeNumberValue"),
+    numberValue: t("editorNumberValue"),
+    applyNumberValue: t("editorApplyNumberValue"),
+    increaseIndent: t("editorIncreaseIndent"),
+    decreaseIndent: t("editorDecreaseIndent"),
     taskList: t("editorTaskList"),
     quote: t("editorQuote"),
     codeBlock: t("editorCodeBlock"),
@@ -1064,6 +1094,13 @@ function markdownEditorLabels(t: Translator): MarkdownEditorLabels {
     imageSaved: t("editorImageSaved"),
     imageSaveFailed: t("editorImageSaveFailed"),
     imageTooLarge: t("editorImageTooLarge"),
+    imageAppearance: t("editorImageAppearance"),
+    imageNoBorder: t("editorImageNoBorder"),
+    imageLightBorder: t("editorImageLightBorder"),
+    imageDarkBorder: t("editorImageDarkBorder"),
+    imageShadow: t("editorImageShadow"),
+    imageFrame: t("editorImageFrame"),
+    imageResizeHint: t("editorImageResizeHint"),
     clipboardEmpty: t("editorClipboardEmpty"),
     highlightPlaceholder: t("editorHighlightPlaceholder"),
     aiSelectionPolishToggle: t("aiSelectionPolishAction"),
@@ -9738,6 +9775,7 @@ function SettingsPage({
   const [updateAction, setUpdateAction] = useState<"check" | "download" | "install" | null>(null);
   const [updateMessage, setUpdateMessage] = useState<Toast | null>(null);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [expandedSettingsSection, setExpandedSettingsSection] = useState<"ai" | "storage" | "update" | null>(null);
   const [isTransferGuideOpen, setIsTransferGuideOpen] = useState(false);
 
@@ -10405,17 +10443,26 @@ function SettingsPage({
                   type="button"
                   onClick={() => setIsAboutModalOpen(true)}
                 >
-                  <ExternalLink size={16} />
+                  <Info size={16} />
                   {t("openAboutFlowShuttle")}
                 </button>
               </div>
             </div>
+
+            <FeedbackEntryRow t={t} onOpen={() => setIsFeedbackModalOpen(true)} />
 
           </div>
         </section>
       </div>
 
       {isAboutModalOpen && <AboutFlowShuttleModal t={t} onClose={() => setIsAboutModalOpen(false)} />}
+      {isFeedbackModalOpen && (
+        <FeedbackModal
+          t={t}
+          onClose={() => setIsFeedbackModalOpen(false)}
+          onSubmit={(input) => window.workJournal.feedback.submit(input)}
+        />
+      )}
     </section>
   );
 }

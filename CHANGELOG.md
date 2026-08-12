@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.4.0 - 2026-08-13
+
+### Added
+
+* 编辑器新增段落层级下拉菜单，可在正文与 H1-H6 标题之间切换。
+* Added a paragraph-level dropdown for switching between body text and H1-H6 headings.
+* 新增三级有序列表和无序列表。列表项支持通过工具栏或 `Tab` / `Shift+Tab` 增加、减少缩进，最多嵌套三级。
+* Added ordered and unordered lists with up to three nesting levels. Use the toolbar or `Tab` / `Shift+Tab` to increase or decrease list indentation.
+* 点击有序列表编号可选择“继续之前的编号”“开始新列表”或“修改编号值”；数字、英文字母和罗马数字层级均支持这些操作。
+* Added marker actions for ordered lists: Continue Previous Numbering, Start New List, and Change Number Value. These actions work at decimal, alphabetic, and Roman numeral levels.
+* 新增下划线、文字颜色和高亮颜色，并补全粗体、斜体、删除线等常用文字格式入口。
+* Added underline, text color, and highlight color, together with complete toolbar access to bold, italic, and strikethrough.
+* “更多”菜单新增格式刷和清除格式；格式刷采用一次性应用方式，避免误改后续内容。
+* Added a one-shot Format Painter and Clear Formatting command to the More menu.
+* 编辑器右下角新增实时字数显示。
+* Added a live character count in the lower-right corner of the editor.
+* 图片选中后可拖动控制点调整显示大小，并可选择无边框、浅边框、深边框、投影或画框样式。
+* Selected images can now be resized with drag handles and displayed with no border, a light border, a dark border, a shadow, or a frame.
+* 设置页在“关于流梭”下方新增独立反馈入口。反馈支持填写最多 2000 字的内容、选填联系邮箱，以及粘贴、拖拽或选择最多 5 张截图。
+* Added a dedicated Feedback entry below About Flow Shuttle in Settings. Feedback supports up to 2,000 characters, an optional contact email, and up to five screenshots added by paste, drag-and-drop, or file selection.
+
+### Improved
+
+* 重新设计编辑器工具栏的图标、分组与间距，提升常用操作的识别度并减少横向占用。
+* Redesigned editor toolbar icons, grouping, and spacing to improve recognition while using less horizontal space.
+
 ## v0.3.3 - 2026-08-09
 
 ### Fixed

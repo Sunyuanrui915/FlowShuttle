@@ -13,6 +13,7 @@ import type {
   CreateProjectInput,
   CreateWorkItemInput,
   ExportMarkdownInput,
+  FeedbackSubmitInput,
   LanguagePreference,
   PeriodReportType,
   SaveAttachmentAsInput,
@@ -188,6 +189,9 @@ const api: WorkJournalApi = {
         ipcRenderer.removeListener("settings:changed", listener);
       };
     }
+  },
+  feedback: {
+    submit: (input: FeedbackSubmitInput) => ipcRenderer.invoke("feedback:submit", input)
   },
   ai: {
     getSettings: () => ipcRenderer.invoke("ai:get-settings"),

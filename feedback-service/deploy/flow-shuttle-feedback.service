@@ -1,0 +1,37 @@
+[Unit]
+Description=Flow Shuttle feedback service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flowshuttle-feedback
+Group=flowshuttle-feedback
+WorkingDirectory=/opt/services/flow-shuttle-feedback/current
+EnvironmentFile=/etc/flow-shuttle-feedback.env
+ExecStart=/opt/services/flow-shuttle-feedback/current/.venv/bin/gunicorn --bind 127.0.0.1:17832 --workers 1 --threads 4 --timeout 45 --graceful-timeout 15 --keep-alive 5 --access-logfile /dev/null --error-logfile - flow_shuttle_feedback.wsgi:app
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/flow-shuttle-feedback
+
+[Install]
+WantedBy=multi-user.target

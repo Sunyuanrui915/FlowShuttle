@@ -4,6 +4,11 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   main: {
+    define: {
+      __FLOW_SHUTTLE_FEEDBACK_ENDPOINT__: JSON.stringify(
+        process.env.FLOW_SHUTTLE_FEEDBACK_ENDPOINT?.trim() ?? ""
+      )
+    },
     plugins: [externalizeDepsPlugin()]
   },
   preload: {

@@ -80,6 +80,13 @@ When touching auto-update behavior, preserve the weak prompt flow:
 - Download and restart/install actions should stay in Settings > Version & Update.
 - Do not force download or force install updates.
 
+## Public Release Notes
+
+- Compare the final release candidate with the previous publicly released version.
+- Include only capabilities that users of the previous public version will newly receive, and fixes for defects that existed in that public version.
+- Do not publish development-only regressions, intermediate implementation bugs, QA/debug repairs, reference-screenshot adjustments, or refinements to never-released behavior as user-facing “fixes” or “improvements”.
+- Keep internal troubleshooting and iteration history in task traces or commit history, not in public release notes.
+
 ## Working Rules
 
 - Make incremental changes only.
@@ -125,3 +132,4 @@ Every non-trivial task must end with:
 - 非简单任务必须按 loop 执行；没有 `LOOPS.md` 时按本文件内置 Default Execution Loop 执行，不能只凭上下文记忆直接大改。
 - 修改要小步、可验证，不要为了整理而重构核心业务目录。
 - 涉及数据库、数据目录、保存逻辑、导出逻辑、自动更新逻辑时必须格外谨慎。
+- 公开更新说明只比较上一公开版本与最终候选版；开发中间态、未发布缺陷、QA/调试修复、参考截图调整及从未发布行为的细化，不得写成面向用户的“修复”或“优化”，应留在任务 trace 或提交记录中。

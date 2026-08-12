@@ -36,12 +36,13 @@
 
 - 项目与工作项管理。
 - Today 每日工作页，集中记录当天推进。
-- 今日记录编辑页，支持上一工作日参考和 Markdown 写作。
+- 今日记录编辑页，支持上一工作日参考、三级列表、文字格式与图片样式设置。
 - 日报、周报、月报生成与 Markdown 导出。
 - 项目进展时间线。
 - 工作活跃度热力图。
 - 内置使用指南，帮助理解项目、工作项、当前内容和今日变更摘要。
 - 可选 AI 报告提炼与编辑器划词润色。
+- 设置页提供主动反馈入口，可提交文字、选填邮箱和最多 5 张截图。
 - 本地 SQLite 存储，不强制登录，不主动上传工作内容。
 
 ### 截图预览
@@ -68,7 +69,7 @@
 
 [下载最新版本](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-当前版本为 `v0.3.3`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
+当前版本为 `v0.4.0`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
 
 Flow Shuttle 未进行代码签名，Windows 可能出现安全提示。如果只是日常使用流梭，不需要从源码运行项目。
 
@@ -132,13 +133,14 @@ Flow Shuttle is built to help connect each day’s work into a continuous thread
 
 - Project and work item management.
 - Today view for daily progress recording.
-- Focused daily record editor with previous-workday reference and Markdown writing.
+- Focused daily record editor with previous-workday reference, three-level lists, text formatting, and image presentation controls.
 - Daily, weekly, and monthly report generation.
 - Markdown export.
 - Project progress timeline.
 - Work activity heatmap.
 - Built-in user guide for understanding projects, work items, current content, and today’s change summary.
 - Optional AI report refinement and editor selection polishing.
+- An explicit feedback entry in Settings for text, an optional contact email, and up to five screenshots.
 - Local SQLite storage with no required login or forced upload of work content.
 
 ### Screenshots
@@ -165,7 +167,7 @@ Regular users can download the Windows installer from GitHub Releases:
 
 [Download the latest version](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-The current version is `v0.3.3`. Flow Shuttle is still an early public release. It is local-first by default, does not require login, and does not upload your work content by itself.
+The current version is `v0.4.0`. Flow Shuttle is still an early public release. It is local-first by default, does not require login, and does not upload your work content by itself.
 
 Flow Shuttle is not code-signed yet, so Windows may show a security warning. If you only use Flow Shuttle day to day, you do not need to run the project from source.
 
