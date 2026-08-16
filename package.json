@@ -1,6 +1,6 @@
 {
   "name": "flowshuttle",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Local-first personal work progress journal",
   "main": "out/main/index.js",
   "author": "Flow Shuttle",
@@ -12,6 +12,7 @@
     "verify:editor-lists": "node --experimental-strip-types --test scripts/verify-editor-list-behavior.mjs",
     "verify:editor-images": "node --experimental-strip-types --test scripts/verify-editor-image-presentation.mjs",
     "verify:editor-formatting": "node --experimental-strip-types --test scripts/verify-editor-inline-formatting.mjs",
+    "verify:desktop-experience": "node --test scripts/verify-desktop-experience.mjs",
     "verify:feedback": "node --experimental-strip-types --test scripts/verify-feedback-submission.mjs",
     "build": "npm run typecheck && electron-vite build",
     "dist:dir": "npm run build && electron-builder --dir",

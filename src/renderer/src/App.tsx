@@ -1101,6 +1101,16 @@ function markdownEditorLabels(t: Translator): MarkdownEditorLabels {
     imageShadow: t("editorImageShadow"),
     imageFrame: t("editorImageFrame"),
     imageResizeHint: t("editorImageResizeHint"),
+    imagePreview: t("editorImagePreview"),
+    imagePrevious: t("editorImagePrevious"),
+    imageNext: t("editorImageNext"),
+    imageZoomIn: t("editorImageZoomIn"),
+    imageZoomOut: t("editorImageZoomOut"),
+    imageResetView: t("editorImageResetView"),
+    imageRotateLeft: t("editorImageRotateLeft"),
+    imageCopy: t("editorImageCopy"),
+    imageDownload: t("editorImageDownload"),
+    imageClosePreview: t("editorImageClosePreview"),
     clipboardEmpty: t("editorClipboardEmpty"),
     highlightPlaceholder: t("editorHighlightPlaceholder"),
     aiSelectionPolishToggle: t("aiSelectionPolishAction"),
@@ -4381,7 +4391,10 @@ function TodayPage({
     if (locatorSort === "recent") {
       return groups.sort((left, right) => {
         const latest = (group: DailyProjectGroup) =>
-          latestTimestamp(group.items.map((block) => latestBlockSavedAt(block))) ?? group.project.updated_at;
+          latestTimestamp([
+            ...group.items.map((block) => latestBlockSavedAt(block)),
+            group.projectMemo.content_markdown?.trim() ? group.projectMemo.updated_at : null
+          ]) ?? group.project.updated_at;
         return new Date(latest(right)).getTime() - new Date(latest(left)).getTime();
       });
     }
@@ -4523,7 +4536,10 @@ function TodayPage({
 
           <div className="today-locator-list">
             {visibleProjectGroups.map((group) => {
-              const latestSavedAt = latestTimestamp(group.items.map((block) => latestBlockSavedAt(block)));
+              const latestSavedAt = latestTimestamp([
+                ...group.items.map((block) => latestBlockSavedAt(block)),
+                group.projectMemo.content_markdown?.trim() ? group.projectMemo.updated_at : null
+              ]);
               return (
                 <button
                   className={`today-locator-item${selectedProjectKey === group.project.id ? " active" : ""}`}
@@ -4657,7 +4673,7 @@ function TodayPage({
                 );
                   })
                 ) : (
-                  <EmptyState title={t("todayGuideEmptyTitle")} body={t("todayGuideEmptyBody")} />
+                  <EmptyState title={t("todayProjectNoWorkItemsTitle")} body={t("todayProjectNoWorkItemsBody")} />
                 )}
               </div>
             </>
@@ -9044,6 +9060,7 @@ function ProjectMemoPage({
             height="100%"
             minHeight="0px"
             hideModeSwitch
+            showFormatActionsInline
             onChange={onContentChange}
             onImageUpload={saveMemoEditorImage}
             onImageError={(error) =>

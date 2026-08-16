@@ -8267,7 +8267,7 @@ button.today-reminder-item:focus-visible {
 
 .memo-editor-card::before {
   position: absolute;
-  z-index: 3;
+  z-index: 4;
   top: 0;
   bottom: 0;
   left: 0;
@@ -8333,7 +8333,10 @@ button.today-reminder-item:focus-visible {
 }
 
 .memo-editor-card .markdown-editor-toolbar {
+  min-height: 46px;
+  padding-top: 6px;
   padding-right: var(--memo-editor-inline-padding);
+  padding-bottom: 6px;
   padding-left: var(--memo-editor-inline-padding);
   background: color-mix(in srgb, var(--bg-surface) 86%, var(--bg-surface-muted));
 }
@@ -9436,7 +9439,12 @@ button.today-reminder-item:focus-visible {
   border-radius: 0;
   object-fit: contain;
   user-select: none;
-  cursor: default;
+  cursor: zoom-in;
+  transition: filter 140ms ease;
+}
+
+.markdown-editor-image-resize-wrapper:hover > .markdown-editor-image {
+  filter: brightness(0.86);
 }
 
 .markdown-editor-image[width] {
@@ -10168,44 +10176,136 @@ button.today-reminder-item:focus-visible {
 
 .image-lightbox-backdrop {
   position: fixed;
-  z-index: 80;
+  z-index: 240;
   inset: 0;
-  display: grid;
-  place-items: center;
-  background: color-mix(in srgb, var(--overlay) 84%, rgba(0, 0, 0, 0.74));
-  padding: 24px;
+  background: rgba(12, 17, 25, 0.78);
+  backdrop-filter: blur(3px);
 }
 
 .image-lightbox {
   position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.image-lightbox-stage {
+  position: absolute;
+  inset: 34px 42px 104px;
   display: grid;
   place-items: center;
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  user-select: none;
 }
 
 .image-lightbox img {
   display: block;
   width: auto;
   height: auto;
-  max-width: calc(100vw - 72px);
-  max-height: calc(100vh - 72px);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  max-width: calc(100vw - 96px);
+  max-height: calc(100vh - 170px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
   background: var(--bg-surface);
-  box-shadow: var(--shadow-float);
+  box-shadow: 0 22px 64px rgba(0, 0, 0, 0.42);
   object-fit: contain;
-  cursor: zoom-out;
+  transition: transform 120ms ease-out;
+  will-change: transform;
 }
 
 .image-lightbox-close {
   position: absolute;
-  z-index: 1;
-  top: 12px;
-  right: 12px;
-  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  z-index: 2;
+  top: 22px;
+  right: 24px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  color: #314056;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+}
+
+.image-lightbox-close:hover,
+.image-lightbox-close:focus-visible {
+  background: #fff;
+  color: #172235;
+}
+
+.image-lightbox-toolbar {
+  position: absolute;
+  z-index: 2;
+  bottom: 24px;
+  left: 50%;
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: 4px;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--border-strong) 76%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.28);
   color: var(--text-primary);
-  box-shadow: var(--shadow-float);
+  padding: 6px 10px;
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.image-lightbox-toolbar button {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0;
+  outline: none;
+}
+
+.image-lightbox-toolbar button:hover:not(:disabled),
+.image-lightbox-toolbar button:focus-visible {
+  background: var(--bg-surface-muted);
+  color: var(--text-heading);
+}
+
+.image-lightbox-toolbar button:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.image-lightbox-toolbar button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.image-lightbox-toolbar .image-lightbox-zoom-value {
+  width: auto;
+  min-width: 50px;
+  flex-basis: auto;
+  padding: 0 7px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.image-lightbox-count {
+  min-width: 42px;
+  color: var(--text-secondary);
+  padding: 0 5px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.image-lightbox-divider {
+  width: 1px;
+  height: 26px;
+  margin: 0 3px;
+  background: var(--border-muted);
 }
 
 :root[data-theme="dark"] .markdown-wysiwyg-editor .toastui-editor-toolbar-icons {

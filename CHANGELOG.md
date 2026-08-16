@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.1 - 2026-08-16
+
+### Added
+
+* 新增 Windows 系统托盘常驻。关闭主窗口后流梭继续在后台运行；点击托盘图标可重新打开，右键可退出流梭，菜单适配 Windows 深浅色主题。
+* Added Windows system-tray support. Closing the main window now keeps Flow Shuttle running in the background; click the tray icon to restore it or right-click to quit, with light and dark Windows tray appearances.
+* 编辑器图片支持双击进入大图预览，并可切换上一张或下一张、使用滚轮或按钮缩放、旋转、适应窗口、复制和下载。
+* Added full image preview from the editor, with previous/next navigation, wheel and button zoom, rotation, fit-to-window, copy, and download actions.
+
+### Improved
+
+* Today 页现在会显示暂时没有工作项的进行中项目，仍可直接进入项目备忘录记录长期内容。
+* Today now includes active projects that do not yet have work items, keeping their project memos directly accessible.
+* 调整项目备忘录编辑工具栏，常用格式操作更直接，AI 润色入口固定在工具栏右侧。
+* Refined the project-memo toolbar so common formatting actions are more direct and AI Polish remains aligned at the right edge.
+
 ## v0.4.0 - 2026-08-13
 
 ### Added
