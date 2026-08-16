@@ -18,6 +18,10 @@ import {
   Bold,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Download,
   Ellipsis,
   Eraser,
   Frame,
@@ -30,10 +34,12 @@ import {
   ListOrdered,
   ListRestart,
   ListStart,
+  Maximize2,
   PaintRoller,
   PencilLine,
   Quote,
   RemoveFormatting,
+  RotateCcw,
   Sparkles,
   Square,
   SquareCheckBig,
@@ -41,7 +47,9 @@ import {
   SquareDashed,
   Strikethrough,
   Underline,
-  X
+  X,
+  ZoomIn,
+  ZoomOut
 } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
@@ -173,6 +181,16 @@ export interface MarkdownEditorLabels {
   imageShadow: string;
   imageFrame: string;
   imageResizeHint: string;
+  imagePreview: string;
+  imagePrevious: string;
+  imageNext: string;
+  imageZoomIn: string;
+  imageZoomOut: string;
+  imageResetView: string;
+  imageRotateLeft: string;
+  imageCopy: string;
+  imageDownload: string;
+  imageClosePreview: string;
   clipboardEmpty: string;
   highlightPlaceholder: string;
   aiSelectionPolishToggle: string;
@@ -190,6 +208,7 @@ interface MarkdownWysiwygEditorProps {
   disabled?: boolean;
   compact?: boolean;
   hideModeSwitch?: boolean;
+  showFormatActionsInline?: boolean;
   labels?: Partial<MarkdownEditorLabels>;
   onFeedback?: (feedback: { kind: EditorFeedbackKind; message: string }) => void;
   onChange: (value: string) => void;
@@ -222,6 +241,13 @@ interface OrderedListNumberingMenu {
 interface PreviewImage {
   src: string;
   alt: string;
+}
+
+interface ImagePreviewState {
+  images: PreviewImage[];
+  index: number;
+  zoom: number;
+  rotation: number;
 }
 
 interface SelectedImageControls {
@@ -305,6 +331,16 @@ const defaultLabels: MarkdownEditorLabels = {
   imageShadow: "Shadow",
   imageFrame: "Frame",
   imageResizeHint: "Drag a corner handle to resize proportionally",
+  imagePreview: "Image preview",
+  imagePrevious: "Previous image",
+  imageNext: "Next image",
+  imageZoomIn: "Zoom in",
+  imageZoomOut: "Zoom out",
+  imageResetView: "Fit to window",
+  imageRotateLeft: "Rotate left",
+  imageCopy: "Copy image",
+  imageDownload: "Download image",
+  imageClosePreview: "Close preview",
   clipboardEmpty: "Clipboard has no text",
   highlightPlaceholder: "Highlight this note",
   aiSelectionPolishToggle: "AI Polish",
@@ -523,6 +559,15 @@ function imageToolbarPosition(controls: SelectedImageControls): { left: number; 
     ? controls.rect.top - toolbarHeight - 8
     : Math.min(window.innerHeight - toolbarHeight - 8, controls.rect.bottom + 8);
   return { left, top };
+}
+
+export const MIN_IMAGE_PREVIEW_ZOOM = 0.5;
+export const MAX_IMAGE_PREVIEW_ZOOM = 3;
+export const IMAGE_PREVIEW_ZOOM_STEP = 0.1;
+
+export function clampImagePreviewZoom(value: number): number {
+  const bounded = Math.min(MAX_IMAGE_PREVIEW_ZOOM, Math.max(MIN_IMAGE_PREVIEW_ZOOM, value));
+  return Math.round(bounded * 10) / 10;
 }
 
 function getClipboardImageFiles(event: ClipboardEvent): File[] {
@@ -977,12 +1022,14 @@ function Toolbar({
   editor,
   labels,
   disabled,
+  showFormatActionsInline,
   aiSelectionPolishEnabled,
   onToggleAiSelectionPolish
 }: {
   editor: TiptapEditor | null;
   labels: MarkdownEditorLabels;
   disabled?: boolean;
+  showFormatActionsInline?: boolean;
   aiSelectionPolishEnabled: boolean;
   onToggleAiSelectionPolish: () => void;
 }): JSX.Element {
@@ -1413,7 +1460,7 @@ function Toolbar({
               </div>
             </>
           )}
-          {toolbarMenu.kind === "more" && (
+          {toolbarMenu.kind === "more" && !showFormatActionsInline && (
             <>
               <button
                 type="button"
@@ -1654,21 +1701,51 @@ function Toolbar({
           "markdown-editor-icon-button"
         )}
         <span className="markdown-editor-toolbar-divider" />
-        <button
-          type="button"
-          className="markdown-editor-icon-button markdown-editor-more-trigger"
-          data-markdown-toolbar-menu-trigger
-          aria-label={labels.more}
-          aria-haspopup="menu"
-          aria-expanded={toolbarMenu?.kind === "more"}
-          aria-pressed={Boolean(formatPainterState)}
-          title={labels.more}
-          disabled={disabled || !editor}
-          onMouseDown={keepSelection}
-          onClick={(event) => openToolbarMenu("more", event.currentTarget)}
-        >
-          <Ellipsis size={18} strokeWidth={1.8} aria-hidden="true" />
-        </button>
+        {showFormatActionsInline ? (
+          <>
+            <button
+              type="button"
+              className={`markdown-editor-icon-button${formatPainterState ? " is-active" : ""}`}
+              aria-pressed={Boolean(formatPainterState)}
+              aria-label={labels.formatPainter}
+              aria-keyshortcuts="Control+Alt+C"
+              title={labels.formatPainter}
+              disabled={disabled || !editor}
+              onMouseDown={keepSelection}
+              onClick={activateFormatPainter}
+            >
+              <PaintRoller size={16} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="markdown-editor-icon-button"
+              aria-label={labels.clearFormatting}
+              aria-keyshortcuts={"Control+\\"}
+              title={labels.clearFormatting}
+              disabled={disabled || !editor}
+              onMouseDown={keepSelection}
+              onClick={clearFormatting}
+            >
+              <RemoveFormatting size={16} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="markdown-editor-icon-button markdown-editor-more-trigger"
+            data-markdown-toolbar-menu-trigger
+            aria-label={labels.more}
+            aria-haspopup="menu"
+            aria-expanded={toolbarMenu?.kind === "more"}
+            aria-pressed={Boolean(formatPainterState)}
+            title={labels.more}
+            disabled={disabled || !editor}
+            onMouseDown={keepSelection}
+            onClick={(event) => openToolbarMenu("more", event.currentTarget)}
+          >
+            <Ellipsis size={18} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        )}
         {!disabled && (
           <>
             <span className="markdown-editor-toolbar-spacer" />
@@ -1716,6 +1793,7 @@ export function MarkdownWysiwygEditor({
   disabled,
   compact,
   hideModeSwitch: _hideModeSwitch,
+  showFormatActionsInline,
   labels,
   onFeedback,
   onChange,
@@ -1736,12 +1814,13 @@ export function MarkdownWysiwygEditor({
   const [editingNumberValue, setEditingNumberValue] = useState(false);
   const [numberValue, setNumberValue] = useState("1");
   const [selectedImage, setSelectedImage] = useState<SelectedImageControls | null>(null);
-  const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
+  const [previewImage, setPreviewImage] = useState<ImagePreviewState | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [characterCount, setCharacterCount] = useState(() => countEditorCharacters(value || ""));
   const [aiSelectionPolishEnabled, setAiSelectionPolishEnabled] = useState(false);
   const numberingMenuRef = useRef<HTMLDivElement | null>(null);
   const numberInputRef = useRef<HTMLInputElement | null>(null);
+  const isImagePreviewOpen = previewImage !== null;
 
   const closeNumberingMenu = useCallback((focusEditor = false) => {
     setNumberingMenu(null);
@@ -1762,6 +1841,53 @@ export function MarkdownWysiwygEditor({
   useEffect(() => {
     aiSelectionPolishRef.current = aiSelectionPolish;
   }, [aiSelectionPolish]);
+
+  useEffect(() => {
+    if (!isImagePreviewOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setPreviewImage(null);
+        return;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        const direction = event.key === "ArrowLeft" ? -1 : 1;
+        setPreviewImage((current) => {
+          if (!current) {
+            return null;
+          }
+          const nextIndex = Math.min(
+            current.images.length - 1,
+            Math.max(0, current.index + direction)
+          );
+          return nextIndex === current.index
+            ? current
+            : { ...current, index: nextIndex, zoom: 1, rotation: 0 };
+        });
+        return;
+      }
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        setPreviewImage((current) => current
+          ? { ...current, zoom: clampImagePreviewZoom(current.zoom + IMAGE_PREVIEW_ZOOM_STEP) }
+          : null);
+        return;
+      }
+      if (event.key === "-") {
+        event.preventDefault();
+        setPreviewImage((current) => current
+          ? { ...current, zoom: clampImagePreviewZoom(current.zoom - IMAGE_PREVIEW_ZOOM_STEP) }
+          : null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isImagePreviewOpen]);
 
   const updateAiSelectionPolishCandidate = useCallback(
     (currentEditor: TiptapEditor) => {
@@ -2212,9 +2338,17 @@ export function MarkdownWysiwygEditor({
         return;
       }
       event.preventDefault();
+      event.stopPropagation();
+      const images = Array.from(root.querySelectorAll<HTMLImageElement>("img.markdown-editor-image"));
+      const imageIndex = Math.max(0, images.indexOf(image));
       setPreviewImage({
-        src: image.getAttribute("src") || "",
-        alt: image.getAttribute("alt") || resolvedLabels.saveImageAs
+        images: images.map((candidate) => ({
+          src: candidate.getAttribute("src") || "",
+          alt: candidate.getAttribute("alt") || resolvedLabels.imagePreview
+        })),
+        index: imageIndex,
+        zoom: 1,
+        rotation: 0
       });
     };
 
@@ -2228,7 +2362,7 @@ export function MarkdownWysiwygEditor({
       root.removeEventListener("click", handleClick);
       root.removeEventListener("dblclick", handleDoubleClick);
     };
-  }, [closeNumberingMenu, disabled, editor, resolvedLabels.saveImageAs]);
+  }, [closeNumberingMenu, disabled, editor, resolvedLabels.imagePreview]);
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -2451,28 +2585,176 @@ export function MarkdownWysiwygEditor({
       )
     : null;
 
-  const lightbox = previewImage
+  const activePreviewImage = previewImage?.images[previewImage.index] ?? null;
+  const lightbox = previewImage && activePreviewImage
     ? createPortal(
         <div
           className="image-lightbox-backdrop"
-          role="presentation"
-          onClick={() => setPreviewImage(null)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
+          role="dialog"
+          aria-modal="true"
+          aria-label={resolvedLabels.imagePreview}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
               setPreviewImage(null);
             }
           }}
         >
-          <section className="image-lightbox" aria-label={previewImage.alt}>
+          <section className="image-lightbox" aria-label={activePreviewImage.alt}>
             <button
               type="button"
               className="button ghost icon-button image-lightbox-close"
-              aria-label="Close"
+              aria-label={resolvedLabels.imageClosePreview}
+              title={resolvedLabels.imageClosePreview}
               onClick={() => setPreviewImage(null)}
             >
-              <X size={16} />
+              <X size={22} strokeWidth={1.7} />
             </button>
-            <img src={previewImage.src} alt={previewImage.alt} />
+            <div
+              className="image-lightbox-stage"
+              onWheel={(event) => {
+                event.preventDefault();
+                const direction = event.deltaY < 0 ? 1 : -1;
+                setPreviewImage((current) => current
+                  ? {
+                      ...current,
+                      zoom: clampImagePreviewZoom(
+                        current.zoom + direction * IMAGE_PREVIEW_ZOOM_STEP
+                      )
+                    }
+                  : null);
+              }}
+            >
+              <img
+                src={activePreviewImage.src}
+                alt={activePreviewImage.alt}
+                draggable={false}
+                style={{
+                  transform: `scale(${previewImage.zoom}) rotate(${previewImage.rotation}deg)`
+                }}
+              />
+            </div>
+            <div className="image-lightbox-toolbar" role="toolbar" aria-label={resolvedLabels.imagePreview}>
+              <span className="image-lightbox-count">
+                {previewImage.index + 1}/{previewImage.images.length}
+              </span>
+              <span className="image-lightbox-divider" aria-hidden="true" />
+              <button
+                type="button"
+                aria-label={resolvedLabels.imagePrevious}
+                title={resolvedLabels.imagePrevious}
+                disabled={previewImage.index === 0}
+                onClick={() => setPreviewImage((current) => current
+                  ? {
+                      ...current,
+                      index: Math.max(0, current.index - 1),
+                      zoom: 1,
+                      rotation: 0
+                    }
+                  : null)}
+              >
+                <ChevronLeft size={21} strokeWidth={1.8} />
+              </button>
+              <button
+                type="button"
+                aria-label={resolvedLabels.imageNext}
+                title={resolvedLabels.imageNext}
+                disabled={previewImage.index >= previewImage.images.length - 1}
+                onClick={() => setPreviewImage((current) => current
+                  ? {
+                      ...current,
+                      index: Math.min(current.images.length - 1, current.index + 1),
+                      zoom: 1,
+                      rotation: 0
+                    }
+                  : null)}
+              >
+                <ChevronRight size={21} strokeWidth={1.8} />
+              </button>
+              <span className="image-lightbox-divider" aria-hidden="true" />
+              <button
+                type="button"
+                aria-label={resolvedLabels.imageZoomIn}
+                title={resolvedLabels.imageZoomIn}
+                disabled={previewImage.zoom >= MAX_IMAGE_PREVIEW_ZOOM}
+                onClick={() => setPreviewImage((current) => current
+                  ? { ...current, zoom: clampImagePreviewZoom(current.zoom + IMAGE_PREVIEW_ZOOM_STEP) }
+                  : null)}
+              >
+                <ZoomIn size={20} strokeWidth={1.8} />
+              </button>
+              <button
+                type="button"
+                aria-label={resolvedLabels.imageZoomOut}
+                title={resolvedLabels.imageZoomOut}
+                disabled={previewImage.zoom <= MIN_IMAGE_PREVIEW_ZOOM}
+                onClick={() => setPreviewImage((current) => current
+                  ? { ...current, zoom: clampImagePreviewZoom(current.zoom - IMAGE_PREVIEW_ZOOM_STEP) }
+                  : null)}
+              >
+                <ZoomOut size={20} strokeWidth={1.8} />
+              </button>
+              <button
+                type="button"
+                className="image-lightbox-zoom-value"
+                aria-label={resolvedLabels.imageResetView}
+                title={resolvedLabels.imageResetView}
+                onClick={() => setPreviewImage((current) => current
+                  ? { ...current, zoom: 1, rotation: 0 }
+                  : null)}
+              >
+                {Math.round(previewImage.zoom * 100)}%
+              </button>
+              <span className="image-lightbox-divider" aria-hidden="true" />
+              <button
+                type="button"
+                aria-label={resolvedLabels.imageRotateLeft}
+                title={resolvedLabels.imageRotateLeft}
+                onClick={() => setPreviewImage((current) => current
+                  ? { ...current, rotation: (current.rotation - 90) % 360 }
+                  : null)}
+              >
+                <RotateCcw size={20} strokeWidth={1.8} />
+              </button>
+              <button
+                type="button"
+                aria-label={resolvedLabels.imageResetView}
+                title={resolvedLabels.imageResetView}
+                onClick={() => setPreviewImage((current) => current
+                  ? { ...current, zoom: 1, rotation: 0 }
+                  : null)}
+              >
+                <Maximize2 size={19} strokeWidth={1.8} />
+              </button>
+              <span className="image-lightbox-divider" aria-hidden="true" />
+              <button
+                type="button"
+                aria-label={resolvedLabels.imageCopy}
+                title={resolvedLabels.imageCopy}
+                onClick={() => void runContextAction("copy", {
+                  x: 0,
+                  y: 0,
+                  kind: "image",
+                  imageSrc: activePreviewImage.src,
+                  imageAlt: activePreviewImage.alt
+                })}
+              >
+                <Copy size={19} strokeWidth={1.8} />
+              </button>
+              <button
+                type="button"
+                aria-label={resolvedLabels.imageDownload}
+                title={resolvedLabels.imageDownload}
+                onClick={() => void runContextAction("saveImage", {
+                  x: 0,
+                  y: 0,
+                  kind: "image",
+                  imageSrc: activePreviewImage.src,
+                  imageAlt: activePreviewImage.alt
+                })}
+              >
+                <Download size={20} strokeWidth={1.8} />
+              </button>
+            </div>
           </section>
         </div>,
         document.body
@@ -2649,6 +2931,7 @@ export function MarkdownWysiwygEditor({
               editor={editor}
               labels={resolvedLabels}
               disabled={disabled}
+              showFormatActionsInline={showFormatActionsInline}
               aiSelectionPolishEnabled={aiSelectionPolishEnabled}
               onToggleAiSelectionPolish={() => setAiSelectionPolishEnabled((current) => !current)}
             />

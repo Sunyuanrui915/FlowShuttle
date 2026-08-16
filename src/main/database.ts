@@ -2176,7 +2176,21 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
     }
   >;
 
-  const groupMap = new Map<string, DailyJournalView["groups"][number]>();
+  const projects = connection
+    .prepare(`SELECT * FROM projects WHERE status = 'active' ORDER BY COALESCE(sort_order, ${SORT_ORDER_FALLBACK}) ASC, updated_at DESC, created_at ASC, id ASC`)
+    .all() as Project[];
+
+  const groupMap = new Map<string, DailyJournalView["groups"][number]>(
+    projects.map((project) => [
+      project.id,
+      {
+        project,
+        projectMemo: getOrCreateProjectMemo(project.id),
+        activeCount: 0,
+        items: []
+      }
+    ])
+  );
   for (const item of items) {
     const project: Project = {
       id: item.project_id_for_group,
@@ -2215,10 +2229,6 @@ export function getDailyJournal(journalDate: string): DailyJournalView {
     group.activeCount = group.items.length;
     groupMap.set(project.id, group);
   }
-
-  const projects = connection
-    .prepare(`SELECT * FROM projects WHERE status = 'active' ORDER BY COALESCE(sort_order, ${SORT_ORDER_FALLBACK}) ASC, updated_at DESC, created_at ASC, id ASC`)
-    .all() as Project[];
 
   const doneToday = connection
     .prepare(
