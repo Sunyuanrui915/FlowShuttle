@@ -87,6 +87,29 @@ When touching auto-update behavior, preserve the weak prompt flow:
 - Do not publish development-only regressions, intermediate implementation bugs, QA/debug repairs, reference-screenshot adjustments, or refinements to never-released behavior as user-facing “fixes” or “improvements”.
 - Keep internal troubleshooting and iteration history in task traces or commit history, not in public release notes.
 
+## Post-Release Website Handoff
+
+After every successful public release, the final release report must include a copy-ready block for updating the Flow Shuttle page on the personal website. This is a required release-completion output even when the user does not repeat the request in that release turn.
+
+The block must contain exactly these four facts:
+
+- 版本号；
+- GitHub Release 页面链接；
+- Windows 安装包直链；
+- 一句话简要更新说明。
+
+Use this fixed template:
+
+```text
+个人网站更新信息
+- 版本号：vX.Y.Z
+- GitHub Release：https://github.com/Sunyuanrui915/FlowShuttle/releases/tag/vX.Y.Z
+- Windows 安装包：https://github.com/Sunyuanrui915/FlowShuttle/releases/download/vX.Y.Z/FlowShuttle-X.Y.Z-setup.exe
+- 一句话更新说明：……
+```
+
+Only provide the block after the public Release and versioned installer asset have been verified. The installer field must be the direct versioned `.exe` asset URL, not the Release page, `/releases/latest`, or a local file path. The one-sentence summary must follow the same public-copy boundary as the release notes.
+
 ## Working Rules
 
 - Make incremental changes only.

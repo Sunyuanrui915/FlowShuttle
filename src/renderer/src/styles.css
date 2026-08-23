@@ -10195,7 +10195,21 @@ button.today-reminder-item:focus-visible {
   display: grid;
   place-items: center;
   overflow: hidden;
+  cursor: default;
+  touch-action: none;
   user-select: none;
+}
+
+.image-lightbox-stage.can-pan {
+  cursor: grab;
+}
+
+.image-lightbox-stage.is-dragging {
+  cursor: grabbing;
+}
+
+.image-lightbox-stage.is-dragging img {
+  transition: none;
 }
 
 .image-lightbox img {
@@ -10211,6 +10225,7 @@ button.today-reminder-item:focus-visible {
   object-fit: contain;
   transition: transform 120ms ease-out;
   will-change: transform;
+  pointer-events: none;
 }
 
 .image-lightbox-close {

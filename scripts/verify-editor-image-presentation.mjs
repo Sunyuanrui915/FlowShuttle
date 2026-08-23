@@ -9,6 +9,7 @@ import {
   DEFAULT_IMAGE_DISPLAY_WIDTH,
   FlowShuttleImage,
   MAX_IMAGE_DIMENSION,
+  clampImagePreviewPan,
   defaultImageDisplayWidth,
   sanitizeImageDimension,
   sanitizeImagePresentation,
@@ -109,6 +110,48 @@ test("fresh screenshots use a bounded shrink-wrapped display width", () => {
   assert.equal(DEFAULT_IMAGE_DISPLAY_HEIGHT, 520);
   assert.equal(defaultImageDisplayWidth(0), null);
   assert.equal(defaultImageDisplayWidth(Number.NaN), null);
+});
+
+test("zoomed image panning keeps every edge reachable without losing the image", () => {
+  assert.deepEqual(
+    clampImagePreviewPan({
+      offsetX: 900,
+      offsetY: -900,
+      stageWidth: 1_000,
+      stageHeight: 600,
+      imageWidth: 1_000,
+      imageHeight: 500,
+      zoom: 2,
+      rotation: 0
+    }),
+    { offsetX: 500, offsetY: -200 }
+  );
+  assert.deepEqual(
+    clampImagePreviewPan({
+      offsetX: 200,
+      offsetY: 200,
+      stageWidth: 1_000,
+      stageHeight: 600,
+      imageWidth: 400,
+      imageHeight: 300,
+      zoom: 1.5,
+      rotation: 0
+    }),
+    { offsetX: 0, offsetY: 0 }
+  );
+  assert.deepEqual(
+    clampImagePreviewPan({
+      offsetX: 500,
+      offsetY: 500,
+      stageWidth: 800,
+      stageHeight: 600,
+      imageWidth: 700,
+      imageHeight: 400,
+      zoom: 2,
+      rotation: -90
+    }),
+    { offsetX: 0, offsetY: 400 }
+  );
 });
 
 test("the first live resize releases the fresh-image wrapper width", () => {
