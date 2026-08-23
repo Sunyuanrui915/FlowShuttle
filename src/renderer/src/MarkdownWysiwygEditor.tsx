@@ -52,12 +52,13 @@ import {
   ZoomOut
 } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { assertAttachmentSizeBytes } from "../../shared/attachmentLimits";
 import type { LanguagePreference } from "../../shared/types";
 import { useAiSelectionPolish } from "./AiSelectionPolish";
 import {
+  clampImagePreviewPan,
   FlowShuttleImage,
   sanitizeImagePresentation,
   type ImagePresentation
@@ -248,6 +249,17 @@ interface ImagePreviewState {
   index: number;
   zoom: number;
   rotation: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+interface ImagePreviewDragState {
+  pointerId: number;
+  imageIndex: number;
+  startClientX: number;
+  startClientY: number;
+  startOffsetX: number;
+  startOffsetY: number;
 }
 
 interface SelectedImageControls {
@@ -564,6 +576,12 @@ function imageToolbarPosition(controls: SelectedImageControls): { left: number; 
 export const MIN_IMAGE_PREVIEW_ZOOM = 0.5;
 export const MAX_IMAGE_PREVIEW_ZOOM = 3;
 export const IMAGE_PREVIEW_ZOOM_STEP = 0.1;
+const DEFAULT_IMAGE_PREVIEW_TRANSFORM = {
+  zoom: 1,
+  rotation: 0,
+  offsetX: 0,
+  offsetY: 0
+};
 
 export function clampImagePreviewZoom(value: number): number {
   const bounded = Math.min(MAX_IMAGE_PREVIEW_ZOOM, Math.max(MIN_IMAGE_PREVIEW_ZOOM, value));
@@ -1818,9 +1836,60 @@ export function MarkdownWysiwygEditor({
   const [editorError, setEditorError] = useState<string | null>(null);
   const [characterCount, setCharacterCount] = useState(() => countEditorCharacters(value || ""));
   const [aiSelectionPolishEnabled, setAiSelectionPolishEnabled] = useState(false);
+  const [imagePreviewDragging, setImagePreviewDragging] = useState(false);
   const numberingMenuRef = useRef<HTMLDivElement | null>(null);
   const numberInputRef = useRef<HTMLInputElement | null>(null);
+  const imagePreviewStageRef = useRef<HTMLDivElement | null>(null);
+  const imagePreviewImageRef = useRef<HTMLImageElement | null>(null);
+  const imagePreviewDragRef = useRef<ImagePreviewDragState | null>(null);
   const isImagePreviewOpen = previewImage !== null;
+
+  const clampImagePreviewOffset = useCallback(
+    (offsetX: number, offsetY: number, zoom: number, rotation: number) => {
+      const stage = imagePreviewStageRef.current;
+      const image = imagePreviewImageRef.current;
+      if (!stage || !image) {
+        return { offsetX, offsetY };
+      }
+      return clampImagePreviewPan({
+        offsetX,
+        offsetY,
+        stageWidth: stage.clientWidth,
+        stageHeight: stage.clientHeight,
+        imageWidth: image.clientWidth,
+        imageHeight: image.clientHeight,
+        zoom,
+        rotation
+      });
+    },
+    []
+  );
+
+  const changeImagePreviewZoom = useCallback((delta: number) => {
+    setPreviewImage((current) => {
+      if (!current) {
+        return null;
+      }
+      const zoom = clampImagePreviewZoom(current.zoom + delta);
+      return {
+        ...current,
+        zoom,
+        offsetX: zoom <= 1 ? 0 : current.offsetX,
+        offsetY: zoom <= 1 ? 0 : current.offsetY
+      };
+    });
+  }, []);
+
+  const finishImagePreviewDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (imagePreviewDragRef.current?.pointerId !== event.pointerId) {
+      return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    imagePreviewDragRef.current = null;
+    setImagePreviewDragging(false);
+  }, []);
 
   const closeNumberingMenu = useCallback((focusEditor = false) => {
     setNumberingMenu(null);
@@ -1841,6 +1910,33 @@ export function MarkdownWysiwygEditor({
   useEffect(() => {
     aiSelectionPolishRef.current = aiSelectionPolish;
   }, [aiSelectionPolish]);
+
+  useEffect(() => {
+    imagePreviewDragRef.current = null;
+    setImagePreviewDragging(false);
+    if (!previewImage) {
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      setPreviewImage((current) => {
+        if (!current) {
+          return null;
+        }
+        const offset = clampImagePreviewOffset(
+          current.offsetX,
+          current.offsetY,
+          current.zoom,
+          current.rotation
+        );
+        if (offset.offsetX === current.offsetX && offset.offsetY === current.offsetY) {
+          return current;
+        }
+        return { ...current, ...offset };
+      });
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [clampImagePreviewOffset, previewImage?.index, previewImage?.rotation, previewImage?.zoom]);
 
   useEffect(() => {
     if (!isImagePreviewOpen) {
@@ -1866,28 +1962,24 @@ export function MarkdownWysiwygEditor({
           );
           return nextIndex === current.index
             ? current
-            : { ...current, index: nextIndex, zoom: 1, rotation: 0 };
+            : { ...current, index: nextIndex, ...DEFAULT_IMAGE_PREVIEW_TRANSFORM };
         });
         return;
       }
       if (event.key === "+" || event.key === "=") {
         event.preventDefault();
-        setPreviewImage((current) => current
-          ? { ...current, zoom: clampImagePreviewZoom(current.zoom + IMAGE_PREVIEW_ZOOM_STEP) }
-          : null);
+        changeImagePreviewZoom(IMAGE_PREVIEW_ZOOM_STEP);
         return;
       }
       if (event.key === "-") {
         event.preventDefault();
-        setPreviewImage((current) => current
-          ? { ...current, zoom: clampImagePreviewZoom(current.zoom - IMAGE_PREVIEW_ZOOM_STEP) }
-          : null);
+        changeImagePreviewZoom(-IMAGE_PREVIEW_ZOOM_STEP);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isImagePreviewOpen]);
+  }, [changeImagePreviewZoom, isImagePreviewOpen]);
 
   const updateAiSelectionPolishCandidate = useCallback(
     (currentEditor: TiptapEditor) => {
@@ -2347,8 +2439,7 @@ export function MarkdownWysiwygEditor({
           alt: candidate.getAttribute("alt") || resolvedLabels.imagePreview
         })),
         index: imageIndex,
-        zoom: 1,
-        rotation: 0
+        ...DEFAULT_IMAGE_PREVIEW_TRANSFORM
       });
     };
 
@@ -2610,26 +2701,69 @@ export function MarkdownWysiwygEditor({
               <X size={22} strokeWidth={1.7} />
             </button>
             <div
-              className="image-lightbox-stage"
+              ref={imagePreviewStageRef}
+              className={`image-lightbox-stage${previewImage.zoom > 1 ? " can-pan" : ""}${imagePreviewDragging ? " is-dragging" : ""}`}
+              onPointerDown={(event) => {
+                if (event.button !== 0 || previewImage.zoom <= 1) {
+                  return;
+                }
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                imagePreviewDragRef.current = {
+                  pointerId: event.pointerId,
+                  imageIndex: previewImage.index,
+                  startClientX: event.clientX,
+                  startClientY: event.clientY,
+                  startOffsetX: previewImage.offsetX,
+                  startOffsetY: previewImage.offsetY
+                };
+                setImagePreviewDragging(true);
+              }}
+              onPointerMove={(event) => {
+                const drag = imagePreviewDragRef.current;
+                if (!drag || drag.pointerId !== event.pointerId) {
+                  return;
+                }
+                event.preventDefault();
+                const offsetX = drag.startOffsetX + event.clientX - drag.startClientX;
+                const offsetY = drag.startOffsetY + event.clientY - drag.startClientY;
+                setPreviewImage((current) => {
+                  if (!current || current.index !== drag.imageIndex) {
+                    return current;
+                  }
+                  const offset = clampImagePreviewOffset(
+                    offsetX,
+                    offsetY,
+                    current.zoom,
+                    current.rotation
+                  );
+                  if (offset.offsetX === current.offsetX && offset.offsetY === current.offsetY) {
+                    return current;
+                  }
+                  return { ...current, ...offset };
+                });
+              }}
+              onPointerUp={finishImagePreviewDrag}
+              onPointerCancel={finishImagePreviewDrag}
+              onLostPointerCapture={(event) => {
+                if (imagePreviewDragRef.current?.pointerId === event.pointerId) {
+                  imagePreviewDragRef.current = null;
+                  setImagePreviewDragging(false);
+                }
+              }}
               onWheel={(event) => {
                 event.preventDefault();
                 const direction = event.deltaY < 0 ? 1 : -1;
-                setPreviewImage((current) => current
-                  ? {
-                      ...current,
-                      zoom: clampImagePreviewZoom(
-                        current.zoom + direction * IMAGE_PREVIEW_ZOOM_STEP
-                      )
-                    }
-                  : null);
+                changeImagePreviewZoom(direction * IMAGE_PREVIEW_ZOOM_STEP);
               }}
             >
               <img
+                ref={imagePreviewImageRef}
                 src={activePreviewImage.src}
                 alt={activePreviewImage.alt}
                 draggable={false}
                 style={{
-                  transform: `scale(${previewImage.zoom}) rotate(${previewImage.rotation}deg)`
+                  transform: `translate3d(${previewImage.offsetX}px, ${previewImage.offsetY}px, 0) scale(${previewImage.zoom}) rotate(${previewImage.rotation}deg)`
                 }}
               />
             </div>
@@ -2647,8 +2781,7 @@ export function MarkdownWysiwygEditor({
                   ? {
                       ...current,
                       index: Math.max(0, current.index - 1),
-                      zoom: 1,
-                      rotation: 0
+                      ...DEFAULT_IMAGE_PREVIEW_TRANSFORM
                     }
                   : null)}
               >
@@ -2663,8 +2796,7 @@ export function MarkdownWysiwygEditor({
                   ? {
                       ...current,
                       index: Math.min(current.images.length - 1, current.index + 1),
-                      zoom: 1,
-                      rotation: 0
+                      ...DEFAULT_IMAGE_PREVIEW_TRANSFORM
                     }
                   : null)}
               >
@@ -2676,9 +2808,7 @@ export function MarkdownWysiwygEditor({
                 aria-label={resolvedLabels.imageZoomIn}
                 title={resolvedLabels.imageZoomIn}
                 disabled={previewImage.zoom >= MAX_IMAGE_PREVIEW_ZOOM}
-                onClick={() => setPreviewImage((current) => current
-                  ? { ...current, zoom: clampImagePreviewZoom(current.zoom + IMAGE_PREVIEW_ZOOM_STEP) }
-                  : null)}
+                onClick={() => changeImagePreviewZoom(IMAGE_PREVIEW_ZOOM_STEP)}
               >
                 <ZoomIn size={20} strokeWidth={1.8} />
               </button>
@@ -2687,9 +2817,7 @@ export function MarkdownWysiwygEditor({
                 aria-label={resolvedLabels.imageZoomOut}
                 title={resolvedLabels.imageZoomOut}
                 disabled={previewImage.zoom <= MIN_IMAGE_PREVIEW_ZOOM}
-                onClick={() => setPreviewImage((current) => current
-                  ? { ...current, zoom: clampImagePreviewZoom(current.zoom - IMAGE_PREVIEW_ZOOM_STEP) }
-                  : null)}
+                onClick={() => changeImagePreviewZoom(-IMAGE_PREVIEW_ZOOM_STEP)}
               >
                 <ZoomOut size={20} strokeWidth={1.8} />
               </button>
@@ -2699,7 +2827,7 @@ export function MarkdownWysiwygEditor({
                 aria-label={resolvedLabels.imageResetView}
                 title={resolvedLabels.imageResetView}
                 onClick={() => setPreviewImage((current) => current
-                  ? { ...current, zoom: 1, rotation: 0 }
+                  ? { ...current, ...DEFAULT_IMAGE_PREVIEW_TRANSFORM }
                   : null)}
               >
                 {Math.round(previewImage.zoom * 100)}%
@@ -2710,7 +2838,12 @@ export function MarkdownWysiwygEditor({
                 aria-label={resolvedLabels.imageRotateLeft}
                 title={resolvedLabels.imageRotateLeft}
                 onClick={() => setPreviewImage((current) => current
-                  ? { ...current, rotation: (current.rotation - 90) % 360 }
+                  ? {
+                      ...current,
+                      rotation: (current.rotation - 90) % 360,
+                      offsetX: 0,
+                      offsetY: 0
+                    }
                   : null)}
               >
                 <RotateCcw size={20} strokeWidth={1.8} />
@@ -2720,7 +2853,7 @@ export function MarkdownWysiwygEditor({
                 aria-label={resolvedLabels.imageResetView}
                 title={resolvedLabels.imageResetView}
                 onClick={() => setPreviewImage((current) => current
-                  ? { ...current, zoom: 1, rotation: 0 }
+                  ? { ...current, ...DEFAULT_IMAGE_PREVIEW_TRANSFORM }
                   : null)}
               >
                 <Maximize2 size={19} strokeWidth={1.8} />

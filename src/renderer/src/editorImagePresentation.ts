@@ -13,6 +13,38 @@ export const MAX_IMAGE_DIMENSION = 8_192;
 export const DEFAULT_IMAGE_DISPLAY_WIDTH = 720;
 export const DEFAULT_IMAGE_DISPLAY_HEIGHT = 520;
 
+interface ImagePreviewPanGeometry {
+  offsetX: number;
+  offsetY: number;
+  stageWidth: number;
+  stageHeight: number;
+  imageWidth: number;
+  imageHeight: number;
+  zoom: number;
+  rotation: number;
+}
+
+export function clampImagePreviewPan({
+  offsetX,
+  offsetY,
+  stageWidth,
+  stageHeight,
+  imageWidth,
+  imageHeight,
+  zoom,
+  rotation
+}: ImagePreviewPanGeometry): { offsetX: number; offsetY: number } {
+  const swapsAxes = Math.abs(Math.round(rotation / 90)) % 2 === 1;
+  const visualWidth = (swapsAxes ? imageHeight : imageWidth) * zoom;
+  const visualHeight = (swapsAxes ? imageWidth : imageHeight) * zoom;
+  const maxOffsetX = Math.max(0, (visualWidth - stageWidth) / 2);
+  const maxOffsetY = Math.max(0, (visualHeight - stageHeight) / 2);
+  return {
+    offsetX: Math.max(-maxOffsetX, Math.min(maxOffsetX, offsetX)),
+    offsetY: Math.max(-maxOffsetY, Math.min(maxOffsetY, offsetY))
+  };
+}
+
 export function defaultImageDisplayWidth(
   naturalWidth: unknown,
   naturalHeight?: unknown

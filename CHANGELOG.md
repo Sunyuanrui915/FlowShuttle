@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.2 - 2026-08-23
+
+### Fixed
+
+* 修复系统托盘右键菜单弹出时的闪烁，并优化菜单显示与关闭行为。
+* Fixed visible flashing when opening the system-tray right-click menu and refined its display and dismissal behavior.
+
+### Improved
+
+* 图片大图预览在放大后支持拖动查看，可完整浏览图片边缘内容。
+* Zoomed full-image previews can now be dragged so edge content remains reachable.
+
 ## v0.4.1 - 2026-08-16
 
 ### Added

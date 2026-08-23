@@ -119,15 +119,23 @@ let dailyAutoReportTimer: ReturnType<typeof setTimeout> | null = null;
 let mainWindowRef: BrowserWindow | null = null;
 let trayRef: Tray | null = null;
 let trayMenuWindowRef: BrowserWindow | null = null;
+let trayMenuReadyPromise: Promise<void> | null = null;
+let trayMenuUpdatePromise: Promise<void> | null = null;
+let trayMenuShowGeneration = 0;
+let trayMenuUpdateGeneration = 0;
+let trayMenuLanguage: LanguagePreference = "zh-CN";
+let trayMenuAppearance: "light" | "dark" = "light";
+let trayMenuRevealInProgress = false;
 let isQuitting = false;
-let traySystemAppearance: "light" | "dark" = "light";
 
 const trayMenuSurfaceWidth = 164;
 const trayMenuSurfaceHeight = 45;
 const trayMenuShadowInset = 8;
 const trayMenuWidth = trayMenuSurfaceWidth + trayMenuShadowInset * 2;
 const trayMenuHeight = trayMenuSurfaceHeight + trayMenuShadowInset * 2;
-const trayMenuOffset = 8;
+const trayMenuActionInset = trayMenuShadowInset + 6;
+const trayMenuZOrderSettleDelay = 17;
+const trayMenuFocusSettleDelay = 34;
 const trayQuitUrl = "flow-shuttle-tray://quit";
 const windowsThemeRegistryKey = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 const execFileAsync = promisify(execFile);
@@ -274,19 +282,6 @@ function trayLabels(language: LanguagePreference): { quit: string } {
   return { quit: "退出流梭" };
 }
 
-function escapeTrayMenuText(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => {
-    const entities: Record<string, string> = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    };
-    return entities[character];
-  });
-}
-
 async function readWindowsSystemAppearance(): Promise<"light" | "dark" | null> {
   if (process.platform !== "win32") {
     return null;
@@ -298,29 +293,20 @@ async function readWindowsSystemAppearance(): Promise<"light" | "dark" | null> {
       { encoding: "utf8", windowsHide: true }
     );
     const match = /SystemUsesLightTheme\s+REG_DWORD\s+0x([01])\b/i.exec(stdout);
-    if (!match) {
-      return null;
-    }
-    return match[1] === "0" ? "dark" : "light";
+    return match ? (match[1] === "0" ? "dark" : "light") : null;
   } catch {
     return null;
   }
 }
 
 async function resolveTrayMenuAppearance(): Promise<"light" | "dark"> {
-  const detectedAppearance = await readWindowsSystemAppearance();
-  if (detectedAppearance) {
-    traySystemAppearance = detectedAppearance;
-  } else if (getThemePreference() === "system") {
-    traySystemAppearance = nativeTheme.shouldUseDarkColors ? "dark" : "light";
-  }
-  return traySystemAppearance;
+  return await readWindowsSystemAppearance()
+    ?? (nativeTheme.shouldUseDarkColors ? "dark" : "light");
 }
 
-function trayMenuDocument(language: LanguagePreference, appearance: "light" | "dark"): string {
-  const label = escapeTrayMenuText(trayLabels(language).quit);
+function trayMenuDocument(): string {
   return `<!doctype html>
-<html lang="${language}" data-theme="${appearance}">
+<html lang="zh-CN" data-language="zh-CN" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'" />
@@ -361,7 +347,7 @@ function trayMenuDocument(language: LanguagePreference, appearance: "light" | "d
         box-shadow: var(--tray-menu-shadow);
         overflow: hidden;
       }
-      a {
+      .tray-menu-action {
         display: flex;
         flex: 1;
         align-items: center;
@@ -376,45 +362,53 @@ function trayMenuDocument(language: LanguagePreference, appearance: "light" | "d
         line-height: 1;
         text-align: center;
         text-decoration: none;
+        transition: none;
         user-select: none;
+        -webkit-app-region: no-drag;
       }
-      a > span {
-        transform: translateZ(0);
-        -webkit-font-smoothing: antialiased;
-        text-rendering: geometricPrecision;
-      }
-      a:hover, a:focus-visible {
+      .tray-menu-action:hover,
+      .tray-menu-action:active {
         background: var(--tray-menu-hover);
         color: #ffffff;
-        outline: none;
       }
-      a:active { background: var(--tray-menu-active); }
+      .tray-menu-action:active { background: var(--tray-menu-active); }
+      [data-tray-label] { display: none; }
+      :root[data-language="zh-CN"] [data-tray-label="zh-CN"],
+      :root[data-language="zh-TW"] [data-tray-label="zh-TW"],
+      :root[data-language="en"] [data-tray-label="en"] { display: inline; }
       @media (forced-colors: active) {
         .tray-menu-surface { border-color: CanvasText; background: Canvas; }
-        a { border: 1px solid ButtonText; background: ButtonFace; color: ButtonText; }
+        .tray-menu-action { border: 1px solid ButtonText; background: ButtonFace; color: ButtonText; }
       }
     </style>
   </head>
-  <body><main class="tray-menu-surface"><a href="${trayQuitUrl}"><span>${label}</span></a></main></body>
+  <body>
+    <main class="tray-menu-surface">
+      <a class="tray-menu-action" data-tray-action href="${trayQuitUrl}" aria-label="退出流梭">
+        <span data-tray-label="zh-CN">退出流梭</span>
+        <span data-tray-label="zh-TW">退出流梭</span>
+        <span data-tray-label="en">Quit Flow Shuttle</span>
+      </a>
+    </main>
+  </body>
 </html>`;
 }
 
-function resolveTrayMenuBounds(): Electron.Rectangle {
-  const cursor = screen.getCursorScreenPoint();
+function resolveTrayMenuBounds(cursor = screen.getCursorScreenPoint()): Electron.Rectangle {
   const display = screen.getDisplayNearestPoint(cursor);
   const margin = 6;
   const displayRight = display.bounds.x + display.bounds.width;
   const displayBottom = display.bounds.y + display.bounds.height;
   const workAreaBottom = display.workArea.y + display.workArea.height;
 
-  let x = cursor.x + trayMenuOffset - trayMenuShadowInset;
+  let x = cursor.x - trayMenuActionInset;
   if (x + trayMenuWidth > displayRight - margin) {
-    x = cursor.x - trayMenuSurfaceWidth - trayMenuOffset - trayMenuShadowInset;
+    x = cursor.x - trayMenuWidth + trayMenuActionInset;
   }
 
-  let y = cursor.y + trayMenuOffset - trayMenuShadowInset;
+  let y = cursor.y - trayMenuActionInset;
   if (cursor.y >= workAreaBottom || y + trayMenuHeight > displayBottom - margin) {
-    y = cursor.y - trayMenuSurfaceHeight - trayMenuOffset - trayMenuShadowInset;
+    y = cursor.y - trayMenuHeight + trayMenuActionInset;
   }
 
   return {
@@ -439,18 +433,23 @@ function createTrayMenuWindow(): BrowserWindow {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
+    focusable: true,
     show: false,
+    opacity: 0,
+    paintWhenInitiallyHidden: true,
     skipTaskbar: true,
     alwaysOnTop: true,
-    hasShadow: true,
+    hasShadow: false,
     backgroundColor: "#00000000",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      backgroundThrottling: false
     }
   });
   trayMenuWindowRef = trayMenuWindow;
+  trayMenuWindow.setAlwaysOnTop(true, "pop-up-menu");
   trayMenuWindow.setMenuBarVisibility(false);
   trayMenuWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   trayMenuWindow.webContents.on("will-navigate", (event, url) => {
@@ -466,35 +465,135 @@ function createTrayMenuWindow(): BrowserWindow {
       return;
     }
     event.preventDefault();
-    trayMenuWindow.hide();
+    hideTrayMenuWindow();
     trayRef?.focus();
   });
-  trayMenuWindow.on("blur", () => trayMenuWindow.hide());
+  trayMenuWindow.on("blur", () => {
+    if (!trayMenuRevealInProgress) {
+      hideTrayMenuWindow();
+    }
+  });
   trayMenuWindow.on("closed", () => {
     if (trayMenuWindowRef === trayMenuWindow) {
       trayMenuWindowRef = null;
+      trayMenuReadyPromise = null;
+      trayMenuUpdatePromise = null;
     }
+  });
+
+  trayMenuReadyPromise = new Promise<void>((resolve, reject) => {
+    trayMenuWindow.once("ready-to-show", resolve);
+    trayMenuWindow.webContents.once("did-fail-load", (_event, code, description) => {
+      reject(new Error(`Flow Shuttle tray menu failed to load (${code}): ${description}`));
+    });
+  });
+  void trayMenuReadyPromise.catch((error) => {
+    console.error("Flow Shuttle tray menu could not be prepared.", error);
+  });
+  void trayMenuWindow.loadURL(
+    `data:text/html;charset=utf-8,${encodeURIComponent(trayMenuDocument())}`
+  ).catch((error) => {
+    console.error("Flow Shuttle tray menu could not be loaded.", error);
   });
   return trayMenuWindow;
 }
 
-async function showTrayMenu(): Promise<void> {
-  const trayMenuWindow = createTrayMenuWindow();
-  trayMenuWindow.setBounds(resolveTrayMenuBounds(), false);
-  try {
+function trayMenuDomSyncScript(language: LanguagePreference, appearance: "light" | "dark"): string {
+  const labels = trayLabels(language);
+  return `(() => {
+    const root = document.documentElement;
+    root.lang = ${JSON.stringify(language)};
+    root.dataset.language = ${JSON.stringify(language)};
+    root.dataset.theme = ${JSON.stringify(appearance)};
+    const action = document.querySelector('[data-tray-action]');
+    action?.setAttribute('aria-label', ${JSON.stringify(labels.quit)});
+  })()`;
+}
+
+function queueTrayMenuDocumentUpdate(language = trayMenuLanguage): Promise<void> {
+  trayMenuLanguage = language;
+  const generation = ++trayMenuUpdateGeneration;
+  const updatePromise = (async () => {
     const appearance = await resolveTrayMenuAppearance();
-    await trayMenuWindow.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(trayMenuDocument(loadConfig().language, appearance))}`
+    if (generation !== trayMenuUpdateGeneration) {
+      return;
+    }
+    trayMenuAppearance = appearance;
+    const trayMenuWindow = createTrayMenuWindow();
+    await trayMenuReadyPromise;
+    if (generation !== trayMenuUpdateGeneration || trayMenuWindow.isDestroyed() || trayMenuWindow.isVisible()) {
+      return;
+    }
+    await trayMenuWindow.webContents.executeJavaScript(
+      trayMenuDomSyncScript(trayMenuLanguage, trayMenuAppearance),
+      true
     );
+  })();
+  trayMenuUpdatePromise = updatePromise;
+  return updatePromise;
+}
+
+function hideTrayMenuWindow(): void {
+  ++trayMenuShowGeneration;
+  trayMenuRevealInProgress = false;
+  const trayMenuWindow = trayMenuWindowRef;
+  if (trayMenuWindow && !trayMenuWindow.isDestroyed()) {
+    trayMenuWindow.setOpacity(0);
+    if (trayMenuWindow.isVisible()) {
+      trayMenuWindow.hide();
+    }
+  }
+  if (!isQuitting && trayRef) {
+    void queueTrayMenuDocumentUpdate().catch((error) => {
+      console.error("Flow Shuttle tray menu could not be updated.", error);
+    });
+  }
+}
+
+async function showTrayMenu(): Promise<void> {
+  const generation = ++trayMenuShowGeneration;
+  const trayMenuWindow = createTrayMenuWindow();
+  try {
+    await trayMenuReadyPromise;
+    if (trayMenuUpdatePromise) {
+      await trayMenuUpdatePromise;
+    }
   } catch (error) {
-    console.error("Flow Shuttle tray menu could not be loaded.", error);
+    console.error("Flow Shuttle tray menu could not be shown.", error);
     return;
   }
-  if (trayMenuWindow.isDestroyed()) {
+  if (generation !== trayMenuShowGeneration || trayMenuWindow.isDestroyed()) {
     return;
   }
-  trayMenuWindow.show();
+
+  const anchorPoint = screen.getCursorScreenPoint();
+  trayMenuRevealInProgress = true;
+  trayMenuWindow.setOpacity(0);
+  trayMenuWindow.setBounds(resolveTrayMenuBounds(anchorPoint), false);
+  trayMenuWindow.setAlwaysOnTop(true, "pop-up-menu");
+  trayMenuWindow.showInactive();
+  trayMenuWindow.moveTop();
+  await new Promise<void>((resolve) => setTimeout(resolve, trayMenuZOrderSettleDelay));
+  if (generation !== trayMenuShowGeneration || trayMenuWindow.isDestroyed() || !trayMenuWindow.isVisible()) {
+    trayMenuRevealInProgress = false;
+    return;
+  }
   trayMenuWindow.focus();
+  await new Promise<void>((resolve) => setTimeout(resolve, trayMenuFocusSettleDelay));
+  if (generation !== trayMenuShowGeneration || trayMenuWindow.isDestroyed() || !trayMenuWindow.isVisible()) {
+    trayMenuRevealInProgress = false;
+    return;
+  }
+  if (!trayMenuWindow.isFocused()) {
+    trayMenuWindow.focus();
+    await new Promise<void>((resolve) => setTimeout(resolve, trayMenuZOrderSettleDelay));
+  }
+  if (generation !== trayMenuShowGeneration || trayMenuWindow.isDestroyed() || !trayMenuWindow.isVisible()) {
+    trayMenuRevealInProgress = false;
+    return;
+  }
+  trayMenuWindow.setOpacity(1);
+  trayMenuRevealInProgress = false;
 }
 
 function updateTrayMenu(language = loadConfig().language): void {
@@ -502,6 +601,9 @@ function updateTrayMenu(language = loadConfig().language): void {
     return;
   }
   trayRef.setToolTip(titleForLanguage(language));
+  void queueTrayMenuDocumentUpdate(language).catch((error) => {
+    console.error("Flow Shuttle tray menu could not be updated.", error);
+  });
 }
 
 function createTray(): void {
@@ -520,11 +622,11 @@ function createTray(): void {
   }
   trayRef = new Tray(trayIcon);
   trayRef.on("click", () => {
-    trayMenuWindowRef?.hide();
+    hideTrayMenuWindow();
     focusMainWindow();
   });
   trayRef.on("double-click", () => {
-    trayMenuWindowRef?.hide();
+    hideTrayMenuWindow();
     focusMainWindow();
   });
   trayRef.on("right-click", () => {
@@ -927,7 +1029,7 @@ app.on("second-instance", () => {
 
 app.whenReady().then(() => {
   session.defaultSession.setSpellCheckerEnabled(false);
-  traySystemAppearance = nativeTheme.shouldUseDarkColors ? "dark" : "light";
+  trayMenuAppearance = nativeTheme.shouldUseDarkColors ? "dark" : "light";
   applyThemeFromConfig();
   hideApplicationMenu();
   registerAttachmentProtocol();
@@ -939,8 +1041,10 @@ app.whenReady().then(() => {
   scheduleBackgroundUpdateCheck();
 
   nativeTheme.on("updated", () => {
+    void queueTrayMenuDocumentUpdate().catch((error) => {
+      console.error("Flow Shuttle tray menu could not be updated.", error);
+    });
     if (getThemePreference() === "system") {
-      traySystemAppearance = nativeTheme.shouldUseDarkColors ? "dark" : "light";
       notifySettingsChanged();
     }
   });
