@@ -55,7 +55,7 @@
 
 ![项目详情与时间线](./docs/assets/screenshots/v0.3.0/project-detail.png)
 
-![工作项内容编辑](./docs/assets/screenshots/v0.3.0/work-item-editor.png)
+![工作项内容编辑](./docs/assets/screenshots/v0.4.3/work-item-editor.png)
 
 ![报告档案库](./docs/assets/screenshots/v0.3.0/reports.png)
 
@@ -155,7 +155,7 @@ Flow Shuttle is built to help connect each day’s work into a continuous thread
 
 ![Project detail and timeline](./docs/assets/screenshots/v0.3.0/project-detail.png)
 
-![Work item editor](./docs/assets/screenshots/v0.3.0/work-item-editor.png)
+![Work item editor](./docs/assets/screenshots/v0.4.3/work-item-editor.png)
 
 ![Reports](./docs/assets/screenshots/v0.3.0/reports.png)
 
