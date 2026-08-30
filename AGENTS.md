@@ -110,6 +110,19 @@ Use this fixed template:
 
 Only provide the block after the public Release and versioned installer asset have been verified. The installer field must be the direct versioned `.exe` asset URL, not the Release page, `/releases/latest`, or a local file path. The one-sentence summary must follow the same public-copy boundary as the release notes.
 
+## Confirmed Local-Only Work
+
+The following groups are intentionally local-only and must remain untracked:
+
+- `ai-state/`
+- `design-qa.md`
+- `docs/assets/social-updates/`
+- `docs/promo-video/`
+
+This is a settled project rule confirmed during the v0.4.0, v0.4.1, and v0.4.2 releases. Treat these paths as known protected local assets, not as new or suspicious worktree changes. Do not stage, commit, delete, clean, relocate, or repeatedly ask whether to include them unless the project owner explicitly reverses this rule. A task trace created under `ai-state/` also remains local-only by default.
+
+Do not use broad staging commands such as `git add .` or `git add -A` in this repository. Stage only the exact task-related source, test, configuration, and explicitly approved documentation paths.
+
 ## Working Rules
 
 - Make incremental changes only.
