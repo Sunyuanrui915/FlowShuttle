@@ -1,4 +1,3 @@
-import HardBreak from "@tiptap/extension-hard-break";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
@@ -58,6 +57,12 @@ import { assertAttachmentSizeBytes } from "../../shared/attachmentLimits";
 import type { LanguagePreference } from "../../shared/types";
 import { useAiSelectionPolish } from "./AiSelectionPolish";
 import {
+  FlowShuttleHardBreak,
+  plainTextClipboardSlice,
+  serializeMarkdownWithPersistentEmptyParagraphs,
+  toggleUnifiedCodeBlock
+} from "./editorBlockBehavior";
+import {
   clampImagePreviewPan,
   FlowShuttleImage,
   sanitizeImagePresentation,
@@ -89,11 +94,13 @@ import {
   canContinueOrderedList,
   canIndentListItem,
   canOutdentListItem,
+  deleteEmptyListItem,
   getActiveListType,
   getActiveListItemType,
   getCurrentOrderedListNumber,
   formatOrderedListMarker,
   indentListItem,
+  normalizeAdjacentLists,
   outdentListItem,
   setCurrentOrderedListSequence,
   type OrderedListMarkerLevel
@@ -428,10 +435,6 @@ function normalizeMarkdownForImport(value: string): string {
   return normalized;
 }
 
-const FlowShuttleHardBreak = HardBreak.extend({
-  renderMarkdown: () => "\\\n"
-});
-
 function markdownImage(src: string, altText = "image"): string {
   const safeAlt = altText.replace(/[\[\]\n\r]/g, " ").trim() || "image";
   return `![${safeAlt}](${src})`;
@@ -602,9 +605,8 @@ function clipboardPayloadToBlob(payload: { data: ArrayBuffer; mimeType: string }
 }
 
 function getEditorMarkdown(editor: TiptapEditor): string {
-  const editorWithMarkdown = editor as TiptapEditor & { getMarkdown?: () => string };
   return normalizeControlledInlineFormattingMarkdown(
-    normalizePlainText(editorWithMarkdown.getMarkdown?.() ?? "")
+    normalizePlainText(serializeMarkdownWithPersistentEmptyParagraphs(editor))
   ).replace(/\n+$/g, "");
 }
 
@@ -967,8 +969,12 @@ const FlowShuttleKeyboardExtension = Extension.create({
         }
         return canOutdentListItem(editor) ? outdentListItem(editor) : true;
       },
+      "Shift-Enter": () => this.editor.commands.enter(),
       Backspace: () => {
         const { editor } = this;
+        if (deleteEmptyListItem(editor)) {
+          return true;
+        }
         if (!editor.isActive("blockquote")) {
           return false;
         }
@@ -1714,7 +1720,7 @@ function Toolbar({
         {button(
           "code",
           <SquareCode size={16} strokeWidth={1.8} aria-hidden="true" />,
-          () => editor?.chain().focus().toggleCodeBlock().run() ?? false,
+          () => editor ? toggleUnifiedCodeBlock(editor) : false,
           labels.codeBlock,
           "markdown-editor-icon-button"
         )}
@@ -2115,6 +2121,8 @@ export function MarkdownWysiwygEditor({
         spellcheck: "false"
       },
       clipboardTextSerializer: clipboardPlainText,
+      clipboardTextParser: (text, $context, _plain, view) =>
+        plainTextClipboardSlice(text, view.state.schema, $context.marks()),
       handlePaste: (_view, event) => {
         const currentEditor = editorRef.current;
         if (!currentEditor || disabled) {
@@ -2152,6 +2160,7 @@ export function MarkdownWysiwygEditor({
     },
     onCreate: ({ editor: createdEditor }) => {
       editorRef.current = createdEditor;
+      normalizeAdjacentLists(createdEditor);
       setCharacterCount(getEditorCharacterCount(createdEditor));
     },
     onUpdate: ({ editor: updatedEditor }) => {

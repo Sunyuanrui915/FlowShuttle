@@ -2,306 +2,130 @@
 
 [简体中文](#简体中文) | [English](#english)
 
+最后更新 / Last updated: 2026-08-30
+
 ## 简体中文
+
+### 当前阶段
+
+流梭是一款本地优先的 Windows 桌面端个人工作进展日志工具。当前阶段继续围绕真实日常使用，优先完善记录、回看、编辑、报告和本地数据安全，不扩张为团队协作平台。
+
+### 即将发布
+
+#### v0.4.3
+
+- 统一编辑器的换行与分段逻辑，使 `Enter` 与 `Shift+Enter` 在正文、标题、引用和列表中保持一致。
+- 保留多行粘贴内容中的段落和空行，并让空行在保存重开后保持稳定。
+- 优化多段内容的识别与批量格式处理，覆盖文字高亮、列表和代码块等常用格式。
+- 优化空列表项删除、连续列表归一和撤销行为，减少结构变化造成的行间距不一致。
 
 ### 已发布
 
-#### v0.3.1
+#### v0.4.2
 
-当前公开版本。本轮重点包含：
+- 消除系统托盘右键菜单弹出时的可见闪烁，并优化菜单显示与关闭行为。
+- 图片大图预览在放大后支持拖动查看，可完整浏览边缘内容。
 
-* 优化数据目录选择逻辑：已有数据库时直接加载，没有数据库时创建空白数据库，不再自动迁移当前数据，并加强异常数据库文件的安全校验。
+#### v0.4.1
 
-#### v0.3.0
+- 新增 Windows 系统托盘常驻，以及关闭窗口后的重新打开和退出能力。
+- 编辑器图片支持完整大图预览、缩放、旋转、适应窗口、复制和下载。
+- Today 页显示暂时没有工作项的进行中项目，仍可维护项目备忘录。
+- 优化项目备忘录工具栏布局和图片查看体验。
 
-上一公开版本。本轮重点包含：
+#### v0.4.0
 
-* 对 Today、项目、报告、热力图、归档与设置页面进行全面 UI 升级，并完善多分辨率适配。
-* Today 页新增星座式工作项概览，通过星点、颜色和动画呈现已填写与阻碍状态。
-* 热力图改为统一的综合热度口径，通过星座图形呈现每天的记录活跃程度。
-* 日报、周报和月报支持在应用内编辑并保存，离开未保存内容时会进行确认。
-* 新增编辑器背景切换和设置页版本信息展开区域，并优化页签滑动、状态菜单与常用提示样式。
+- 编辑器新增正文与 H1-H6、三级列表、编号控制、文字颜色、高亮颜色、格式刷和清除格式。
+- 图片支持调整显示大小和切换边框、投影、画框等展示样式。
+- 编辑器右下角新增实时字数显示。
+- 设置页新增反馈入口，可提交文字、选填邮箱和最多 5 张截图。
 
-#### v0.2.3
-
-上一公开版本。本轮重点包含：
-
-* 修复上一工作日参考将 Markdown 内部段落误显示为多条分隔线，并在复制时产生多余空行的问题。
-* 修复项目归档后未显示在归档页面的问题。
-* 归档项目详情的“更多操作”中新增“取消归档”，可将项目恢复到项目列表，并让未完成工作项重新出现在 Today 页。
-* 优化今日记录编辑页的工作项状态选择框，移除 hover / focus 时叠加的蓝色外框。
-
-#### v0.2.2
-
-上一公开版本。重点包含：
-
-* 修复今日记录编辑器和项目备忘录内部空行保存后可能被压缩或丢失的问题；
-* 设置页“版本与更新”改为只显示当前语言的一句更新摘要；
-* 新增“关于流梭 / 作者与反馈”入口，方便查看个人网站、流梭页面和反馈信息；
-* 移除 Settings 外观显示模式下方“当前选择 / 当前使用”的状态提示文字；
-* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
-
-#### v0.2.1
-
-重点包含：
-
-* 修复编辑器回车后新输入内容可能不可见的问题；
-* 修复任务列表、有序列表、引用等工具栏操作的选择范围问题；
-* 修复无实际修改时保存工作项仍可能新增项目时间线记录的问题；
-* 将项目详情页进行中 / 已完成工作项改为页签切换；
-* 优化工作项删除按钮和输入框默认提示文字显示；
-* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
-
-#### v0.2.0
-
-重点包含：
-* 修复热力图和总记录字数在无有效今日变更摘要时异常升高的问题；
-* 优化上一工作日参考、编辑器换行、搜索和单实例运行体验；
-* 从今日记录编辑页返回 Today 时保持离开前的滚动位置；
-* 增加项目和工作项的手动顺序调整能力；
-* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
-
-#### v0.1.4
-
-重点包含：
-
-* 修复 Today 页面在没有今日变更摘要时的“摘要已填”状态识别问题；
-* 修复上一工作日参考中换行内容被显示成分段的问题；
-* 增加编辑器换行 / 分段操作提示；
-* 优化图片右键菜单，选中图片时隐藏不适合图片场景的粘贴操作；
-* 增加工作项编辑能力，支持修改标题、描述和状态；
-* 优化部分 UI 显示细节；
-* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
-
-#### v0.1.3
-
-重点包含：
-
-* 修复 Settings 中 Release 说明显示原始 HTML 标签的问题；
-* 修复上一工作日参考 / 上一快照中的 Markdown 换行和 attachment 图片显示问题；
-* 修复「保存本项」后 Today 总览摘要状态刷新不及时的问题；
-* 更新 Windows 安装包与 Release 文档；
-* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
-
-#### v0.1.2
-
-重点包含：
-
-* 修复新建项目弹窗中的输入焦点问题；
-* 修复 Markdown 编辑器中图片相邻文本和任务列表切换的光标问题；
-* 新增应用内使用指南，并在 Today 空状态和 Settings 中提供入口；
-* 修正热力图统计口径，使工作项当前内容的实际编辑也能体现活跃度；
-* 更新 Windows 安装包与 Release 文档；
-* 继续保持本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
-
-#### v0.1.1
-
-重点包含：
-
-* 优化编辑与记录体验；
-* 优化界面细节和默认主题；
-* 完善 Windows 安装包和应用图标；
-* 增加版本与更新入口；
-* 补充 README、Release Notes、截图和公开发布说明；
-* 发布 Windows 安装包；
-* 保留本地优先、SQLite 存储、不强制登录、不上传工作内容的产品方向。
-
-#### v0.1.0
-
-首个公开发布版本，完成基础能力：
-
-* 项目与工作项管理；
-* Today 每日记录；
-* 日报 / 周报 / 月报生成；
-* 项目时间线；
-* 工作活跃度热力图；
-* Markdown 导出；
-* 本地 SQLite 存储；
-* Windows 安装包；
-* 自动更新框架预留。
+更早版本的完整变化请查看 [CHANGELOG.md](./CHANGELOG.md)。
 
 ### 近期计划
 
-#### v0.1.x
+- 持续根据真实记录场景优化编辑器、Today、项目备忘录和报告工作流。
+- 完善日报、周报和月报模板，以及生成后编辑、回看和导出体验。
+- 加强本地数据备份、迁移、恢复和导出说明，继续把用户数据安全放在首位。
+- 持续验证自动更新、反馈通道和 Windows 安装体验的稳定性。
+- 在用户主动触发、使用自有 API Key 和原文可恢复的边界内优化 AI 辅助能力。
+- 补充脱敏后的最新产品截图，并完善 GitHub Issue / Pull Request 模板。
 
-* 收集第一批用户反馈；
-* 修复安装、启动、更新检查、数据目录等基础体验问题；
-* 优化 README、官网说明、使用指南和故障排查；
-* 完善 Issue 模板和反馈流程；
-* 在仓库公开后验证应用内检查更新能力；
-* 优化 Today、项目详情、报告、热力图、设置等核心页面的细节体验；
-* 继续验证自动更新流程。
+### 中期评估
 
-### 后续方向
-
-#### v0.2.x
-
-* 根据真实使用反馈优化记录流程；
-* 完善日报 / 周报 / 月报模板；
-* 优化 AI 提炼体验；
-* 增强数据备份、迁移和导出说明；
-* 评估是否需要代码签名；
-* 评估多平台安装包支持；
-* 持续保持本地优先和个人工具定位。
+- 评估 Windows 代码签名的成本与收益。
+- 评估 macOS 等其他桌面平台的安装包支持。
+- 评估是否需要更明确的本地备份提醒和可恢复机制。
 
 ### 不在近期计划中
 
-* 团队协作；
-* 云同步；
-* 移动端 App；
-* 企业后台管理；
-* 上级查看进度；
-* 强制登录；
-* 默认上传工作内容。
+- 团队协作；
+- 云同步；
+- 移动端 App；
+- 企业后台管理；
+- 上级查看进度；
+- 强制登录；
+- 默认上传工作内容。
 
 ## English
 
+### Current Stage
+
+Flow Shuttle is a local-first Windows desktop journal for personal work progress. The current stage remains focused on real daily use: recording, review, editing, reports, and local data safety. It is not expanding into a team collaboration platform.
+
+### Upcoming
+
+#### v0.4.3
+
+- Unify editor paragraph and line-break behavior so `Enter` and `Shift+Enter` act consistently across body text, headings, quotes, and lists.
+- Preserve paragraphs and blank lines in pasted multi-line content, including after saving and reopening.
+- Improve multi-block recognition and batch formatting across highlights, lists, code blocks, and related formats.
+- Refine empty-list-item deletion, adjacent-list normalization, and undo behavior to keep structure and spacing consistent.
+
 ### Released
 
-#### v0.3.1
+#### v0.4.2
 
-Current public release. This iteration focuses on:
+- Removed visible flashing from the system-tray right-click menu and refined its display and dismissal behavior.
+- Added panning for zoomed full-image previews so edge content remains reachable.
 
-* Improved data directory selection: existing databases are loaded directly, blank databases are created when needed, current data is no longer migrated automatically, and invalid database files receive stronger safety checks.
+#### v0.4.1
 
-#### v0.3.0
+- Added Windows system-tray continuity, including restoring and quitting after the main window closes.
+- Added full image preview with navigation, zoom, rotation, fit-to-window, copy, and download actions.
+- Kept active projects without work items available on Today for project-memo updates.
+- Refined the project-memo toolbar and image-viewing experience.
 
-Previous public release. This iteration focuses on:
+#### v0.4.0
 
-* Delivered a comprehensive UI upgrade across Today, Projects, Reports, Heatmap, Archive, and Settings, with improved multi-resolution behavior.
-* Added a constellation-style Today overview with star, color, and motion feedback for filled items and blockers.
-* Unified heatmap activity into one composite scale and represented daily activity with constellation graphics.
-* Added in-app editing and saving for daily, weekly, and monthly reports, including an unsaved-change confirmation.
-* Added editor backgrounds and an expandable update section in Settings, and refined sliding tabs, status menus, and common prompts.
+- Added body text and H1-H6 formatting, three-level lists, numbering controls, text and highlight colors, Format Painter, and Clear Formatting.
+- Added image resizing and border, shadow, and frame presentation styles.
+- Added a live character count in the editor.
+- Added explicit feedback submission with text, an optional email, and up to five screenshots.
 
-#### v0.2.3
+See [CHANGELOG.md](./CHANGELOG.md) for the complete history of earlier releases.
 
-Previous public release. This iteration focuses on:
+### Near-Term Plans
 
-* Fixed previous workday references showing Markdown paragraphs as repeated separators and producing extra blank lines when copied.
-* Fixed archived projects not appearing on the Archive page.
-* Added an Unarchive Project action to archived project details, restoring the project to Projects and its open work items to Today.
-* Refined the work item status selector by removing the duplicated blue hover / focus ring.
+- Continue refining the editor, Today, project memos, and report workflows based on real recording scenarios.
+- Improve daily, weekly, and monthly report templates together with post-generation editing, review, and export.
+- Strengthen local backup, migration, recovery, and export guidance while keeping user data safety first.
+- Continue validating automatic updates, the feedback channel, and the Windows installation experience.
+- Refine AI assistance only within user-triggered, user-keyed, and recoverable-original boundaries.
+- Add current sanitized product screenshots and complete GitHub Issue / Pull Request templates.
 
-#### v0.2.2
+### Mid-Term Evaluation
 
-Previous public release. Highlights:
+- Evaluate the cost and benefit of Windows code signing.
+- Evaluate installer support for macOS and other desktop platforms.
+- Evaluate clearer local backup reminders and recovery mechanisms.
 
-* Fixed internal blank lines in daily editors and project memos being compressed or lost after saving and reopening;
-* Changed Version & Updates in Settings to show only a one-sentence release summary in the current UI language;
-* Added an About Flow Shuttle / Author & Feedback entry for the personal website, Flow Shuttle page, and feedback information;
-* Removed the extra current theme status text under the appearance selector in Settings;
-* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
+### Not in Near-Term Scope
 
-#### v0.2.1
-
-Highlights:
-
-* Fixed an issue where newly entered text after pressing Enter could become hidden below the editor area;
-* Fixed formatting command selection scope for task lists, ordered lists, quotes, and related toolbar actions;
-* Fixed project timeline records being created when saving a work item without real changes;
-* Changed active and completed work items in project details to tabs;
-* Improved delete button alignment and placeholder text colors;
-* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
-
-#### v0.2.0
-
-Highlights:
-* Fixed heatmap and total text length inflation when no valid change summary exists;
-* Improved previous workday references, editor line breaks, search, and single-instance behavior;
-* Preserved the Today scroll position when returning from a work item editor;
-* Added manual ordering for projects and work items;
-* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
-
-#### v0.1.4
-
-Highlights:
-
-* Fixed Today summary-filled state detection when no valid change summary exists;
-* Fixed line-break rendering in previous workday references;
-* Added editor guidance for line breaks and paragraph breaks;
-* Improved the image context menu by hiding paste actions that do not apply to selected images;
-* Added work item editing for title, description, and status updates;
-* Improved several UI display details;
-* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
-
-#### v0.1.3
-
-Highlights:
-
-* Fixed release notes being displayed as raw HTML in Settings;
-* Fixed Markdown line breaks and attachment images not rendering correctly in previous workday references and previous snapshots;
-* Fixed Today overview not refreshing saved change summary status after clicking Save Item;
-* Updated the Windows installer and release documentation;
-* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
-
-#### v0.1.2
-
-Highlights:
-
-* Fixed a focus issue in the new project dialog;
-* Fixed a cursor issue around images and task-list toggles in the Markdown editor;
-* Added an in-app user guide with entry points from the Today empty state and Settings;
-* Updated heatmap activity calculation so real edits to work item current content can contribute to activity;
-* Updated the Windows installer and release documentation;
-* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
-
-#### v0.1.1
-
-Highlights:
-
-* Improved editing and daily recording experience;
-* Improved UI details and default theme behavior;
-* Completed Windows installer and application icon setup;
-* Added version and update entry;
-* Updated README, release notes, screenshots, and public release documentation;
-* Released Windows installer;
-* Continued the local-first direction with SQLite storage, no mandatory login, and no uploading of work content by default.
-
-#### v0.1.0
-
-First public release with core features:
-
-* Project and work item management;
-* Today daily records;
-* Daily / weekly / monthly report generation;
-* Project timeline;
-* Work activity heatmap;
-* Markdown export;
-* Local SQLite storage;
-* Windows installer;
-* Update framework prepared.
-
-### Near-term plans
-
-#### v0.1.x
-
-* Collect early user feedback;
-* Fix issues around installation, startup, update checks, and data directory behavior;
-* Improve README, website copy, user guide, and troubleshooting documentation;
-* Improve issue templates and feedback flow;
-* Verify in-app update checks after the repository becomes public;
-* Refine Today, project detail, reports, heatmap, and settings pages;
-* Continue validating the update workflow.
-
-### Future direction
-
-#### v0.2.x
-
-* Improve the recording workflow based on real usage feedback;
-* Improve daily / weekly / monthly report templates;
-* Improve AI summarization experience;
-* Improve data backup, migration, and export guidance;
-* Evaluate code signing;
-* Evaluate multi-platform installer support;
-* Continue keeping Flow Shuttle local-first and personal-tool oriented.
-
-### Not in near-term scope
-
-* Team collaboration;
-* Cloud sync;
-* Mobile app;
-* Enterprise admin console;
-* Manager progress tracking;
-* Mandatory login;
-* Uploading work content by default.
+- Team collaboration;
+- Cloud sync;
+- Mobile apps;
+- Enterprise administration;
+- Manager progress tracking;
+- Mandatory login;
+- Uploading work content by default.

@@ -64,9 +64,9 @@
 
 “进行中”和“暂停”的工作项仍保留在今日工作页。可显示的星点超过上限时，右上角会用“星星 +N”汇总其余数量，完整工作项仍可在下方列表中查看。
 
-#### 已填写与阻碍标识
+#### 已填写、暂停与阻碍标识
 
-“已填写”表示当天已经保存了记录，并不等于没有阻碍。只要“阻碍 / 需要帮助”中有内容，工作项名称旁就会显示警示图标，方便在列表中快速识别。
+“已填写”表示当天确实新增或修改了今日变更摘要、下一步计划或阻碍；只切换状态不会被算作已填写。下一步计划和阻碍会沿用到后续日期，直到你主动修改或清空。暂停工作项会显示暂停图标；仍有阻碍时优先显示警示图标，方便在列表中快速识别。
 
 #### 保存与结束今天工作
 
@@ -90,9 +90,13 @@
 
 #### 今日状态与编辑纸张
 
-编辑页右上角可以选择“进行中”“已完成”或“暂停”。状态与正文会在保存后生效。
+编辑页右上角可以选择“进行中”“已完成”或“暂停”。保存后，状态会同步到项目中的工作项；仅切换状态不会生成三项内容均为空的项目进展记录。
 
 “编辑纸张”提供纯净、云岚、森语和夜航四种背景，只改变编辑画布的视觉，不改变内容和统计方式。
+
+编辑器工具栏支持正文与 H1-H6 标题、三级有序和无序列表、列表缩进、粗体、斜体、下划线、删除线、文字颜色、高亮颜色、格式刷和清除格式。选中图片后，可以拖动四角调整显示大小，并选择无边框、浅边框、深边框、投影或画框样式。
+
+在正文、标题、引用和列表中，`Enter` 与 `Shift+Enter` 都会按当前格式创建下一段或下一项；在代码块中则继续输入下一行。粘贴多行纯文本时会保留段落和内部空行。选中多段内容后，可以统一设置文字高亮、列表或代码块等格式。
 
 ### 6. 生成、编辑与导出报告
 
@@ -144,9 +148,11 @@
 
 ### 10. 设置、AI 与版本更新
 
-“设置”中可以切换外观和语言、管理本地数据目录、配置 AI，以及查看版本更新。
+“设置”中可以切换外观和语言、管理本地数据目录、配置 AI、查看版本更新，并在“关于流梭”下方主动发送反馈。
 
-AI 报告提炼默认关闭。启用后，需要配置兼容 OpenAI 接口的服务和自己的 API Key。只有在你主动触发提炼时才会调用 AI；不启用 AI 也能正常使用本地规则报告。
+AI 功能默认关闭。启用后，需要配置兼容 OpenAI 接口的服务和自己的 API Key。报告提炼只会在你主动触发时调用 AI；不启用 AI 也能正常使用本地规则报告。
+
+每个可编辑的富文本编辑器都在工具栏中提供“AI 润色”开关，进入编辑器时默认关闭，只对当前编辑器生效。需要时开启并选中文字，才会出现轻量入口；只有点击“AI 润色”才会发送选中内容。长文本润色不会在 60 秒时被应用主动中断，生成期间会实时显示连接、完整审读和正文输出进度，也可以点击取消或按 `Esc` 随时停止。只有完整结果生成后才能确认替换；取消或失败都保留原文。只读内容不会显示替换入口。
 
 流梭会在后台弱提示新版本，但不会自动下载或强制安装。你可以在“版本与更新”中主动检查、查看 Release 摘要和下载进度；下载完成后，只有点击“重启并安装”才会退出应用并安装。展开详情后，还可以打开 Release 页面或前往 GitHub 仓库点 Star。
 
@@ -158,7 +164,7 @@ AI 报告提炼默认关闭。启用后，需要配置兼容 OpenAI 接口的服
 
 #### 为什么工作项显示“已填写”，旁边还有警示图标？
 
-“已填写”只表示当天记录已保存。警示图标表示阻碍字段不为空，两者可以同时出现。
+“已填写”表示当天三项变更内容确实发生过修改。警示图标表示当前仍有阻碍；阻碍会跨日沿用，所以进行中的工作项也可能显示该图标。
 
 #### 为什么手动修改的报告后来变回去了？
 
@@ -236,9 +242,9 @@ The top star map represents work items that can still be advanced today. A newly
 
 In Progress and Paused items remain on Today. When there are more stars than the map can show, the upper-right “star +N” indicator summarizes the rest; every work item remains available in the list below.
 
-#### Filled State and Blocker Indicator
+#### Filled, Paused, and Blocker Indicators
 
-Filled means a daily record has been saved; it does not mean the item has no blocker. If Blocker / Help Needed contains text, a warning icon appears beside the work item name so it can be spotted in the list.
+Filled means Today’s Change Summary, Next Step, or Blocker was actually added or changed that day; changing status alone does not count. Next Step and Blocker carry into later dates until you edit or clear them. Paused items show a pause icon, while an active blocker takes priority and shows the warning icon.
 
 #### Saving and Finishing the Day
 
@@ -262,9 +268,13 @@ Previous Workday Reference shows the most recent current content, change summary
 
 #### Today’s Status and Editor Paper
 
-Use the control in the upper-right to choose In Progress, Done, or Paused. The status and content take effect after saving.
+Use the control in the upper-right to choose In Progress, Done, or Paused. Saving synchronizes that lifecycle state with the work item in Projects. A status-only change does not create a project timeline entry with three empty fields.
 
 Editor Paper offers Clean, Cloud Mist, Forest Whisper, and Night Voyage backgrounds. It only changes the editing canvas appearance; it does not change content or statistics.
+
+The editor toolbar supports body text and H1-H6 headings, three-level ordered and unordered lists, list indentation, bold, italic, underline, strikethrough, text color, highlight color, Format Painter, and Clear Formatting. Select an image to resize it from the corner handles or choose no border, a light border, a dark border, a shadow, or a frame.
+
+Across body text, headings, quotes, and lists, both `Enter` and `Shift+Enter` create the next paragraph or item in the current format; inside a code block, they continue on the next line. Pasting multi-line plain text preserves its paragraphs and internal blank lines. Select multiple blocks to apply highlighting, list formatting, or code-block conversion together.
 
 ### 6. Generating, Editing, and Exporting Reports
 
@@ -316,9 +326,11 @@ When moving to another computer, copy the entire data directory rather than only
 
 ### 10. Settings, AI, and Updates
 
-Settings lets you change appearance and language, manage the local data directory, configure AI, and view version updates.
+Settings lets you change appearance and language, manage the local data directory, configure AI, view version updates, and explicitly send feedback below About Flow Shuttle.
 
-AI report refinement is disabled by default. To enable it, configure an OpenAI-compatible service with your own API key. AI is only called when you actively trigger refinement; rule-based local reports continue to work without AI.
+AI features are disabled by default. To enable them, configure an OpenAI-compatible service with your own API key. Report refinement calls AI only when you actively trigger it; rule-based local reports continue to work without AI.
+
+Each editable rich-text editor has an AI Polish toggle in its toolbar. It starts off whenever you enter an editor and affects only that editor. Turn it on and select text to reveal the lightweight action. Only the selected text is sent after you click AI Polish. Long selections are no longer stopped by the app at 60 seconds. While generating, the preview shows connection, full-review, and live writing progress; you can cancel or press `Esc` at any time. Replacement is enabled only after the complete result arrives, and cancellation or failure leaves the original untouched. Read-only content never shows a replacement action.
 
 Flow Shuttle can show a background, low-pressure update hint but does not download or force-install updates automatically. From Version & Update, you can check manually and view the Release summary or download progress. After a download, the app only exits and installs when you choose Restart and Install. Expand Details to open the Release page or visit the GitHub repository to leave a star.
 
@@ -330,7 +342,7 @@ Daily reports use Today’s Change Summary. Current content is the full draft an
 
 #### Why does an item say Filled and still show a warning icon?
 
-Filled only means the daily record was saved. The warning icon means the blocker field is not empty, so both can appear at the same time.
+Filled means one of the three daily change fields was actually changed that day. The warning icon means the item still has a blocker; blockers carry across dates, so an In Progress item may also show the icon.
 
 #### Why did my manual report edits disappear later?
 

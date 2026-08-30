@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.3 - Unreleased
+
+### Improved
+
+* 统一编辑器的换行与分段逻辑。`Enter` 与 `Shift+Enter` 在正文、标题、引用和列表中保持一致，多行内容粘贴时能够保留原有段落和空行，保存重开后结构保持稳定。
+* Unified editor paragraph and line-break behavior. `Enter` and `Shift+Enter` now behave consistently across body text, headings, quotes, and lists; pasted multi-line content preserves its paragraphs and blank lines, including after saving and reopening.
+* 优化多段内容的识别与批量格式处理。选中多段正文、标题、引用或列表后，可以统一设置文字高亮、列表或代码块等格式；删除空列表项、转换格式或撤销后，内容结构和行间距保持一致。
+* Improved multi-block recognition and batch formatting across body text, headings, quotes, and lists. Highlighting, list formatting, code-block conversion, empty-item deletion, and undo now preserve document structure and spacing more consistently.
+
 ## v0.4.2 - 2026-08-23
 
 ### Fixed

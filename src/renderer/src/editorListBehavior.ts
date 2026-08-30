@@ -8,7 +8,8 @@ import {
 } from "@tiptap/core";
 import { OrderedList } from "@tiptap/extension-list";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, Selection, type Transaction } from "@tiptap/pm/state";
+import { canJoin } from "@tiptap/pm/transform";
 
 export const MAX_LIST_LEVEL = 3;
 export const MAX_ORDERED_LIST_VALUE = 9_999_999;
@@ -288,6 +289,65 @@ function collectContinueListUpdates(
   });
 }
 
+function collectAdjacentListJoinPositions(
+  parentNode: ProseMirrorNode,
+  contentStart: number,
+  positions: number[]
+): void {
+  let childOffset = 0;
+  let previousChild: ProseMirrorNode | null = null;
+
+  parentNode.forEach((child) => {
+    const position = contentStart + childOffset;
+    const isMergeableList = child.type.name === "bulletList" || child.type.name === "taskList";
+    if (
+      previousChild &&
+      isMergeableList &&
+      previousChild.type === child.type &&
+      previousChild.sameMarkup(child)
+    ) {
+      positions.push(position);
+    }
+
+    if (child.childCount > 0) {
+      collectAdjacentListJoinPositions(child, position + 1, positions);
+    }
+    previousChild = child;
+    childOffset += child.nodeSize;
+  });
+}
+
+function applyAdjacentListJoins(
+  transaction: Transaction,
+  positions: number[]
+): void {
+  positions
+    .sort((left, right) => right - left)
+    .forEach((position) => {
+      const mappedPosition = transaction.mapping.map(position);
+      if (canJoin(transaction.doc, mappedPosition)) {
+        transaction.join(mappedPosition);
+      }
+    });
+}
+
+export function normalizeAdjacentLists(editor: Editor): boolean {
+  const positions: number[] = [];
+  collectAdjacentListJoinPositions(editor.state.doc, 0, positions);
+  if (positions.length === 0) {
+    return false;
+  }
+
+  const transaction = editor.state.tr;
+  applyAdjacentListJoins(transaction, positions);
+  if (transaction.steps.length === 0) {
+    return false;
+  }
+  transaction.setMeta("addToHistory", false);
+  editor.view.dispatch(transaction);
+  return true;
+}
+
 export const FlowShuttleListBehavior = Extension.create({
   name: "flowShuttleListBehavior",
 
@@ -303,16 +363,23 @@ export const FlowShuttleListBehavior = Extension.create({
             return null;
           }
 
+          const joinPositions: number[] = [];
+          collectAdjacentListJoinPositions(newState.doc, 0, joinPositions);
           const updates: ContinueListUpdate[] = [];
           collectContinueListUpdates(newState.doc, 0, updates);
-          if (updates.length === 0) {
+          if (joinPositions.length === 0 && updates.length === 0) {
             return null;
           }
 
           const transaction = newState.tr;
+          applyAdjacentListJoins(transaction, joinPositions);
           updates.forEach(({ node, position, start }) => {
-            transaction.setNodeMarkup(position, undefined, { ...node.attrs, start });
+            const mappedPosition = transaction.mapping.map(position);
+            transaction.setNodeMarkup(mappedPosition, undefined, { ...node.attrs, start });
           });
+          if (transaction.steps.length === 0) {
+            return null;
+          }
           transaction.setMeta(continueListPluginKey, true);
           transaction.setMeta("addToHistory", false);
           return transaction;
@@ -451,6 +518,53 @@ export function getActiveListItemType(editor: Editor): "listItem" | "taskItem" |
     }
   }
   return null;
+}
+
+export function deleteEmptyListItem(editor: Editor): boolean {
+  const { selection } = editor.state;
+  if (
+    !selection.empty ||
+    selection.$from.parentOffset !== 0 ||
+    selection.$from.parent.content.size !== 0
+  ) {
+    return false;
+  }
+
+  const { $from } = selection;
+  let itemDepth = -1;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const nodeName = $from.node(depth).type.name;
+    if (nodeName === "listItem" || nodeName === "taskItem") {
+      itemDepth = depth;
+      break;
+    }
+  }
+  if (itemDepth <= 1) {
+    return false;
+  }
+
+  const itemNode = $from.node(itemDepth);
+  const listNode = $from.node(itemDepth - 1);
+  const isSingleEmptyParagraph = itemNode.childCount === 1
+    && itemNode.firstChild?.type.name === "paragraph"
+    && itemNode.firstChild.content.size === 0;
+  if (!isSingleEmptyParagraph || listNode.childCount <= 1) {
+    return false;
+  }
+
+  const itemIndex = $from.index(itemDepth - 1);
+  const itemPosition = $from.before(itemDepth);
+  const transaction = editor.state.tr.delete(
+    itemPosition,
+    itemPosition + itemNode.nodeSize
+  );
+  const selectionPosition = Math.min(itemPosition, transaction.doc.content.size);
+  transaction.setSelection(
+    Selection.near(transaction.doc.resolve(selectionPosition), itemIndex > 0 ? -1 : 1)
+  );
+  editor.view.dispatch(transaction.scrollIntoView());
+  editor.commands.focus();
+  return true;
 }
 
 function activeListItemNode(editor: Editor): ProseMirrorNode | null {

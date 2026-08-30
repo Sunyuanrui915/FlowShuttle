@@ -94,6 +94,8 @@ Editor Paper offers Clean, Cloud Mist, Forest Whisper, and Night Voyage backgrou
 
 The editor toolbar supports body text and H1-H6 headings, three-level ordered and unordered lists, list indentation, bold, italic, underline, strikethrough, text color, highlight color, Format Painter, and Clear Formatting. Select an image to resize it from the corner handles or choose no border, a light border, a dark border, a shadow, or a frame.
 
+Across body text, headings, quotes, and lists, both `Enter` and `Shift+Enter` create the next paragraph or item in the current format; inside a code block, they continue on the next line. Pasting multi-line plain text preserves its paragraphs and internal blank lines. Select multiple blocks to apply highlighting, list formatting, or code-block conversion together.
+
 ## 6. Generating, Editing, and Exporting Reports
 
 ### Generate Reports

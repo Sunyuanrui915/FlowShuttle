@@ -4,25 +4,35 @@ import test from "node:test";
 import { getSchema } from "@tiptap/core";
 import { MarkdownManager } from "@tiptap/markdown";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
 import StarterKit from "@tiptap/starter-kit";
 import {
   FlowShuttleListBehavior,
   FlowShuttleOrderedList,
   canIndentListItem,
+  deleteEmptyListItem,
   formatOrderedListMarker,
   getActiveListType,
   getCurrentOrderedListNumber,
+  normalizeAdjacentLists,
   setCurrentOrderedListSequence
 } from "../src/renderer/src/editorListBehavior.ts";
 
 const extensions = [
   StarterKit.configure({ orderedList: false }),
-  FlowShuttleOrderedList
+  FlowShuttleOrderedList,
+  TaskList,
+  TaskItem.configure({ nested: true })
 ];
 const markdownManager = new MarkdownManager({ extensions });
 const schema = getSchema(extensions);
 const editorStyles = readFileSync(
   new URL("../src/renderer/src/styles.css", import.meta.url),
+  "utf8"
+);
+const editorSource = readFileSync(
+  new URL("../src/renderer/src/MarkdownWysiwygEditor.tsx", import.meta.url),
   "utf8"
 );
 
@@ -71,6 +81,63 @@ function editorHarness(markdown, selectedText) {
       return state;
     }
   };
+}
+
+function stateHarness(document, position) {
+  let state = EditorState.create({
+    schema,
+    doc: document,
+    selection: TextSelection.create(document, position)
+  });
+  const editor = {
+    get state() {
+      return state;
+    },
+    view: {
+      dispatch(transaction) {
+        state = state.apply(transaction);
+      }
+    },
+    commands: {
+      focus() {
+        return true;
+      }
+    }
+  };
+  return {
+    editor,
+    get state() {
+      return state;
+    }
+  };
+}
+
+function emptyListDocument(listTypeName, itemTypeName, listAttributes = null) {
+  const paragraphType = schema.nodes.paragraph;
+  const itemType = schema.nodes[itemTypeName];
+  const listType = schema.nodes[listTypeName];
+  const itemAttributes = itemTypeName === "taskItem" ? { checked: false } : null;
+  const item = (text) => itemType.create(
+    itemAttributes,
+    paragraphType.create(null, text ? schema.text(text) : undefined)
+  );
+  return schema.nodes.doc.create(null, listType.create(
+    listAttributes,
+    [item("A"), item(""), item("C")]
+  ));
+}
+
+function emptyParagraphPosition(document) {
+  let position = null;
+  document.descendants((node, nodePosition) => {
+    if (position === null && node.type.name === "paragraph" && node.content.size === 0) {
+      position = nodePosition + 1;
+      return false;
+    }
+    return position === null;
+  });
+  assert.notEqual(position, null);
+  return position;
 }
 
 test("ordered-list sequence metadata survives Markdown round trips", () => {
@@ -254,4 +321,102 @@ test("numbering actions target the nearest list level only", () => {
 
   assert.equal(getActiveListType(editor), "bulletList");
   assert.equal(getCurrentOrderedListNumber(editor), null);
+});
+
+test("Backspace deletes an empty list item without splitting the surrounding list", () => {
+  const cases = [
+    ["bulletList", "listItem", null],
+    ["orderedList", "listItem", { start: 4, sequenceMode: "custom" }],
+    ["taskList", "taskItem", null]
+  ];
+
+  cases.forEach(([listTypeName, itemTypeName, listAttributes]) => {
+    const document = emptyListDocument(listTypeName, itemTypeName, listAttributes);
+    const harness = stateHarness(document, emptyParagraphPosition(document));
+    assert.equal(deleteEmptyListItem(harness.editor), true);
+    assert.equal(harness.state.doc.childCount, 1);
+    assert.equal(harness.state.doc.firstChild.type.name, listTypeName);
+    assert.equal(harness.state.doc.firstChild.childCount, 2);
+    assert.deepEqual(
+      Array.from({ length: 2 }, (_, index) => harness.state.doc.firstChild.child(index).textContent),
+      ["A", "C"]
+    );
+    if (listTypeName === "orderedList") {
+      assert.equal(harness.state.doc.firstChild.attrs.start, 4);
+      assert.equal(harness.state.doc.firstChild.attrs.sequenceMode, "custom");
+    }
+  });
+});
+
+test("Backspace leaves non-empty and sole empty list items to the standard keymap", () => {
+  const nonEmptyDocument = markdownDocument("- A\n- B");
+  const nonEmpty = stateHarness(nonEmptyDocument, positionInsideText(nonEmptyDocument, "B"));
+  assert.equal(deleteEmptyListItem(nonEmpty.editor), false);
+
+  const paragraphType = schema.nodes.paragraph;
+  const soleEmptyDocument = schema.nodes.doc.create(
+    null,
+    schema.nodes.bulletList.create(
+      null,
+      schema.nodes.listItem.create(null, paragraphType.create())
+    )
+  );
+  const soleEmpty = stateHarness(
+    soleEmptyDocument,
+    emptyParagraphPosition(soleEmptyDocument)
+  );
+  assert.equal(deleteEmptyListItem(soleEmpty.editor), false);
+});
+
+test("adjacent bullet and task lists normalize while ordered sequence boundaries stay separate", () => {
+  const paragraphType = schema.nodes.paragraph;
+  const paragraph = (text) => paragraphType.create(null, schema.text(text));
+  const listItem = (text) => schema.nodes.listItem.create(null, paragraph(text));
+  const taskItem = (text) => schema.nodes.taskItem.create(
+    { checked: false },
+    paragraph(text)
+  );
+
+  const cases = [
+    [
+      "bulletList",
+      schema.nodes.bulletList.create(null, listItem("A")),
+      schema.nodes.bulletList.create(null, listItem("C"))
+    ],
+    [
+      "taskList",
+      schema.nodes.taskList.create(null, taskItem("A")),
+      schema.nodes.taskList.create(null, taskItem("C"))
+    ]
+  ];
+  cases.forEach(([listTypeName, firstList, secondList]) => {
+    const document = schema.nodes.doc.create(null, [firstList, secondList]);
+    const harness = stateHarness(document, positionInsideText(document, "A"));
+    assert.equal(normalizeAdjacentLists(harness.editor), true);
+    assert.equal(harness.state.doc.childCount, 1);
+    assert.equal(harness.state.doc.firstChild.type.name, listTypeName);
+    assert.equal(harness.state.doc.firstChild.childCount, 2);
+    assert.deepEqual(
+      Array.from({ length: 2 }, (_, index) => harness.state.doc.firstChild.child(index).textContent),
+      ["A", "C"]
+    );
+  });
+
+  const orderedDocument = schema.nodes.doc.create(null, [
+    schema.nodes.orderedList.create(
+      { start: 1, sequenceMode: "new" },
+      listItem("A")
+    ),
+    schema.nodes.orderedList.create(
+      { start: 1, sequenceMode: "new" },
+      listItem("C")
+    )
+  ]);
+  const orderedHarness = stateHarness(
+    orderedDocument,
+    positionInsideText(orderedDocument, "A")
+  );
+  assert.equal(normalizeAdjacentLists(orderedHarness.editor), false);
+  assert.equal(orderedHarness.state.doc.childCount, 2);
+  assert.match(editorSource, /normalizeAdjacentLists\(createdEditor\)/);
 });
