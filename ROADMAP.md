@@ -10,7 +10,7 @@
 
 流梭是一款本地优先的 Windows 桌面端个人工作进展日志工具。当前阶段继续围绕真实日常使用，优先完善记录、回看、编辑、报告和本地数据安全，不扩张为团队协作平台。
 
-### 即将发布
+### 已发布
 
 #### v0.4.3
 
@@ -18,8 +18,6 @@
 - 保留多行粘贴内容中的段落和空行，并让空行在保存重开后保持稳定。
 - 优化多段内容的识别与批量格式处理，覆盖文字高亮、列表和代码块等常用格式。
 - 优化空列表项删除、连续列表归一和撤销行为，减少结构变化造成的行间距不一致。
-
-### 已发布
 
 #### v0.4.2
 
@@ -73,7 +71,7 @@
 
 Flow Shuttle is a local-first Windows desktop journal for personal work progress. The current stage remains focused on real daily use: recording, review, editing, reports, and local data safety. It is not expanding into a team collaboration platform.
 
-### Upcoming
+### Released
 
 #### v0.4.3
 
@@ -81,8 +79,6 @@ Flow Shuttle is a local-first Windows desktop journal for personal work progress
 - Preserve paragraphs and blank lines in pasted multi-line content, including after saving and reopening.
 - Improve multi-block recognition and batch formatting across highlights, lists, code blocks, and related formats.
 - Refine empty-list-item deletion, adjacent-list normalization, and undo behavior to keep structure and spacing consistent.
-
-### Released
 
 #### v0.4.2
 
