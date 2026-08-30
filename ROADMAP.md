@@ -47,7 +47,7 @@
 - 加强本地数据备份、迁移、恢复和导出说明，继续把用户数据安全放在首位。
 - 持续验证自动更新、反馈通道和 Windows 安装体验的稳定性。
 - 在用户主动触发、使用自有 API Key 和原文可恢复的边界内优化 AI 辅助能力。
-- 补充脱敏后的最新产品截图，并完善 GitHub Issue / Pull Request 模板。
+- 继续按版本变化逐步补充脱敏后的最新产品截图。
 
 ### 中期评估
 
@@ -108,7 +108,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for the complete history of earlier releases.
 - Strengthen local backup, migration, recovery, and export guidance while keeping user data safety first.
 - Continue validating automatic updates, the feedback channel, and the Windows installation experience.
 - Refine AI assistance only within user-triggered, user-keyed, and recoverable-original boundaries.
-- Add current sanitized product screenshots and complete GitHub Issue / Pull Request templates.
+- Continue adding current sanitized product screenshots as the product evolves.
 
 ### Mid-Term Evaluation
 

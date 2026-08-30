@@ -1,0 +1,64 @@
+name: "功能建议 / Feature request"
+description: "描述真实使用场景和希望达到的结果 / Describe a real use case and desired outcome"
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先说明遇到的问题和真实场景，而不只是功能名称。流梭坚持本地优先，不默认上传工作内容。
+
+        Start with the problem and real use case, not only a feature name. Flow Shuttle remains local-first and does not upload work content by default.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "涉及页面 / Product area"
+      options:
+        - Today / 今日工作
+        - Projects / 项目与备忘录
+        - Reports / 报告
+        - Heatmap / 热力图
+        - Editor / 编辑器
+        - Settings / 设置
+        - Installation or update / 安装与更新
+        - Other / 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "问题与场景 / Problem and use case"
+      description: "你在什么情况下遇到了什么阻碍？"
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: "希望达到的结果 / Desired outcome"
+      description: "理想情况下，完成操作后应该得到什么结果？"
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: "目前的替代做法 / Current workaround"
+      description: "选填。你现在如何绕过这个问题？"
+
+  - type: textarea
+    id: context
+    attributes:
+      label: "补充信息 / Additional context"
+      description: "选填。可粘贴脱敏截图或补充限制条件。"
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: "隐私确认 / Privacy confirmation"
+      options:
+        - label: "我已确认本 Issue 不包含数据库、API Key、授权码或未脱敏的工作内容。"
+          required: true
