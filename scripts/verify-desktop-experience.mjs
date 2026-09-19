@@ -59,12 +59,15 @@ test("daily journal groups are seeded from every active project", () => {
   assert.match(appSource, /group\.projectMemo\.updated_at/);
 });
 
-test("project memo toolbar exposes format actions and keeps AI polish aligned right", () => {
-  assert.match(appSource, /<MarkdownWysiwygEditor[\s\S]*?showFormatActionsInline[\s\S]*?onChange=\{onContentChange\}/);
-  assert.match(editorSource, /showFormatActionsInline \? \([\s\S]*?<PaintRoller [\s\S]*?<RemoveFormatting /);
+test("project memo shares adaptive format actions and keeps AI polish pinned right", () => {
+  assert.match(appSource, /function ProjectMemoPage[\s\S]*?<MarkdownWysiwygEditor[\s\S]*?onChange=\{onContentChange\}/);
+  assert.match(editorSource, /useAdaptiveToolbar\(toolbarGroups\.length\)/);
+  assert.match(editorSource, /className="markdown-editor-toolbar-trailing">\{aiPolishButton\}/);
+  assert.match(editorSource, /onClick=\{activateFormatPainter\}/);
+  assert.match(editorSource, /onClick=\{clearFormatting\}/);
   assert.match(
     styles,
-    /\.markdown-editor-toolbar-spacer\s*\{[^}]*flex:\s*1 1 10px;/s
+    /\.markdown-editor-toolbar-trailing\s*\{[^}]*margin-left:\s*auto;/s
   );
   assert.match(styles, /\.memo-editor-card::before\s*\{[^}]*z-index:\s*4;/s);
   assert.doesNotMatch(styles, /\.memo-editor-card \.markdown-editor-toolbar-spacer/);

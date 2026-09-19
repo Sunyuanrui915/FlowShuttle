@@ -182,7 +182,9 @@ test("toolbar, palette, theme, and word-count styles keep the visual contract", 
   assert.match(styles, /data-flow-shuttle-highlight="gray"/s);
   assert.match(styles, /data-flow-shuttle-highlight="orange"/s);
   assert.match(styles, /data-flow-shuttle-highlight="black"/s);
-  assert.match(styles, /\.markdown-editor-toolbar-menu\.is-more\s*\{[^}]*width:\s*184px;/s);
+  assert.match(styles, /\.markdown-editor-toolbar-menu\.is-more\s*\{[^}]*width:\s*max-content;/s);
+  assert.match(styles, /\.markdown-editor-overflow-group\s*\{[^}]*display:\s*grid;/s);
+  assert.match(styles, /\.markdown-editor-toolbar-trailing\s*\{[^}]*margin-left:\s*auto;/s);
   assert.match(
     styles,
     /\[data-flow-shuttle-text-color\][\s\S]*mark\[data-flow-shuttle-highlight\][\s\S]*color:\s*inherit\s*!important;/s
@@ -191,10 +193,10 @@ test("toolbar, palette, theme, and word-count styles keep the visual contract", 
   assert.match(styles, /data-editor-theme="dark"[\s\S]*data-flow-shuttle-highlight="yellow"/s);
 });
 
-test("more menu exposes a one-shot format painter and clear-format command", () => {
+test("adaptive toolbar retains a one-shot format painter and clear-format command", () => {
   assert.match(editorSource, /toolbarMenu\.kind === "more"/);
-  assert.match(editorSource, /<PaintRoller[\s\S]*labels\.formatPainter/);
-  assert.match(editorSource, /<RemoveFormatting[\s\S]*labels\.clearFormatting/);
+  assert.match(editorSource, /aria-label=\{labels\.formatPainter\}/);
+  assert.match(editorSource, /aria-label=\{labels\.clearFormatting\}/);
   assert.match(editorSource, /aria-keyshortcuts="Control\+Alt\+C"/);
   assert.match(editorSource, /unsetAllMarks\(\)/);
   assert.match(editorSource, /applyInlineFormattingSnapshot/);

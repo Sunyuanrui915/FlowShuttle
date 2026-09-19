@@ -2,7 +2,7 @@
 
 [简体中文](#简体中文) | [English](#english)
 
-最后更新 / Last updated: 2026-08-30
+最后更新 / Last updated: 2026-09-19
 
 ## 简体中文
 
@@ -11,6 +11,11 @@
 流梭是一款本地优先的 Windows 桌面端个人工作进展日志工具。当前阶段继续围绕真实日常使用，优先完善记录、回看、编辑、报告和本地数据安全，不扩张为团队协作平台。
 
 ### 已发布
+
+#### v0.4.4
+
+- 编辑框内支持查找与替换，包括快捷键、匹配高亮、前后跳转、区分大小写和全部替换。
+- 工具栏按编辑区宽度自动收纳，搜索和 AI 润色入口常驻，更多工具通过文字下拉菜单使用。
 
 #### v0.4.3
 
@@ -72,6 +77,11 @@
 Flow Shuttle is a local-first Windows desktop journal for personal work progress. The current stage remains focused on real daily use: recording, review, editing, reports, and local data safety. It is not expanding into a team collaboration platform.
 
 ### Released
+
+#### v0.4.4
+
+- Added in-editor find and replace with shortcuts, match highlighting, navigation, case sensitivity, and Replace all.
+- Added an adaptive toolbar with pinned Search and AI Polish controls and a labeled More dropdown for overflow tools.
 
 #### v0.4.3
 

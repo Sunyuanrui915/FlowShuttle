@@ -37,6 +37,7 @@
 - 项目与工作项管理。
 - Today 每日工作页，集中记录当天推进。
 - 今日记录编辑页，支持上一工作日参考、稳定的分段与多行粘贴、三级列表、批量文字格式和图片样式设置。
+- 编辑框内查找与替换，支持 `Ctrl+F`、`Ctrl+H`、匹配高亮和全部替换；工具栏随编辑区宽度自动收纳。
 - 日报、周报、月报生成与 Markdown 导出。
 - 项目进展时间线。
 - 工作活跃度热力图。
@@ -71,7 +72,7 @@
 
 [下载最新版本](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-当前版本为 `v0.4.3`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
+当前版本为 `v0.4.4`。流梭仍处于早期公开阶段，欢迎下载体验并反馈问题。
 
 Flow Shuttle 未进行代码签名，Windows 可能出现安全提示。如果只是日常使用流梭，不需要从源码运行项目。
 
@@ -136,6 +137,7 @@ Flow Shuttle is built to help connect each day’s work into a continuous thread
 - Project and work item management.
 - Today view for daily progress recording.
 - Focused daily record editor with previous-workday reference, stable paragraph and multi-line paste behavior, three-level lists, batch text formatting, and image presentation controls.
+- In-editor find and replace with `Ctrl+F`, `Ctrl+H`, match highlighting, and Replace all; the toolbar adapts to the editor's available width.
 - Daily, weekly, and monthly report generation.
 - Markdown export.
 - Project progress timeline.
@@ -171,7 +173,7 @@ Regular users can download the Windows installer from GitHub Releases:
 
 [Download the latest version](https://github.com/Sunyuanrui915/FlowShuttle/releases/latest)
 
-The current version is `v0.4.3`. Flow Shuttle is still an early public release. It is local-first by default, does not require login, and does not upload your work content by itself.
+The current version is `v0.4.4`. Flow Shuttle is still an early public release. It is local-first by default, does not require login, and does not upload your work content by itself.
 
 Flow Shuttle is not code-signed yet, so Windows may show a security warning. If you only use Flow Shuttle day to day, you do not need to run the project from source.
 

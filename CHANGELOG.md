@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.4 - 2026-09-19
+
+### Added
+
+* 编辑框内新增查找与替换。通过工具栏搜索按钮或 `Ctrl+F` 查找，支持匹配高亮、数量、前后跳转和区分大小写；`Ctrl+H` 展开替换，可替换当前项或全部匹配，全部替换支持一次撤销。
+* Added in-editor find and replace through the toolbar search button or `Ctrl+F`, with match highlighting, counts, navigation, and case sensitivity. `Ctrl+H` opens replacement controls for one match or all matches, and Replace all can be undone in one step.
+
+### Improved
+
+* 工具栏随编辑区宽度自动展开或收纳。窗口缩小或参考栏展开时，放不下的格式工具进入带图标、文字和快捷键提示的“更多”下拉菜单，搜索与 AI 润色入口保持可见。
+* The toolbar now adapts to the editor's width. Narrowing the window or opening the reference panel moves overflow formatting tools into a More dropdown with icons, labels, and shortcut hints, while Search and AI Polish remain visible.
+
 ## v0.4.3 - 2026-08-30
 
 ### Improved

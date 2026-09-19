@@ -1040,6 +1040,19 @@ function compactToastMessage(message: string): string {
 
 function markdownEditorLabels(t: Translator): MarkdownEditorLabels {
   return {
+    find: t("editorFind"),
+    findPlaceholder: t("editorFindPlaceholder"),
+    replacePlaceholder: t("editorReplacePlaceholder"),
+    matchCase: t("editorMatchCase"),
+    previousMatch: t("editorPreviousMatch"),
+    nextMatch: t("editorNextMatch"),
+    toggleReplace: t("editorToggleReplace"),
+    replace: t("editorReplace"),
+    replaceAll: t("editorReplaceAll"),
+    closeFind: t("editorCloseFind"),
+    noMatches: t("editorNoMatches"),
+    matchCount: t("editorMatchCount"),
+    replacedCount: t("editorReplacedCount"),
     toolbarLabel: t("editorToolbarLabel"),
     contextMenuLabel: t("editorContextMenuLabel"),
     paragraph: t("editorParagraph"),
@@ -3446,7 +3459,7 @@ function SearchBox({
           activeElement !== inputRef.current &&
           (activeElement.matches("input, textarea, select") || activeElement.isContentEditable)
       );
-      if (activeModal || isAnotherEditableTarget) {
+      if (activeModal || isAnotherEditableTarget || activeElement?.closest(".markdown-editor-shell")) {
         return;
       }
 
@@ -9060,7 +9073,6 @@ function ProjectMemoPage({
             height="100%"
             minHeight="0px"
             hideModeSwitch
-            showFormatActionsInline
             onChange={onContentChange}
             onImageUpload={saveMemoEditorImage}
             onImageError={(error) =>
