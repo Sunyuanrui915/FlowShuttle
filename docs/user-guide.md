@@ -96,7 +96,19 @@
 
 编辑器工具栏支持正文与 H1-H6 标题、三级有序和无序列表、列表缩进、粗体、斜体、下划线、删除线、文字颜色、高亮颜色、格式刷和清除格式。选中图片后，可以拖动四角调整显示大小，并选择无边框、浅边框、深边框、投影或画框样式。
 
+工具栏会随编辑区宽度自动调整。搜索入口始终保留，AI 润色按钮固定在右侧；其余工具在空间充足时直接显示，缩小窗口或展开侧栏后，放不下的功能会按组收进“更多”。“更多”保留图标、文字和快捷键提示的纵向下拉菜单。宽度恢复后，工具会回到原来的位置；全部放得下时隐藏“更多”。选中文字后，可以从菜单中继续设置格式或打开颜色菜单。
+
 在正文、标题、引用和列表中，`Enter` 与 `Shift+Enter` 都会按当前格式创建下一段或下一项；在代码块中则继续输入下一行。粘贴多行纯文本时会保留段落和内部空行。选中多段内容后，可以统一设置文字高亮、列表或代码块等格式。
+
+#### 在编辑框内查找与替换
+
+点击工具栏最左侧的搜索按钮，或在编辑框内按 `Ctrl+F`，会在工具栏下方打开查找栏。已选中的单行文字会自动成为查找内容。匹配项会高亮并显示数量，查找框中的 `Enter` / `Shift+Enter` 或上下箭头用于前后跳转；也可以在编辑框内使用 `F3` / `Shift+F3`。`Aa` 可以切换区分大小写。
+
+点击查找栏左侧的展开箭头，或按 `Ctrl+H`，可以显示替换栏。支持替换当前项、全部替换，或留空删除匹配文字。替换内容按普通文字处理，沿用匹配首字符的格式；周围段落、列表和图片保持原样。关闭查找、点击正文后，可以用 `Ctrl+Z` 一次撤销整次全部替换。
+
+按 `Esc` 或点击关闭按钮，会清空查找词与替换文本、收起替换栏并清除高亮，焦点回到工具栏搜索按钮。正文不留下光标或选区，点击正文后才继续编辑。“区分大小写”设置保留；主动选中文字后再次打开查找，仍会带入新选中的文字。
+
+查找只作用于当前编辑框中的连续正文，不跨段落、图片或手动换行，也不会搜索其他记录。只读编辑框可以查找，不能替换。项目备忘录、每日记录和报告编辑框采用相同操作；macOS 使用 `⌘` 代替 `Ctrl`。
 
 ### 6. 生成、编辑与导出报告
 
@@ -274,7 +286,19 @@ Editor Paper offers Clean, Cloud Mist, Forest Whisper, and Night Voyage backgrou
 
 The editor toolbar supports body text and H1-H6 headings, three-level ordered and unordered lists, list indentation, bold, italic, underline, strikethrough, text color, highlight color, Format Painter, and Clear Formatting. Select an image to resize it from the corner handles or choose no border, a light border, a dark border, a shadow, or a frame.
 
+The toolbar adapts to the editor's available width. Search stays visible and AI Polish stays on the right. Other tools appear inline when space permits; narrowing the window or opening a sidebar moves complete groups into More. More uses a vertical dropdown with icons, text labels, and shortcut hints. Groups return to their original positions as space becomes available, and More disappears when everything fits. You can apply formatting or open color palettes from the dropdown without losing your text selection.
+
 Across body text, headings, quotes, and lists, both `Enter` and `Shift+Enter` create the next paragraph or item in the current format; inside a code block, they continue on the next line. Pasting multi-line plain text preserves its paragraphs and internal blank lines. Select multiple blocks to apply highlighting, list formatting, or code-block conversion together.
+
+#### Find and replace within an editor
+
+Click the leftmost search button in the toolbar or press `Ctrl+F` inside the editor. The search bar opens below the toolbar and uses any selected single-line text as the query. Matches are highlighted and counted. Use `Enter` / `Shift+Enter` in the find field, the arrow buttons, or `F3` / `Shift+F3` inside the editor to navigate. Toggle `Aa` for case-sensitive matching.
+
+Expand the arrow on the left of the search bar or press `Ctrl+H` to show replacement controls. Replace the current match, replace all, or leave the replacement empty to delete matches. Replacement is literal text and inherits the first matched character's formatting; surrounding paragraphs, lists, and images are preserved. Close search and click the document, then press `Ctrl+Z` to undo an entire Replace all operation in one step.
+
+Pressing `Esc` or clicking Close clears both text fields and all search highlights, collapses the replacement row, and returns focus to the toolbar search button. No caret or selection remains visible in the document; click the document to resume editing. The Match case setting is retained. Selecting new text before reopening find still uses that selection as the query.
+
+Search covers continuous text in the current editor, without crossing paragraphs, images, or hard breaks, and does not search other records. Read-only editors support find only. Project memos, daily records, and report editors share these controls. On macOS, use `⌘` instead of `Ctrl`.
 
 ### 6. Generating, Editing, and Exporting Reports
 

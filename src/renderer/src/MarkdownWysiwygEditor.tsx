@@ -39,6 +39,7 @@ import {
   Quote,
   RemoveFormatting,
   RotateCcw,
+  Search,
   Sparkles,
   Square,
   SquareCheckBig,
@@ -50,12 +51,15 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import { Children, cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState, useLayoutEffect } from "react";
+import type { ButtonHTMLAttributes, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { assertAttachmentSizeBytes } from "../../shared/attachmentLimits";
 import type { LanguagePreference } from "../../shared/types";
 import { useAiSelectionPolish } from "./AiSelectionPolish";
+import { EditorSearchBar, useEditorSearch, type EditorSearchLabels } from "./EditorSearchBar";
+import { FlowShuttleSearch } from "./editorSearch";
+import { useAdaptiveToolbar } from "./useAdaptiveToolbar";
 import {
   FlowShuttleHardBreak,
   plainTextClipboardSlice,
@@ -127,7 +131,7 @@ interface FormatPainterState {
   snapshot: InlineFormattingSnapshot;
 }
 
-export interface MarkdownEditorLabels {
+export interface MarkdownEditorLabels extends EditorSearchLabels {
   toolbarLabel: string;
   contextMenuLabel: string;
   paragraph: string;
@@ -216,7 +220,6 @@ interface MarkdownWysiwygEditorProps {
   disabled?: boolean;
   compact?: boolean;
   hideModeSwitch?: boolean;
-  showFormatActionsInline?: boolean;
   labels?: Partial<MarkdownEditorLabels>;
   onFeedback?: (feedback: { kind: EditorFeedbackKind; message: string }) => void;
   onChange: (value: string) => void;
@@ -289,6 +292,19 @@ interface AiPolishTextSegment {
 }
 
 const defaultLabels: MarkdownEditorLabels = {
+  find: "Find in this editor",
+  findPlaceholder: "Find text",
+  replacePlaceholder: "Replace with",
+  matchCase: "Match case",
+  previousMatch: "Previous match",
+  nextMatch: "Next match",
+  toggleReplace: "Show or hide replacement",
+  replace: "Replace",
+  replaceAll: "Replace all",
+  closeFind: "Close search",
+  noMatches: "No matches",
+  matchCount: "Match {current} of {total}",
+  replacedCount: "Replaced {count} matches · {shortcut} to undo",
   toolbarLabel: "Editor toolbar",
   contextMenuLabel: "Editor menu",
   paragraph: "Paragraph",
@@ -1042,20 +1058,72 @@ function applyInlineFormattingSnapshot(
   return chain.run();
 }
 
+type ToolbarControlProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  "data-markdown-toolbar-menu-trigger"?: boolean;
+};
+
+function toolbarButtons(content: ReactNode): ReactElement<ToolbarControlProps>[] {
+  return Children.toArray(content).flatMap((child) => {
+    if (!isValidElement<{ children?: ReactNode }>(child)) return [];
+    if (child.type === "button") return [child as ReactElement<ToolbarControlProps>];
+    return toolbarButtons(child.props.children);
+  });
+}
+
+function toolbarMenuItem(control: ReactElement<ToolbarControlProps>, labels: MarkdownEditorLabels, index: number) {
+  const props = control.props;
+  // Color menus use one named row; the inline apply/dropdown split stays inline.
+  if (props.className?.includes("markdown-editor-color-apply")) return null;
+  const label = props["aria-label"] ?? props.title ?? "";
+  const submenu = Boolean(props["data-markdown-toolbar-menu-trigger"]);
+  let icon = Children.toArray(props.children).find((child) =>
+    isValidElement(child) && (typeof child.type !== "string" || child.type === "svg")
+  );
+  if (props.className?.includes("markdown-editor-paragraph-trigger")) {
+    icon = <PencilLine size={16} aria-hidden="true" />;
+  } else if (props.className?.includes("markdown-editor-color-menu-trigger")) {
+    icon = label === labels.textColor
+      ? <Baseline size={16} aria-hidden="true" />
+      : <Highlighter size={16} aria-hidden="true" />;
+  }
+  const active = props["aria-pressed"] === true || props["aria-pressed"] === "true";
+  const shortcut = props["aria-keyshortcuts"]?.split("+");
+  return cloneElement(control, {
+    key: `${label}-${index}`,
+    className: `markdown-editor-more-menu-item${active ? " is-active" : ""}`,
+    role: props["aria-pressed"] === undefined ? "menuitem" : "menuitemcheckbox",
+    "aria-checked": props["aria-pressed"],
+    "aria-pressed": undefined,
+    "aria-haspopup": submenu ? "menu" : undefined
+  }, <>
+    {icon}
+    <span className="markdown-editor-menu-label">{label}</span>
+    {submenu ? <ChevronRight size={14} aria-hidden="true" /> : shortcut ? (
+      <span className="markdown-editor-menu-shortcut" aria-hidden="true">
+        {shortcut.map((key, keyIndex) => <kbd key={keyIndex}>{key === "Control" ? "Ctrl" : key}</kbd>)}
+      </span>
+    ) : active ? <Check size={14} aria-hidden="true" /> : null}
+  </>);
+}
+
 function Toolbar({
   editor,
   labels,
   disabled,
-  showFormatActionsInline,
   aiSelectionPolishEnabled,
-  onToggleAiSelectionPolish
+  onToggleAiSelectionPolish,
+  searchOpen,
+  searchButtonRef,
+  onFind
 }: {
   editor: TiptapEditor | null;
   labels: MarkdownEditorLabels;
   disabled?: boolean;
-  showFormatActionsInline?: boolean;
   aiSelectionPolishEnabled: boolean;
   onToggleAiSelectionPolish: () => void;
+  searchOpen: boolean;
+  searchButtonRef: RefObject<HTMLButtonElement>;
+  onFind: () => void;
 }): JSX.Element {
   const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph");
   const [toolbarMenu, setToolbarMenu] = useState<{
@@ -1117,15 +1185,18 @@ function Toolbar({
       }
     };
     const close = () => closeToolbarMenu();
+    const closeFromScroll = (event: Event) => {
+      if (!toolbarMenuRef.current?.contains(event.target as Node)) closeToolbarMenu();
+    };
     document.addEventListener("mousedown", closeFromOutside);
     document.addEventListener("keydown", closeFromKeyboard);
-    document.addEventListener("scroll", close, true);
+    document.addEventListener("scroll", closeFromScroll, true);
     window.addEventListener("resize", close);
     window.addEventListener("blur", close);
     return () => {
       document.removeEventListener("mousedown", closeFromOutside);
       document.removeEventListener("keydown", closeFromKeyboard);
-      document.removeEventListener("scroll", close, true);
+      document.removeEventListener("scroll", closeFromScroll, true);
       window.removeEventListener("resize", close);
       window.removeEventListener("blur", close);
     };
@@ -1386,12 +1457,313 @@ function Toolbar({
     </button>
   );
 
+  const increaseIndentAvailable = Boolean(editor && canIndentListItem(editor));
+  const decreaseIndentAvailable = Boolean(editor && canOutdentListItem(editor));
+  const toolbarGroups = [
+    {
+      id: "paragraph", content: (<button
+        type="button"
+        className="markdown-editor-paragraph-trigger"
+        data-markdown-toolbar-menu-trigger
+        aria-label={labels.heading}
+        aria-expanded={toolbarMenu?.kind === "paragraph"}
+        title={labels.heading}
+        disabled={disabled || !editor}
+        onMouseDown={keepSelection}
+        onClick={(event) => openToolbarMenu("paragraph", event.currentTarget)}
+      >
+        <span>{currentParagraphLabel}</span>
+        <ChevronDown size={14} strokeWidth={1.8} aria-hidden="true" />
+      </button>)
+    },
+    {
+      id: "inline", content: (<div className="markdown-editor-format-group">
+        {formatButton(
+          "bold",
+          <Bold size={16} strokeWidth={1.8} aria-hidden="true" />,
+          Boolean(editor?.isActive("bold")),
+          () => editor?.chain().focus().toggleBold().run() ?? false,
+          labels.bold
+        )}
+        {formatButton(
+          "italic",
+          <Italic size={16} strokeWidth={1.8} aria-hidden="true" />,
+          Boolean(editor?.isActive("italic")),
+          () => editor?.chain().focus().toggleItalic().run() ?? false,
+          labels.italic
+        )}
+        {formatButton(
+          "underline",
+          <Underline size={16} strokeWidth={1.8} aria-hidden="true" />,
+          Boolean(editor?.isActive("underline")),
+          () => editor?.chain().focus().toggleMark("underline").run() ?? false,
+          labels.underline
+        )}
+        {formatButton(
+          "strike",
+          <Strikethrough size={16} strokeWidth={1.8} aria-hidden="true" />,
+          Boolean(editor?.isActive("strike")),
+          () => editor?.chain().focus().toggleStrike().run() ?? false,
+          labels.strikethrough
+        )}
+      </div>)
+    },
+    {
+      id: "colors", content: (<div className="markdown-editor-format-group">
+        <div className="markdown-editor-color-control" role="group" aria-label={labels.textColor}>
+          <button
+            type="button"
+            className="markdown-editor-color-apply"
+            aria-pressed={textColorIsActive}
+            aria-label={labels.textColor}
+            title={`${labels.textColor}: ${textColorLabels[rememberedTextColor]}`}
+            disabled={disabled || !editor}
+            onMouseDown={keepSelection}
+            onClick={() => run(() => {
+              const color = resolveTextColorToggle(textColorIsActive, rememberedTextColor);
+              return color
+                ? editor?.chain().focus().setMark("flowShuttleTextColor", { color }).run() ?? false
+                : editor?.chain().focus().unsetMark("flowShuttleTextColor").run() ?? false;
+            })}
+          >
+            <Baseline
+              size={16}
+              strokeWidth={1.8}
+              aria-hidden="true"
+              style={{
+                color: rememberedTextColor === "black"
+                  ? "var(--text-primary)"
+                  : textColorFallback(rememberedTextColor) ?? undefined
+              }}
+            />
+          </button>
+          <button
+            type="button"
+            className="markdown-editor-color-menu-trigger"
+            data-markdown-toolbar-menu-trigger
+            aria-label={labels.textColor}
+            aria-haspopup="menu"
+            aria-expanded={toolbarMenu?.kind === "textColor"}
+            title={labels.textColor}
+            disabled={disabled || !editor}
+            onMouseDown={keepSelection}
+            onClick={(event) => openToolbarMenu("textColor", event.currentTarget)}
+          >
+            <ChevronDown size={10} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="markdown-editor-color-control" role="group" aria-label={labels.highlightColor}>
+          <button
+            type="button"
+            className="markdown-editor-color-apply"
+            aria-pressed={highlightIsActive}
+            aria-label={labels.highlightColor}
+            title={`${labels.highlightColor}: ${rememberedHighlightColor
+                ? highlightColorLabels[rememberedHighlightColor]
+                : labels.noBackground
+              }`}
+            disabled={disabled || !editor}
+            onMouseDown={keepSelection}
+            onClick={() => run(() => {
+              const color = resolveHighlightColorToggle(highlightIsActive, rememberedHighlightColor);
+              return color
+                ? editor?.chain().focus().setMark("highlight", { color }).run() ?? false
+                : editor?.chain().focus().unsetMark("highlight").run() ?? false;
+            })}
+          >
+            <Highlighter
+              size={16}
+              strokeWidth={1.8}
+              aria-hidden="true"
+              style={{
+                color: rememberedHighlightColor === "black"
+                  ? "var(--text-primary)"
+                  : highlightColorIndicator(rememberedHighlightColor) ?? undefined
+              }}
+            />
+          </button>
+          <button
+            type="button"
+            className="markdown-editor-color-menu-trigger"
+            data-markdown-toolbar-menu-trigger
+            aria-label={labels.highlightColor}
+            aria-haspopup="menu"
+            aria-expanded={toolbarMenu?.kind === "highlightColor"}
+            title={labels.highlightColor}
+            disabled={disabled || !editor}
+            onMouseDown={keepSelection}
+            onClick={(event) => openToolbarMenu("highlightColor", event.currentTarget)}
+          >
+            <ChevronDown size={10} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        </div>
+      </div>)
+    },
+    {
+      id: "lists", content: (<>
+
+        {button(
+          "number",
+          <ListOrdered size={16} strokeWidth={1.8} aria-hidden="true" />,
+          () => editor?.chain().focus().toggleOrderedList().run() ?? false,
+          labels.numberedList,
+          "markdown-editor-icon-button"
+        )}
+        {button(
+          "bullet",
+          <List size={16} strokeWidth={1.8} aria-hidden="true" />,
+          () => editor?.chain().focus().toggleBulletList().run() ?? false,
+          labels.bulletedList,
+          "markdown-editor-icon-button"
+        )}
+        {button(
+          "check",
+          <SquareCheckBig size={16} strokeWidth={1.8} aria-hidden="true" />,
+          () => editor?.chain().focus().toggleTaskList().run() ?? false,
+          labels.taskList,
+          "markdown-editor-icon-button"
+        )}
+      </>)
+    },
+    {
+      id: "indent", content: (<>
+        <button
+          type="button"
+          className="markdown-editor-icon-button"
+          aria-label={labels.increaseIndent}
+          title={labels.increaseIndent}
+          disabled={disabled || !editor || !increaseIndentAvailable}
+          onMouseDown={keepSelection}
+          onClick={() => run(() => editor ? indentListItem(editor) : false)}
+        >
+          <IndentIncrease size={16} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="markdown-editor-icon-button"
+          aria-label={labels.decreaseIndent}
+          title={labels.decreaseIndent}
+          disabled={disabled || !editor || !decreaseIndentAvailable}
+          onMouseDown={keepSelection}
+          onClick={() => run(() => editor ? outdentListItem(editor) : false)}
+        >
+          <IndentDecrease size={16} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </>)
+    },
+    {
+      id: "blocks", content: (<>
+
+        {button(
+          "quote",
+          <Quote size={16} strokeWidth={1.8} aria-hidden="true" />,
+          () => editor?.chain().focus().toggleBlockquote().run() ?? false,
+          labels.quote,
+          "markdown-editor-icon-button"
+        )}
+        {button(
+          "code",
+          <SquareCode size={16} strokeWidth={1.8} aria-hidden="true" />,
+          () => editor ? toggleUnifiedCodeBlock(editor) : false,
+          labels.codeBlock,
+          "markdown-editor-icon-button"
+        )}
+      </>)
+    },
+    {
+      id: "format", content: (<>
+        <button
+          type="button"
+          className={`markdown-editor-icon-button${formatPainterState ? " is-active" : ""}`}
+          aria-pressed={Boolean(formatPainterState)}
+          aria-label={labels.formatPainter}
+          aria-keyshortcuts="Control+Alt+C"
+          title={labels.formatPainter}
+          disabled={disabled || !editor}
+          onMouseDown={keepSelection}
+          onClick={activateFormatPainter}
+        >
+          <PaintRoller size={16} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="markdown-editor-icon-button"
+          aria-label={labels.clearFormatting}
+          aria-keyshortcuts={"Control+\\"}
+          title={labels.clearFormatting}
+          disabled={disabled || !editor}
+          onMouseDown={keepSelection}
+          onClick={clearFormatting}
+        >
+          <RemoveFormatting size={16} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </>)
+    }
+  ];
+  const aiPolishButton = !disabled ? (<button
+        className={`markdown-editor-ai-polish-toggle${aiSelectionPolishEnabled ? " is-on" : ""}`}
+        type="button"
+        aria-pressed={aiSelectionPolishEnabled}
+        aria-label={`${labels.aiSelectionPolishToggle}: ${aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff
+          }`}
+        title={`${labels.aiSelectionPolishToggle}: ${aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff
+          }`}
+        disabled={!editor}
+        onMouseDown={keepSelection}
+        onClick={() => {
+          if (!editor) {
+            return;
+          }
+          restoreToolbarSelection();
+          onToggleAiSelectionPolish();
+          toolbarSelectionRef.current = null;
+          editor.commands.focus();
+        }}
+      >
+        <Sparkles size={14} aria-hidden="true" />
+        <span>{labels.aiSelectionPolishToggle}</span>
+        <small>{aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff}</small>
+      </button>) : null;
+  const adaptive = useAdaptiveToolbar(toolbarGroups.length);
+  const overflowGroups = toolbarGroups.slice(adaptive.visibleCount);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const toolbarMenuId = useId();
+
+  useLayoutEffect(() => {
+    // A sidebar resize may not fire window.resize. Close panels whose anchors
+    // can move or disappear when this editor's available space changes.
+    if (toolbarMenu) {
+      const hadFocus = toolbarMenuRef.current?.contains(document.activeElement);
+      setToolbarMenu(null);
+      toolbarSelectionRef.current = null;
+      if (hadFocus) {
+        (moreButtonRef.current ?? searchButtonRef.current)?.focus({ preventScroll: true });
+      }
+    }
+  }, [adaptive.width, adaptive.visibleCount]);
+
+  useLayoutEffect(() => {
+    if (toolbarMenu?.kind !== "more" || !toolbarMenuRef.current || !moreButtonRef.current) {
+      return;
+    }
+    const panel = toolbarMenuRef.current;
+    const anchor = moreButtonRef.current.getBoundingClientRect();
+    const position = toolbarMenuPosition(anchor, panel.offsetWidth, panel.offsetHeight);
+    const toolbarLeft = adaptive.toolbarRef.current?.getBoundingClientRect().left ?? anchor.left;
+    position.left = Math.max(8, Math.min(Math.max(toolbarLeft, anchor.right - panel.offsetWidth), window.innerWidth - panel.offsetWidth - 8));
+    setToolbarMenu((current) => current?.kind === "more" ? { ...current, ...position } : current);
+    const firstButton = panel.querySelector<HTMLButtonElement>("button:not(:disabled)");
+    (firstButton ?? panel).focus({ preventScroll: true });
+  }, [toolbarMenu?.kind]);
+
   const toolbarMenuPortal = toolbarMenu && typeof document !== "undefined"
     ? createPortal(
         <div
           ref={toolbarMenuRef}
           className={`markdown-editor-toolbar-menu is-${toolbarMenu.kind}`}
+          id={toolbarMenuId}
           role="menu"
+          tabIndex={-1}
           aria-label={
             toolbarMenu.kind === "paragraph"
               ? labels.heading
@@ -1403,7 +1775,34 @@ function Toolbar({
           }
           style={{ left: toolbarMenu.left, top: toolbarMenu.top }}
           onMouseDown={(event) => event.preventDefault()}
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (toolbarMenu.kind === "more" && event.target instanceof Element &&
+              event.target.closest("button") && !event.target.closest("[data-markdown-toolbar-menu-trigger]")) {
+              setToolbarMenu(null);
+            }
+          }}
+          onKeyDown={(event) => {
+            if (toolbarMenu.kind !== "more") return;
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              setToolbarMenu(null);
+              moreButtonRef.current?.focus({ preventScroll: true });
+            } else if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+              event.preventDefault();
+              const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+              const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+              const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+                : (current + (event.key === "ArrowUp" ? -1 : 1) + buttons.length) % buttons.length;
+              buttons[next]?.focus({ preventScroll: true });
+              buttons[next]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+            } else if (event.key === "ArrowRight" && document.activeElement instanceof HTMLButtonElement &&
+              document.activeElement.hasAttribute("data-markdown-toolbar-menu-trigger")) {
+              event.preventDefault();
+              document.activeElement.click();
+            }
+          }}
         >
           {toolbarMenu.kind === "paragraph" && headings.map(([key, prefix, title, action]) => (
             <button
@@ -1484,323 +1883,72 @@ function Toolbar({
               </div>
             </>
           )}
-          {toolbarMenu.kind === "more" && !showFormatActionsInline && (
-            <>
-              <button
-                type="button"
-                className={`markdown-editor-more-menu-item${formatPainterState ? " is-active" : ""}`}
-                role="menuitemcheckbox"
-                aria-checked={Boolean(formatPainterState)}
-                aria-keyshortcuts="Control+Alt+C"
-                onClick={() => {
-                  activateFormatPainter();
-                  setToolbarMenu(null);
-                }}
-              >
-                <PaintRoller size={16} strokeWidth={1.8} aria-hidden="true" />
-                <span>{labels.formatPainter}</span>
-                <span className="markdown-editor-menu-shortcut" aria-hidden="true">
-                  <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>C</kbd>
-                </span>
-              </button>
-              <button
-                type="button"
-                className="markdown-editor-more-menu-item"
-                role="menuitem"
-                aria-keyshortcuts={"Control+\\"}
-                onClick={() => {
-                  clearFormatting();
-                  setToolbarMenu(null);
-                }}
-              >
-                <RemoveFormatting size={16} strokeWidth={1.8} aria-hidden="true" />
-                <span>{labels.clearFormatting}</span>
-                <span className="markdown-editor-menu-shortcut" aria-hidden="true">
-                  <kbd>Ctrl</kbd><kbd>{"\\"}</kbd>
-                </span>
-              </button>
-            </>
+          {toolbarMenu.kind === "more" && (
+            <div className="markdown-editor-overflow-list">
+              {overflowGroups.map((group) => (
+                <div key={group.id} className="markdown-editor-overflow-group" data-toolbar-group={group.id} role="group">
+                  {toolbarButtons(group.content).map((control, index) => toolbarMenuItem(control, labels, index))}
+                </div>
+              ))}
+            </div>
           )}
         </div>,
         document.body
       )
     : null;
 
-  const increaseIndentAvailable = Boolean(editor && canIndentListItem(editor));
-  const decreaseIndentAvailable = Boolean(editor && canOutdentListItem(editor));
-
   return (
     <>
-      <div className="markdown-editor-toolbar" role="toolbar" aria-label={labels.toolbarLabel}>
+      <div ref={adaptive.toolbarRef} className="markdown-editor-toolbar" role="toolbar" aria-label={labels.toolbarLabel}
+        data-overflow-count={overflowGroups.length}>
+        <div ref={adaptive.pinnedRef} className="markdown-editor-toolbar-pinned">
         <button
           type="button"
-          className="markdown-editor-paragraph-trigger"
-          data-markdown-toolbar-menu-trigger
-          aria-label={labels.heading}
-          aria-expanded={toolbarMenu?.kind === "paragraph"}
-          title={labels.heading}
-          disabled={disabled || !editor}
-          onMouseDown={keepSelection}
-          onClick={(event) => openToolbarMenu("paragraph", event.currentTarget)}
+          ref={searchButtonRef}
+          className="markdown-editor-icon-button markdown-editor-find-trigger"
+          aria-label={labels.find}
+          aria-keyshortcuts="Control+f Meta+f"
+          aria-expanded={searchOpen}
+          aria-pressed={searchOpen}
+          title={`${labels.find} (${typeof navigator !== "undefined" && /Mac/i.test(navigator.platform) ? "⌘F" : "Ctrl+F"})`}
+          disabled={!editor}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            setToolbarMenu(null);
+            setFormatPainterState(null);
+            onFind();
+          }}
         >
-          <span>{currentParagraphLabel}</span>
-          <ChevronDown size={14} strokeWidth={1.8} aria-hidden="true" />
+          <Search size={16} strokeWidth={1.8} aria-hidden="true" />
         </button>
-        <span className="markdown-editor-toolbar-divider" />
-        <div className="markdown-editor-format-group">
-          {formatButton(
-            "bold",
-            <Bold size={16} strokeWidth={1.8} aria-hidden="true" />,
-            Boolean(editor?.isActive("bold")),
-            () => editor?.chain().focus().toggleBold().run() ?? false,
-            labels.bold
-          )}
-          {formatButton(
-            "italic",
-            <Italic size={16} strokeWidth={1.8} aria-hidden="true" />,
-            Boolean(editor?.isActive("italic")),
-            () => editor?.chain().focus().toggleItalic().run() ?? false,
-            labels.italic
-          )}
-          {formatButton(
-            "underline",
-            <Underline size={16} strokeWidth={1.8} aria-hidden="true" />,
-            Boolean(editor?.isActive("underline")),
-            () => editor?.chain().focus().toggleMark("underline").run() ?? false,
-            labels.underline
-          )}
-          {formatButton(
-            "strike",
-            <Strikethrough size={16} strokeWidth={1.8} aria-hidden="true" />,
-            Boolean(editor?.isActive("strike")),
-            () => editor?.chain().focus().toggleStrike().run() ?? false,
-            labels.strikethrough
-          )}
-          <div className="markdown-editor-color-control" role="group" aria-label={labels.textColor}>
-            <button
-              type="button"
-              className="markdown-editor-color-apply"
-              aria-pressed={textColorIsActive}
-              aria-label={labels.textColor}
-              title={`${labels.textColor}: ${textColorLabels[rememberedTextColor]}`}
-              disabled={disabled || !editor}
-              onMouseDown={keepSelection}
-              onClick={() => run(() => {
-                const color = resolveTextColorToggle(textColorIsActive, rememberedTextColor);
-                return color
-                  ? editor?.chain().focus().setMark("flowShuttleTextColor", { color }).run() ?? false
-                  : editor?.chain().focus().unsetMark("flowShuttleTextColor").run() ?? false;
-              })}
-            >
-              <Baseline
-                size={16}
-                strokeWidth={1.8}
-                aria-hidden="true"
-                style={{
-                  color: rememberedTextColor === "black"
-                    ? "var(--text-primary)"
-                    : textColorFallback(rememberedTextColor) ?? undefined
-                }}
-              />
-            </button>
-            <button
-              type="button"
-              className="markdown-editor-color-menu-trigger"
-              data-markdown-toolbar-menu-trigger
-              aria-label={labels.textColor}
-              aria-haspopup="menu"
-              aria-expanded={toolbarMenu?.kind === "textColor"}
-              title={labels.textColor}
-              disabled={disabled || !editor}
-              onMouseDown={keepSelection}
-              onClick={(event) => openToolbarMenu("textColor", event.currentTarget)}
-            >
-              <ChevronDown size={10} strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </div>
-          <div className="markdown-editor-color-control" role="group" aria-label={labels.highlightColor}>
-            <button
-              type="button"
-              className="markdown-editor-color-apply"
-              aria-pressed={highlightIsActive}
-              aria-label={labels.highlightColor}
-              title={`${labels.highlightColor}: ${
-                rememberedHighlightColor
-                  ? highlightColorLabels[rememberedHighlightColor]
-                  : labels.noBackground
-              }`}
-              disabled={disabled || !editor}
-              onMouseDown={keepSelection}
-              onClick={() => run(() => {
-                const color = resolveHighlightColorToggle(highlightIsActive, rememberedHighlightColor);
-                return color
-                  ? editor?.chain().focus().setMark("highlight", { color }).run() ?? false
-                  : editor?.chain().focus().unsetMark("highlight").run() ?? false;
-              })}
-            >
-              <Highlighter
-                size={16}
-                strokeWidth={1.8}
-                aria-hidden="true"
-                style={{
-                  color: rememberedHighlightColor === "black"
-                    ? "var(--text-primary)"
-                    : highlightColorIndicator(rememberedHighlightColor) ?? undefined
-                }}
-              />
-            </button>
-            <button
-              type="button"
-              className="markdown-editor-color-menu-trigger"
-              data-markdown-toolbar-menu-trigger
-              aria-label={labels.highlightColor}
-              aria-haspopup="menu"
-              aria-expanded={toolbarMenu?.kind === "highlightColor"}
-              title={labels.highlightColor}
-              disabled={disabled || !editor}
-              onMouseDown={keepSelection}
-              onClick={(event) => openToolbarMenu("highlightColor", event.currentTarget)}
-            >
-              <ChevronDown size={10} strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </div>
+
         </div>
-        <span className="markdown-editor-toolbar-divider" />
-        {button(
-          "number",
-          <ListOrdered size={16} strokeWidth={1.8} aria-hidden="true" />,
-          () => editor?.chain().focus().toggleOrderedList().run() ?? false,
-          labels.numberedList,
-          "markdown-editor-icon-button"
-        )}
-        {button(
-          "bullet",
-          <List size={16} strokeWidth={1.8} aria-hidden="true" />,
-          () => editor?.chain().focus().toggleBulletList().run() ?? false,
-          labels.bulletedList,
-          "markdown-editor-icon-button"
-        )}
-        {button(
-          "check",
-          <SquareCheckBig size={16} strokeWidth={1.8} aria-hidden="true" />,
-          () => editor?.chain().focus().toggleTaskList().run() ?? false,
-          labels.taskList,
-          "markdown-editor-icon-button"
-        )}
-        <button
-          type="button"
-          className="markdown-editor-icon-button"
-          aria-label={labels.increaseIndent}
-          title={labels.increaseIndent}
-          disabled={disabled || !editor || !increaseIndentAvailable}
-          onMouseDown={keepSelection}
-          onClick={() => run(() => editor ? indentListItem(editor) : false)}
-        >
-          <IndentIncrease size={16} strokeWidth={1.8} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="markdown-editor-icon-button"
-          aria-label={labels.decreaseIndent}
-          title={labels.decreaseIndent}
-          disabled={disabled || !editor || !decreaseIndentAvailable}
-          onMouseDown={keepSelection}
-          onClick={() => run(() => editor ? outdentListItem(editor) : false)}
-        >
-          <IndentDecrease size={16} strokeWidth={1.8} aria-hidden="true" />
-        </button>
-        <span className="markdown-editor-toolbar-divider" />
-        {button(
-          "quote",
-          <Quote size={16} strokeWidth={1.8} aria-hidden="true" />,
-          () => editor?.chain().focus().toggleBlockquote().run() ?? false,
-          labels.quote,
-          "markdown-editor-icon-button"
-        )}
-        {button(
-          "code",
-          <SquareCode size={16} strokeWidth={1.8} aria-hidden="true" />,
-          () => editor ? toggleUnifiedCodeBlock(editor) : false,
-          labels.codeBlock,
-          "markdown-editor-icon-button"
-        )}
-        <span className="markdown-editor-toolbar-divider" />
-        {showFormatActionsInline ? (
-          <>
-            <button
-              type="button"
-              className={`markdown-editor-icon-button${formatPainterState ? " is-active" : ""}`}
-              aria-pressed={Boolean(formatPainterState)}
-              aria-label={labels.formatPainter}
-              aria-keyshortcuts="Control+Alt+C"
-              title={labels.formatPainter}
-              disabled={disabled || !editor}
-              onMouseDown={keepSelection}
-              onClick={activateFormatPainter}
-            >
-              <PaintRoller size={16} strokeWidth={1.8} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="markdown-editor-icon-button"
-              aria-label={labels.clearFormatting}
-              aria-keyshortcuts={"Control+\\"}
-              title={labels.clearFormatting}
-              disabled={disabled || !editor}
-              onMouseDown={keepSelection}
-              onClick={clearFormatting}
-            >
-              <RemoveFormatting size={16} strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="markdown-editor-icon-button markdown-editor-more-trigger"
-            data-markdown-toolbar-menu-trigger
-            aria-label={labels.more}
-            aria-haspopup="menu"
-            aria-expanded={toolbarMenu?.kind === "more"}
-            aria-pressed={Boolean(formatPainterState)}
-            title={labels.more}
-            disabled={disabled || !editor}
-            onMouseDown={keepSelection}
-            onClick={(event) => openToolbarMenu("more", event.currentTarget)}
-          >
+        {toolbarGroups.slice(0, adaptive.visibleCount).map((group) => (
+          <div key={group.id} className={`markdown-editor-tool-group is-${group.id}`} data-toolbar-group={group.id}>
+            {group.content}
+          </div>
+        ))}
+        {overflowGroups.length > 0 && (
+          <button ref={moreButtonRef} type="button" className="markdown-editor-icon-button markdown-editor-more-trigger"
+            data-markdown-toolbar-menu-trigger aria-label={labels.more} aria-haspopup="menu"
+            aria-controls={toolbarMenuId} aria-expanded={toolbarMenu?.kind === "more"}
+            aria-pressed={Boolean(formatPainterState && overflowGroups.some((group) => group.id === "format"))}
+            title={labels.more} disabled={disabled || !editor} onMouseDown={keepSelection}
+            onClick={(event) => openToolbarMenu("more", event.currentTarget)}>
             <Ellipsis size={18} strokeWidth={1.8} aria-hidden="true" />
           </button>
         )}
-        {!disabled && (
-          <>
-            <span className="markdown-editor-toolbar-spacer" />
-            <button
-              className={`markdown-editor-ai-polish-toggle${aiSelectionPolishEnabled ? " is-on" : ""}`}
-              type="button"
-              aria-pressed={aiSelectionPolishEnabled}
-              aria-label={`${labels.aiSelectionPolishToggle}: ${
-                aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff
-              }`}
-              title={`${labels.aiSelectionPolishToggle}: ${
-                aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff
-              }`}
-              disabled={!editor}
-              onMouseDown={keepSelection}
-              onClick={() => {
-                if (!editor) {
-                  return;
-                }
-                restoreToolbarSelection();
-                onToggleAiSelectionPolish();
-                toolbarSelectionRef.current = null;
-                editor.commands.focus();
-              }}
-            >
-              <Sparkles size={14} aria-hidden="true" />
-              <span>{labels.aiSelectionPolishToggle}</span>
-              <small>{aiSelectionPolishEnabled ? labels.aiSelectionPolishOn : labels.aiSelectionPolishOff}</small>
-            </button>
-          </>
-        )}
+        <div ref={adaptive.trailingRef} className="markdown-editor-toolbar-trailing">{aiPolishButton}</div>
+        <div ref={adaptive.measureRef} className="markdown-editor-toolbar-measure" aria-hidden="true">
+          <button type="button" className="markdown-editor-icon-button" tabIndex={-1}>
+            <Ellipsis size={18} aria-hidden="true" />
+          </button>
+          {toolbarGroups.map((group) => (
+            <div key={group.id} className={`markdown-editor-tool-group is-${group.id}`} data-toolbar-measure-group={group.id}>
+              {group.content}
+            </div>
+          ))}
+        </div>
       </div>
       {toolbarMenuPortal}
     </>
@@ -1817,7 +1965,6 @@ export function MarkdownWysiwygEditor({
   disabled,
   compact,
   hideModeSwitch: _hideModeSwitch,
-  showFormatActionsInline,
   labels,
   onFeedback,
   onChange,
@@ -2085,6 +2232,7 @@ export function MarkdownWysiwygEditor({
       FlowShuttleListBehavior,
       FlowShuttleHardBreak,
       FlowShuttleKeyboardExtension,
+      FlowShuttleSearch,
       FlowShuttleUnderline,
       FlowShuttleTextColor,
       TaskList,
@@ -2194,6 +2342,8 @@ export function MarkdownWysiwygEditor({
       editorRef.current = null;
     }
   });
+
+  const search = useEditorSearch(editor, disabled);
 
   useEffect(() => {
     editorRef.current = editor;
@@ -3055,6 +3205,12 @@ export function MarkdownWysiwygEditor({
         data-editor-language={language}
         data-editor-theme={theme}
         style={{ height, minHeight }}
+        onKeyDownCapture={(event) => {
+          if (!isImagePreviewOpen && !editorError &&
+            !(event.target instanceof Element && event.target.closest(".markdown-editor-toolbar-menu"))) {
+            search.onKeyDown(event);
+          }
+        }}
       >
         {editorError ? (
           <div className="markdown-editor-fallback">
@@ -3073,10 +3229,13 @@ export function MarkdownWysiwygEditor({
               editor={editor}
               labels={resolvedLabels}
               disabled={disabled}
-              showFormatActionsInline={showFormatActionsInline}
               aiSelectionPolishEnabled={aiSelectionPolishEnabled}
               onToggleAiSelectionPolish={() => setAiSelectionPolishEnabled((current) => !current)}
+              searchOpen={search.state.open}
+              searchButtonRef={search.triggerRef}
+              onFind={() => search.open()}
             />
+            <EditorSearchBar search={search} labels={resolvedLabels} disabled={disabled} />
             <EditorContent className="tiptap-editor-content" editor={editor} />
             {!disabled && (
               <span className="markdown-editor-character-count" aria-live="polite">
