@@ -58,6 +58,7 @@ import { assertAttachmentSizeBytes } from "../../shared/attachmentLimits";
 import type { LanguagePreference } from "../../shared/types";
 import { useAiSelectionPolish } from "./AiSelectionPolish";
 import { EditorSearchBar, useEditorSearch, type EditorSearchLabels } from "./EditorSearchBar";
+import { isTaskCheckboxToggle } from "./editorScrollBehavior";
 import { FlowShuttleSearch } from "./editorSearch";
 import { useAdaptiveToolbar } from "./useAdaptiveToolbar";
 import {
@@ -2311,7 +2312,7 @@ export function MarkdownWysiwygEditor({
       normalizeAdjacentLists(createdEditor);
       setCharacterCount(getEditorCharacterCount(createdEditor));
     },
-    onUpdate: ({ editor: updatedEditor }) => {
+    onUpdate: ({ editor: updatedEditor, transaction }) => {
       setCharacterCount(getEditorCharacterCount(updatedEditor));
       if (syncingRef.current) {
         return;
@@ -2321,7 +2322,11 @@ export function MarkdownWysiwygEditor({
         lastMarkdownRef.current = markdown;
         onChange(markdown);
       }
-      requestSelectionIntoView(updatedEditor);
+      if (isTaskCheckboxToggle(transaction)) {
+        cancelSelectionIntoView(updatedEditor);
+      } else {
+        requestSelectionIntoView(updatedEditor);
+      }
       updateAiSelectionPolishCandidate(updatedEditor);
     },
     onSelectionUpdate: ({ editor: updatedEditor }) => {
