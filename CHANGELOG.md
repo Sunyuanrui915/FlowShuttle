@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.4.5 - 2026-09-24
+
+### Fixed
+
+* 修复勾选或取消勾选编辑器中的任务时，视口意外跳到旧光标位置或开头的问题；任务状态更新后保留当前阅读位置。
+* Fixed the editor jumping to an earlier cursor position or the top when checking or unchecking a task; the current reading position is preserved.
+
 ## v0.4.4 - 2026-09-19
 
 ### Added

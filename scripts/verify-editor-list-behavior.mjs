@@ -18,6 +18,7 @@ import {
   normalizeAdjacentLists,
   setCurrentOrderedListSequence
 } from "../src/renderer/src/editorListBehavior.ts";
+import { isTaskCheckboxToggle } from "../src/renderer/src/editorScrollBehavior.ts";
 
 const extensions = [
   StarterKit.configure({ orderedList: false }),
@@ -180,6 +181,42 @@ test("ordinary repeated Markdown markers remain one ordered list", () => {
   assert.equal(parsed.content.length, 1);
   assert.equal(parsed.content[0].content.length, 2);
   assert.equal(markdownManager.serialize(parsed), "1. first\n2. second");
+});
+
+test("task checkbox changes do not request a scroll to the stale text cursor", () => {
+  const document = markdownDocument("开头\n\n- [ ] 待办甲\n- [ ] 待办乙\n\n结尾");
+  const state = EditorState.create({
+    schema,
+    doc: document,
+    selection: TextSelection.create(document, positionInsideText(document, "开头"))
+  });
+  let taskPosition = null;
+  document.descendants((node, position) => {
+    if (taskPosition === null && node.type.name === "taskItem") {
+      taskPosition = position;
+      return false;
+    }
+    return taskPosition === null;
+  });
+  assert.notEqual(taskPosition, null);
+
+  const checked = state.tr.setNodeMarkup(taskPosition, undefined, { checked: true });
+  assert.equal(isTaskCheckboxToggle(checked), true);
+  assert.equal(checked.selection.from, state.selection.from);
+  assert.match(markdownManager.serialize(checked.doc.toJSON()), /- \[x\] 待办甲/);
+
+  const unchecked = state.apply(checked).tr.setNodeMarkup(taskPosition, undefined, { checked: false });
+  assert.equal(isTaskCheckboxToggle(unchecked), true);
+
+  const editedText = state.tr.insertText("已", state.selection.from);
+  assert.equal(isTaskCheckboxToggle(editedText), false);
+
+  const changedContent = state.tr.insertText("新", taskPosition + 2);
+  assert.equal(isTaskCheckboxToggle(changedContent), false);
+
+  const mixedUpdate = state.tr.setNodeMarkup(taskPosition, undefined, { checked: true });
+  mixedUpdate.insertText("已", state.selection.from);
+  assert.equal(isTaskCheckboxToggle(mixedUpdate), false);
 });
 
 test("numbering actions split at the current item without changing previous items", () => {
