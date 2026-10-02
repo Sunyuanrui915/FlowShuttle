@@ -9,12 +9,15 @@ export interface AiResponseLimits {
   progressIntervalMs: number;
 }
 
+const maxAiOutputCharacters = 2_000_000;
+
 export const aiResponseLimits: Readonly<AiResponseLimits> = {
-  responseBytes: 16 * 1024 * 1024,
+  responseBytes: 32 * 1024 * 1024,
   errorBytes: 64 * 1024,
-  outputCharacters: 2_000_000,
-  eventCharacters: 2_100_000,
-  events: 100_000,
+  outputCharacters: maxAiOutputCharacters,
+  // A JSON \uXXXX escape uses six raw characters per UTF-16 code unit.
+  eventCharacters: maxAiOutputCharacters * 6 + 100_000,
+  events: 200_000,
   idleTimeoutMs: 5 * 60_000,
   durationMs: 30 * 60_000,
   progressIntervalMs: 50
