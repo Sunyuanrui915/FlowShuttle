@@ -85,6 +85,9 @@ async function readStream(
 ): Promise<string> {
   const decoder = new TextDecoder();
   let buffer = "";
+  const eventParts: string[] = [];
+  let pendingEventPart = "";
+  let eventCharacters = 0;
   let content = "";
   let pendingDelta = "";
   let finishReason: string | null | undefined;
@@ -92,6 +95,22 @@ async function readStream(
   let done = false;
   let thinkingReported = false;
   let lastProgress = 0;
+
+  const retainEventPart = (part: string) => {
+    eventCharacters += part.length;
+    pendingEventPart += part;
+    if (pendingEventPart.length >= 16 * 1024) {
+      eventParts.push(pendingEventPart);
+      pendingEventPart = "";
+    }
+  };
+  const completeEvent = (tail: string): string => {
+    const text = eventParts.join("") + pendingEventPart + tail;
+    eventParts.length = 0;
+    pendingEventPart = "";
+    eventCharacters = 0;
+    return text;
+  };
 
   const flushProgress = (force = false) => {
     if (pendingDelta && (force || performance.now() - lastProgress >= limits.progressIntervalMs)) {
@@ -145,16 +164,24 @@ async function readStream(
     while (buffer && !done) {
       const boundary = buffer.match(/\r\n\r\n|\n\n|\r\r/);
       if (boundary?.index === undefined) {
-        if (buffer.length > limits.eventCharacters) {
+        if (eventCharacters + buffer.length > limits.eventCharacters) {
           throw new Error("AI streaming response exceeded the safe event limit.");
         }
         if (final) {
-          consume(buffer);
+          consume(completeEvent(buffer));
           buffer = "";
+        } else if (buffer.length > 3) {
+          // Only the last three characters can begin a split delimiter. Keep
+          // older text in bounded blocks instead of rescanning it each read.
+          retainEventPart(buffer.slice(0, -3));
+          buffer = buffer.slice(-3);
         }
         return;
       }
-      const event = buffer.slice(0, boundary.index);
+      if (eventCharacters + boundary.index > limits.eventCharacters) {
+        throw new Error("AI streaming response exceeded the safe event limit.");
+      }
+      const event = completeEvent(buffer.slice(0, boundary.index));
       buffer = buffer.slice(boundary.index + boundary[0].length);
       consume(event);
     }

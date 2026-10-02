@@ -57,8 +57,18 @@ test("Unicode-escaped output at the character ceiling fits one valid SSE event",
   const expected = "汉".repeat(aiResponseLimits.outputCharacters);
   const escaped = "\\u6c49".repeat(aiResponseLimits.outputCharacters);
   const body = `data: {"choices":[{"delta":{"content":"${escaped}"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
-  assert.ok(encoder.encode(body).byteLength < 32 * 1024 * 1024);
-  assert.equal((await run(body, { stream: true })).output, expected);
+  const bytes = encoder.encode(body);
+  assert.ok(bytes.byteLength < 32 * 1024 * 1024);
+  const result = await run((cancel) => {
+    let offset = 0;
+    return new ReadableStream({
+      pull(controller) {
+        if (offset < bytes.length) controller.enqueue(bytes.subarray(offset, offset += 64 * 1024));
+        else controller.close();
+      }, cancel
+    });
+  }, { stream: true });
+  assert.equal(result.output, expected);
 });
 
 test("long reasoning plus finely segmented output fits the coordinated streaming budgets", async () => {
@@ -101,6 +111,38 @@ test("streaming UTF-8 survives every byte boundary", async () => {
     pull(controller) { if (index < bytes.length) controller.enqueue(bytes.slice(index, ++index)); else controller.close(); }, cancel
   }), { stream: true });
   assert.equal(result.output, "中文🙂\n尾段");
+});
+
+test("fragmented CRLF, CR and LF delimiters preserve successive complete events", async () => {
+  const bytes = encoder.encode(fullEvent({ content: "甲" }).replace(/\n/g, "\r\n")
+    + event("乙").replace(/\n/g, "\r") + event("丙", "stop") + "data: [DONE]\r\n\r\n");
+  const progress = [];
+  const result = await run((cancel) => {
+    let offset = 0;
+    return new ReadableStream({
+      pull(controller) {
+        if (offset < bytes.length) controller.enqueue(bytes.subarray(offset, ++offset));
+        else controller.close();
+      }, cancel
+    });
+  }, { stream: true, onProgress: (p) => progress.push(p) });
+  assert.equal(result.output, "甲乙丙");
+  assert.equal(progress.map((p) => p.delta ?? "").join(""), "甲乙丙");
+});
+
+test("an EOF-terminated event retains its accumulated text and Unicode", async () => {
+  const expected = "完整尾段🙂".repeat(100);
+  const bytes = encoder.encode(fullEvent({ content: expected }, "stop").trimEnd());
+  const result = await run((cancel) => {
+    let offset = 0;
+    return new ReadableStream({
+      pull(controller) {
+        if (offset < bytes.length) controller.enqueue(bytes.subarray(offset, offset += 7));
+        else controller.close();
+      }, cancel
+    });
+  }, { stream: true });
+  assert.equal(result.output, expected);
 });
 
 test("actual body bytes are capped despite missing or misleading Content-Length", async () => {
@@ -146,6 +188,9 @@ test("JSON fallback and streaming output ceilings fail without successful trunca
 
 test("unterminated events, reasoning-only streams and comment churn are bounded", async () => {
   await assert.rejects(run(openStream(["data: " + "x".repeat(101)]), { stream: true, limits: { eventCharacters: 100 } }), /safe event limit/);
+  await assert.rejects(run(openStream(Array(40).fill("data: fragmented")), {
+    stream: true, limits: { eventCharacters: 100, idleTimeoutMs: 100 }
+  }), /safe event limit/);
   const reasoning = `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "x".repeat(120) } }] })}\n\n`;
   await assert.rejects(run(openStream([reasoning, reasoning]), { stream: true, limits: { responseBytes: encoder.encode(reasoning).length + 1 } }), /safe size limit/);
   await assert.rejects(run(openStream([": keepalive\n\n".repeat(4)]), { stream: true, limits: { events: 3 } }), /safe event limit/);
