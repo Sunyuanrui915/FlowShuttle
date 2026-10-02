@@ -11,6 +11,7 @@ import {
   type ReactNode
 } from "react";
 import { createPortal } from "react-dom";
+import { aiResponseLimits } from "../../shared/aiResponseLimits";
 import type {
   AiPolishSelectionProgress,
   AiPolishSelectionProgressPhase,
@@ -219,6 +220,7 @@ export function AiSelectionPolishProvider({
     let pendingDelta = "";
     let pendingPhase: AiPolishSelectionProgressPhase = "connecting";
     let pendingCharacterCount = 0;
+    let receivedOutputCharacters = 0;
 
     const flush = () => {
       frame = null;
@@ -249,8 +251,21 @@ export function AiSelectionPolishProvider({
       if (pendingRequestId !== progress.requestId) {
         pendingRequestId = progress.requestId;
         pendingDelta = "";
+        receivedOutputCharacters = 0;
       }
-      pendingDelta += progress.delta ?? "";
+      const delta = progress.delta ?? "";
+      if (receivedOutputCharacters + delta.length > aiResponseLimits.outputCharacters) {
+        pendingDelta = "";
+        requestSequenceRef.current += 1;
+        cancelPendingRequest();
+        setLoadingTarget(null);
+        setDialog((current) => current?.kind === "streaming" ? {
+          kind: "error", target: current.target, message: labels.failedTitle, retryable: current.target.isCurrent()
+        } : current);
+        return;
+      }
+      receivedOutputCharacters += delta.length;
+      pendingDelta += delta;
       pendingPhase = progress.phase;
       pendingCharacterCount = progress.receivedCharacters;
       if (frame === null) {
@@ -335,7 +350,8 @@ export function AiSelectionPolishProvider({
         return;
       }
       setLoadingTarget(null);
-      if (!result.success || typeof result.polishedText !== "string" || !result.polishedText.trim()) {
+      if (!result.success || typeof result.polishedText !== "string" || !result.polishedText.trim()
+          || result.polishedText.length > aiResponseLimits.outputCharacters) {
         setDialog({
           kind: "error",
           target,

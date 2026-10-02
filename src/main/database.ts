@@ -5,7 +5,7 @@ import { closeSync, existsSync, mkdirSync, openSync, renameSync, rmSync, statSyn
 import { writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { getLocalDateKey, getTimestamp } from "./date";
-import { assertSafeDirectoryRemoval } from "./securityBoundaries";
+import { assertSafeDirectoryRemoval, prepareAttachmentDirectory } from "./securityBoundaries";
 import { assertAttachmentSizeBytes } from "../shared/attachmentLimits";
 import { countTextMetricCharacters } from "../shared/textMetrics";
 import {
@@ -1119,8 +1119,8 @@ export async function saveProjectMemoAttachment(input: SaveMemoAttachmentInput):
   assertInside(attachmentsDirectory(), targetPath);
   const buffer = attachmentBuffer(input.data, "Empty memo image.");
 
-  mkdirSync(targetDirectory, { recursive: true });
-  await writeFile(targetPath, buffer, { flag: "wx" });
+  const safeDirectory = prepareAttachmentDirectory(attachmentsDirectory(), targetDirectory);
+  await writeFile(resolve(safeDirectory, fileName), buffer, { flag: "wx" });
 
   const now = getTimestamp();
   const attachment = {
@@ -1168,8 +1168,8 @@ export async function saveDailyWorkItemAttachment(
   assertInside(attachmentsDirectory(), targetPath);
   const buffer = attachmentBuffer(input.data, "Empty daily entry image.");
 
-  mkdirSync(targetDirectory, { recursive: true });
-  await writeFile(targetPath, buffer, { flag: "wx" });
+  const safeDirectory = prepareAttachmentDirectory(attachmentsDirectory(), targetDirectory);
+  await writeFile(resolve(safeDirectory, fileName), buffer, { flag: "wx" });
 
   const now = getTimestamp();
   const attachment: DailyEntryAttachment = {
@@ -1218,8 +1218,8 @@ export async function saveWorkItemNoteAttachment(
   assertInside(attachmentsDirectory(), targetPath);
   const buffer = attachmentBuffer(input.data, "Empty work item note image.");
 
-  mkdirSync(targetDirectory, { recursive: true });
-  await writeFile(targetPath, buffer, { flag: "wx" });
+  const safeDirectory = prepareAttachmentDirectory(attachmentsDirectory(), targetDirectory);
+  await writeFile(resolve(safeDirectory, fileName), buffer, { flag: "wx" });
 
   const attachment = {
     id,

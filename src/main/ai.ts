@@ -1,4 +1,6 @@
 import { safeStorage } from "electron";
+import { requestAiCompletion, type ChatCompletionOptions } from "./aiResponse";
+import { aiResponseLimits } from "../shared/aiResponseLimits";
 import { getPeriodReportForAi, saveAiReportRefinement } from "./database";
 import {
   chatCompletionsEndpoint,
@@ -22,30 +24,6 @@ import type {
 
 const aiRequestTimeoutMs = 60_000;
 const selectionPolishControllers = new Map<string, AbortController>();
-
-interface ChatCompletionOptions {
-  timeoutMs?: number | null;
-  signal?: AbortSignal;
-  stream?: boolean;
-  onProgress?: (progress: Omit<AiPolishSelectionProgress, "requestId">) => void;
-}
-
-interface ChatCompletionChoice {
-  finish_reason?: string | null;
-  message?: {
-    content?: string | null;
-    reasoning_content?: string | null;
-  };
-  delta?: {
-    content?: string | null;
-    reasoning_content?: string | null;
-  };
-}
-
-interface ChatCompletionPayload {
-  choices?: ChatCompletionChoice[];
-  error?: unknown;
-}
 
 function canSecurelyStoreApiKey(): boolean {
   return safeStorage.isEncryptionAvailable();
@@ -162,227 +140,16 @@ function assertConfigured(config: AiConfig, feature: "none" | "report" | "select
   return decryptApiKey(config);
 }
 
-function parseJsonBody(bodyText: string): ChatCompletionPayload | null {
-  try {
-    const parsed = bodyText ? (JSON.parse(bodyText) as unknown) : null;
-    return parsed && typeof parsed === "object" ? (parsed as ChatCompletionPayload) : null;
-  } catch {
-    return null;
-  }
-}
-
-function aiServiceErrorMessage(data: ChatCompletionPayload | null, fallback: string): string {
-  return data && "error" in data ? JSON.stringify(data.error) : fallback;
-}
-
-function assertCompleteResponse(choice: ChatCompletionChoice | undefined): void {
-  if (choice?.finish_reason === "length") {
-    throw new Error("AI response was truncated because the service reached its output limit.");
-  }
-}
-
-async function readStreamingCompletion(
-  body: ReadableStream<Uint8Array>,
-  onProgress?: ChatCompletionOptions["onProgress"]
-): Promise<string> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let content = "";
-  let finishReason: string | null | undefined;
-  let reportedPhase: AiPolishSelectionProgress["phase"] = "connecting";
-  let streamEnded = false;
-
-  const emit = (phase: AiPolishSelectionProgress["phase"], delta?: string) => {
-    reportedPhase = phase;
-    onProgress?.({ phase, delta, receivedCharacters: content.length });
-  };
-
-  const consumeEvent = (eventText: string): { delta: string; reasoning: boolean; done: boolean } => {
-    const dataLines = eventText
-      .split(/\r\n|\r|\n/)
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart());
-    const fallbackData = eventText.trim();
-    const dataText = dataLines.length > 0 ? dataLines.join("\n") : fallbackData.startsWith("{") ? fallbackData : "";
-    if (!dataText || dataText.startsWith(":")) {
-      return { delta: "", reasoning: false, done: false };
-    }
-    if (dataText === "[DONE]") {
-      return { delta: "", reasoning: false, done: true };
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(dataText) as unknown;
-    } catch {
-      throw new Error("AI service returned an invalid streaming response.");
-    }
-    if (!parsed || typeof parsed !== "object") {
-      throw new Error("AI service returned an invalid streaming response.");
-    }
-    const payload = parsed as ChatCompletionPayload;
-    if ("error" in payload) {
-      throw new Error(`AI service stream failed: ${JSON.stringify(payload.error)}`);
-    }
-
-    const choice = payload.choices?.[0];
-    if (choice?.finish_reason) {
-      finishReason = choice.finish_reason;
-    }
-    const delta =
-      typeof choice?.delta?.content === "string"
-        ? choice.delta.content
-        : typeof choice?.message?.content === "string"
-          ? choice.message.content
-          : "";
-    const reasoningContent = choice?.delta?.reasoning_content ?? choice?.message?.reasoning_content;
-    const reasoning = typeof reasoningContent === "string" && reasoningContent.length > 0;
-    if (delta) {
-      content += delta;
-    }
-    return { delta, reasoning, done: false };
-  };
-
-  const consumeBufferedEvents = (flushRemainder = false) => {
-    let combinedDelta = "";
-    let sawReasoning = false;
-    while (buffer) {
-      const boundary = buffer.match(/\r\n\r\n|\n\n|\r\r/);
-      if (!boundary || boundary.index === undefined) {
-        if (!flushRemainder) {
-          break;
-        }
-        const remainder = buffer;
-        buffer = "";
-        const event = consumeEvent(remainder);
-        combinedDelta += event.delta;
-        sawReasoning ||= event.reasoning;
-        streamEnded ||= event.done;
-        break;
-      }
-      const eventText = buffer.slice(0, boundary.index);
-      buffer = buffer.slice(boundary.index + boundary[0].length);
-      const event = consumeEvent(eventText);
-      combinedDelta += event.delta;
-      sawReasoning ||= event.reasoning;
-      streamEnded ||= event.done;
-      if (streamEnded) {
-        buffer = "";
-        break;
-      }
-    }
-
-    if (combinedDelta) {
-      emit("writing", combinedDelta);
-    } else if (sawReasoning && reportedPhase !== "thinking") {
-      emit("thinking");
-    }
-  };
-
-  try {
-    while (!streamEnded) {
-      const result = await reader.read();
-      buffer += decoder.decode(result.value, { stream: !result.done });
-      consumeBufferedEvents(result.done);
-      if (result.done) {
-        break;
-      }
-    }
-  } finally {
-    if (streamEnded) {
-      await reader.cancel().catch(() => undefined);
-    }
-    reader.releaseLock();
-  }
-
-  assertCompleteResponse({ finish_reason: finishReason });
-  if (!content.trim()) {
-    throw new Error("AI service returned an empty response.");
-  }
-  return content.trim();
-}
-
 async function chatCompletion(
   config: AiConfig,
   apiKey: string,
   messages: Array<{ role: "system" | "user"; content: string }>,
   options: ChatCompletionOptions = {}
 ): Promise<string> {
-  const controller = new AbortController();
-  const timeoutMs = options.timeoutMs === undefined ? aiRequestTimeoutMs : options.timeoutMs;
-  let timedOut = false;
-  const abortFromCaller = () => controller.abort(options.signal?.reason);
-  if (options.signal?.aborted) {
-    abortFromCaller();
-  } else {
-    options.signal?.addEventListener("abort", abortFromCaller, { once: true });
-  }
-  const timeout =
-    timeoutMs === null
-      ? null
-      : setTimeout(() => {
-          timedOut = true;
-          controller.abort();
-        }, timeoutMs);
-  try {
-    const requestBody: Record<string, unknown> = {
-      model: config.model,
-      messages,
-      temperature: 0.2
-    };
-    if (options.stream) {
-      requestBody.stream = true;
-    }
-
-    const response = await fetch(chatCompletionsEndpoint(config.baseUrl), {
-      method: "POST",
-      redirect: "error",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      const bodyText = await response.text();
-      const message = aiServiceErrorMessage(parseJsonBody(bodyText), bodyText || response.statusText);
-      throw new Error(`AI service returned ${response.status}: ${message}`);
-    }
-
-    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-    if (options.stream && response.body && !contentType.includes("application/json")) {
-      return await readStreamingCompletion(response.body, options.onProgress);
-    }
-
-    const bodyText = await response.text();
-    const data = parseJsonBody(bodyText);
-    const choice = data?.choices?.[0];
-    assertCompleteResponse(choice);
-    const content = choice?.message?.content;
-    if (!content?.trim()) {
-      throw new Error("AI service returned an empty response.");
-    }
-    if (options.stream) {
-      if (choice?.message?.reasoning_content) {
-        options.onProgress?.({ phase: "thinking", receivedCharacters: 0 });
-      }
-      options.onProgress?.({ phase: "writing", delta: content, receivedCharacters: content.length });
-    }
-    return content.trim();
-  } catch (error) {
-    if ((error instanceof Error && error.name === "AbortError") || controller.signal.aborted) {
-      throw new Error(timedOut ? "AI request timed out." : "AI request canceled.");
-    }
-    throw error;
-  } finally {
-    if (timeout !== null) {
-      clearTimeout(timeout);
-    }
-    options.signal?.removeEventListener("abort", abortFromCaller);
-  }
+  return requestAiCompletion(
+    chatCompletionsEndpoint(config.baseUrl), config.model, apiKey, messages,
+    aiResponseLimits, { timeoutMs: aiRequestTimeoutMs, ...options }
+  );
 }
 
 export async function testAiConnection(): Promise<AiOperationResult> {

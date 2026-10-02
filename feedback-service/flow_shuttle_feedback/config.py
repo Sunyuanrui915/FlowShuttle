@@ -55,6 +55,13 @@ class Settings:
     rate_limit_failures: int
     rate_limit_window_seconds: int
     testing: bool = False
+    max_tracked_clients: int = 10_000
+    max_feedback_per_hour: int = 30
+    max_feedback_per_day: int = 100
+    max_pending_emails: int = 200
+    max_retained_feedback: int = 10_000
+    max_storage_bytes: int = 1024 * 1024 * 1024
+    min_free_disk_bytes: int = 512 * 1024 * 1024
 
     @property
     def email_ready(self) -> bool:
@@ -168,6 +175,13 @@ class Settings:
                 "FLOW_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS",
             ),
             testing=testing,
+            max_tracked_clients=_positive_int(env.get("FLOW_FEEDBACK_MAX_TRACKED_CLIENTS"), 10_000, "FLOW_FEEDBACK_MAX_TRACKED_CLIENTS"),
+            max_feedback_per_hour=_positive_int(env.get("FLOW_FEEDBACK_MAX_PER_HOUR"), 30, "FLOW_FEEDBACK_MAX_PER_HOUR"),
+            max_feedback_per_day=_positive_int(env.get("FLOW_FEEDBACK_MAX_PER_DAY"), 100, "FLOW_FEEDBACK_MAX_PER_DAY"),
+            max_pending_emails=_positive_int(env.get("FLOW_FEEDBACK_MAX_PENDING_EMAILS"), 200, "FLOW_FEEDBACK_MAX_PENDING_EMAILS"),
+            max_retained_feedback=_positive_int(env.get("FLOW_FEEDBACK_MAX_RETAINED"), 10_000, "FLOW_FEEDBACK_MAX_RETAINED"),
+            max_storage_bytes=_positive_int(env.get("FLOW_FEEDBACK_MAX_STORAGE_BYTES"), 1024 * 1024 * 1024, "FLOW_FEEDBACK_MAX_STORAGE_BYTES"),
+            min_free_disk_bytes=_positive_int(env.get("FLOW_FEEDBACK_MIN_FREE_DISK_BYTES"), 512 * 1024 * 1024, "FLOW_FEEDBACK_MIN_FREE_DISK_BYTES"),
         )
         if settings.smtp_enabled and not settings.email_ready:
             raise ValueError("SMTP is enabled but required mail settings are incomplete")

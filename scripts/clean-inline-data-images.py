@@ -1,8 +1,12 @@
 import argparse
 import json
+import os
 import re
 import shutil
 import sqlite3
+import stat
+import tempfile
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -74,10 +78,22 @@ def clean_inline_data_images(value):
 def create_backup(database_path, backup_dir):
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = backup_dir / f"flow-shuttle.before-data-image-cleanup-{stamp}.sqlite"
-    shutil.copy2(database_path, backup_path)
-    if backup_path.stat().st_size != database_path.stat().st_size:
-        raise RuntimeError("Backup size mismatch; cleanup aborted.")
+    descriptor, name = tempfile.mkstemp(
+        prefix=f"flow-shuttle.before-data-image-cleanup-{stamp}-",
+        suffix=".sqlite", dir=backup_dir,
+    )
+    backup_path = Path(name)
+    with os.fdopen(descriptor, "wb") as destination, database_path.open("rb") as source:
+        shutil.copyfileobj(source, destination)
+        destination.flush()
+        os.fsync(destination.fileno())
+        backup_info = os.fstat(destination.fileno())
+        if backup_info.st_size != os.fstat(source.fileno()).st_size:
+            raise RuntimeError("Backup size mismatch; cleanup aborted.")
+    path_info = backup_path.lstat()
+    if (not stat.S_ISREG(path_info.st_mode)
+            or (path_info.st_dev, path_info.st_ino) != (backup_info.st_dev, backup_info.st_ino)):
+        raise RuntimeError("Backup destination changed; cleanup aborted.")
     return backup_path
 
 
@@ -119,24 +135,24 @@ def main():
     args = parser.parse_args()
 
     database_path = Path(args.database_path)
-    connection = sqlite3.connect(database_path)
-    connection.row_factory = sqlite3.Row
-    changes = scan(connection)
-    backup_path = None
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.row_factory = sqlite3.Row
+        changes = scan(connection)
+        backup_path = None
 
-    if args.apply and changes:
-        backup_dir = Path(args.backup_dir) if args.backup_dir else database_path.parent / "backups"
-        backup_path = create_backup(database_path, backup_dir)
-        with connection:
-            for change in changes:
-                connection.execute(
-                    f"""
-                    UPDATE {quote_identifier(change["table"])}
-                    SET {quote_identifier(change["column"])} = ?
-                    WHERE rowid = ?
-                    """,
-                    (change["cleaned"], change["rowid"]),
-                )
+        if args.apply and changes:
+            backup_dir = Path(args.backup_dir) if args.backup_dir else database_path.parent / "backups"
+            backup_path = create_backup(database_path, backup_dir)
+            with connection:
+                for change in changes:
+                    connection.execute(
+                        f"""
+                        UPDATE {quote_identifier(change["table"])}
+                        SET {quote_identifier(change["column"])} = ?
+                        WHERE rowid = ?
+                        """,
+                        (change["cleaned"], change["rowid"]),
+                    )
 
     summary = {}
     for change in changes:

@@ -5,7 +5,7 @@ import logging
 import threading
 import time
 import warnings
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable
@@ -17,6 +17,7 @@ from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 from .config import Settings
 from .mailer import OutboxWorker, verify_screenshot_token
 from .storage import (
+    FeedbackAdmissionError,
     ScreenshotInput,
     get_screenshot,
     initialize_storage,
@@ -48,15 +49,21 @@ class SlidingWindowRateLimiter:
         self._window = settings.rate_limit_window_seconds
         self._request_limit = settings.rate_limit_requests
         self._failure_limit = settings.rate_limit_failures
-        self._requests: dict[str, deque[float]] = defaultdict(deque)
-        self._failures: dict[str, deque[float]] = defaultdict(deque)
+        self._requests: dict[str, deque[float]] = {}
+        self._failures: dict[str, deque[float]] = {}
+        self._last_seen: OrderedDict[str, float] = OrderedDict()
+        self._capacity = settings.max_tracked_clients
         self._lock = threading.Lock()
 
     def allow(self, client_key: str) -> bool:
         now = time.monotonic()
         with self._lock:
-            requests = self._trim(self._requests[client_key], now)
-            failures = self._trim(self._failures[client_key], now)
+            values = self._client_values(client_key, now)
+            if values is None:
+                return False
+            requests, failures = values
+            self._trim(requests, now)
+            self._trim(failures, now)
             if len(requests) >= self._request_limit or len(failures) >= self._failure_limit:
                 return False
             requests.append(now)
@@ -65,7 +72,27 @@ class SlidingWindowRateLimiter:
     def record_failure(self, client_key: str) -> None:
         now = time.monotonic()
         with self._lock:
-            self._trim(self._failures[client_key], now).append(now)
+            values = self._client_values(client_key, now)
+            if values is not None:
+                self._trim(values[1], now).append(now)
+
+    def _client_values(self, client_key: str, now: float) -> tuple[deque[float], deque[float]] | None:
+        cutoff = now - self._window
+        while self._last_seen:
+            key, last_seen = next(iter(self._last_seen.items()))
+            if last_seen > cutoff:
+                break
+            del self._last_seen[key]
+            del self._requests[key]
+            del self._failures[key]
+        if client_key not in self._last_seen:
+            if len(self._last_seen) >= self._capacity:
+                return None
+            self._requests[client_key] = deque()
+            self._failures[client_key] = deque()
+        self._last_seen[client_key] = now
+        self._last_seen.move_to_end(client_key)
+        return self._requests[client_key], self._failures[client_key]
 
     def _trim(self, values: deque[float], now: float) -> deque[float]:
         cutoff = now - self._window
@@ -240,6 +267,8 @@ def create_app(settings: Settings | None = None) -> Flask:
                 email,
                 screenshots,
             )
+        except FeedbackAdmissionError as error:
+            return _error_response(error.code, error.status)
         except Exception:
             LOGGER.error("feedback_storage_failed")
             return _error_response("server_error", 500)

@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { isIP } from "node:net";
 import { isAbsolute, relative, resolve } from "node:path";
 
@@ -116,4 +116,51 @@ export function assertSafeDirectoryRemoval(baseDirectory: string, targetPath: st
   const realBase = realpathSync.native(base);
   const realTarget = realpathSync.native(target);
   assertContainedPath(realBase, realTarget);
+}
+
+export function prepareAttachmentDirectory(baseDirectory: string, targetDirectory: string): string {
+  const base = resolve(baseDirectory);
+  const target = resolve(targetDirectory);
+  const relativeTarget = assertContainedPath(base, target);
+  const ensureRealDirectory = (path: string) => {
+    let info;
+    try {
+      info = lstatSync(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+      try {
+        mkdirSync(path);
+      } catch (createError) {
+        if ((createError as NodeJS.ErrnoException).code !== "EEXIST") {
+          throw createError;
+        }
+      }
+      info = lstatSync(path);
+    }
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new Error("Refusing to save attachments through a symbolic link or junction.");
+    }
+  };
+  // The selected data directory may be external or an intentional alias.
+  // The managed attachment root and every child must be real directories.
+  ensureRealDirectory(base);
+  const realBase = realpathSync.native(base);
+  let current = base;
+  for (const segment of relativeTarget.split(/[\\/]+/)) {
+    current = resolve(current, segment);
+    ensureRealDirectory(current);
+    assertContainedPath(realBase, realpathSync.native(current));
+  }
+  // Check existing parents again immediately before returning the write path.
+  ensureRealDirectory(base);
+  current = base;
+  for (const segment of relativeTarget.split(/[\\/]+/)) {
+    current = resolve(current, segment);
+    ensureRealDirectory(current);
+  }
+  const realTarget = realpathSync.native(target);
+  assertContainedPath(realBase, realTarget);
+  return realTarget;
 }

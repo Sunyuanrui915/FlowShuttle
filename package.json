@@ -1,6 +1,6 @@
 {
   "name": "flowshuttle",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Local-first personal work progress journal",
   "main": "out/main/index.js",
   "author": "Flow Shuttle",
@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify:ai-responses": "node --experimental-strip-types --test scripts/verify-ai-response-limits.mjs",
     "verify:security-boundaries": "node --experimental-strip-types --test scripts/verify-security-boundaries.mjs",
     "verify:editor-lists": "node --experimental-strip-types --test scripts/verify-editor-list-behavior.mjs",
     "verify:editor-blocks": "node --experimental-strip-types --test scripts/verify-editor-block-behavior.mjs",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sqlite3
 import time
 import uuid
@@ -10,6 +11,52 @@ from pathlib import Path
 from typing import Iterable
 
 from .config import Settings
+
+
+class FeedbackAdmissionError(Exception):
+    def __init__(self, code: str, status: int) -> None:
+        super().__init__(code)
+        self.code = code
+        self.status = status
+
+
+def _storage_size_bytes(settings: Settings) -> int:
+    # Include unreferenced partial uploads and SQLite's WAL/SHM, not just rows.
+    total = 0
+    for directory in (settings.data_dir, settings.screenshot_dir):
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                try:
+                    if entry.is_file(follow_symlinks=False):
+                        total += entry.stat(follow_symlinks=False).st_size
+                except FileNotFoundError:
+                    # Retention can remove an expired file during this scan.
+                    continue
+    return total
+
+
+def _check_admission(connection: sqlite3.Connection, settings: Settings, screenshots: list[ScreenshotInput], now: int) -> None:
+    counts = connection.execute(
+        """SELECT COUNT(*) AS retained,
+                  COALESCE(SUM(created_at >= ?), 0) AS hourly,
+                  COALESCE(SUM(created_at >= ?), 0) AS daily
+           FROM feedback_requests""",
+        (now - 3600, now - 86400),
+    ).fetchone()
+    pending = connection.execute(
+        "SELECT COUNT(*) FROM email_outbox WHERE status IN ('pending', 'retry', 'sending')"
+    ).fetchone()[0]
+    if (counts["hourly"] >= settings.max_feedback_per_hour
+            or counts["daily"] >= settings.max_feedback_per_day
+            or pending >= settings.max_pending_emails):
+        raise FeedbackAdmissionError("rate_limited", 429)
+    # Reserve space for metadata/index/WAL growth as well as the image bytes.
+    incoming_bytes = sum(len(screenshot.data) for screenshot in screenshots) + 256 * 1024
+    if (counts["retained"] >= settings.max_retained_feedback
+            or _storage_size_bytes(settings) + incoming_bytes > settings.max_storage_bytes
+            or min(shutil.disk_usage(path).free for path in (settings.data_dir, settings.screenshot_dir))
+               < settings.min_free_disk_bytes + incoming_bytes):
+        raise FeedbackAdmissionError("storage_unavailable", 503)
 
 
 @dataclass(frozen=True)
@@ -96,8 +143,21 @@ def initialize_storage(settings: Settings) -> None:
                 ON feedback_screenshots(feedback_id);
             CREATE INDEX IF NOT EXISTS idx_feedback_requests_created_at
                 ON feedback_requests(created_at);
+
                 """
             )
+            # Create and seed the new budget atomically, including upgrades.
+            connection.execute("BEGIN IMMEDIATE")
+            budget_existed = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'email_delivery_budget'"
+            ).fetchone() is not None
+            connection.execute("CREATE TABLE IF NOT EXISTS email_delivery_budget (id INTEGER PRIMARY KEY, attempted_at INTEGER NOT NULL)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_email_delivery_budget_time ON email_delivery_budget(attempted_at)")
+            if not budget_existed:
+                connection.execute(
+                    "INSERT INTO email_delivery_budget(attempted_at) SELECT sent_at FROM email_outbox WHERE sent_at >= ?",
+                    (int(time.time()) - 86400,),
+                )
             connection.execute(
                 "UPDATE email_outbox SET status = 'retry' WHERE status = 'sending'"
             )
@@ -198,35 +258,38 @@ def store_feedback(
     stored: list[StoredScreenshot] = []
     created_paths: list[Path] = []
 
+    screenshots = list(screenshots)
     try:
-        for screenshot in screenshots:
-            screenshot_id = str(uuid.uuid4())
-            stored_name = f"{uuid.uuid4().hex}{screenshot.extension}"
-            stored_path = settings.screenshot_dir / stored_name
-            with stored_path.open("xb") as file_handle:
-                file_handle.write(screenshot.data)
-                file_handle.flush()
-                os.fsync(file_handle.fileno())
-            try:
-                os.chmod(stored_path, 0o600)
-            except OSError:
-                pass
-            created_paths.append(stored_path)
-            stored.append(
-                StoredScreenshot(
-                    id=screenshot_id,
-                    stored_name=stored_name,
-                    mime_type=screenshot.mime_type,
-                    size_bytes=len(screenshot.data),
-                )
-            )
-
-        if created_paths:
-            _fsync_directory(settings.screenshot_dir)
-
         with closing(_connect(settings)) as connection:
             with connection:
+                # Serialize budgets and file writes across service threads/processes.
                 connection.execute("BEGIN IMMEDIATE")
+                _check_admission(connection, settings, screenshots, created_at)
+                for screenshot in screenshots:
+                    screenshot_id = str(uuid.uuid4())
+                    stored_name = f"{uuid.uuid4().hex}{screenshot.extension}"
+                    stored_path = settings.screenshot_dir / stored_name
+                    with stored_path.open("xb") as file_handle:
+                        created_paths.append(stored_path)
+                        file_handle.write(screenshot.data)
+                        file_handle.flush()
+                        os.fsync(file_handle.fileno())
+                    try:
+                        os.chmod(stored_path, 0o600)
+                    except OSError:
+                        pass
+                    stored.append(
+                        StoredScreenshot(
+                            id=screenshot_id,
+                            stored_name=stored_name,
+                            mime_type=screenshot.mime_type,
+                            size_bytes=len(screenshot.data),
+                        )
+                    )
+
+                if created_paths:
+                    _fsync_directory(settings.screenshot_dir)
+
                 connection.execute(
                     """
                 INSERT INTO feedback_requests(id, message, contact_email, created_at, status)
@@ -274,6 +337,14 @@ def claim_due_email(settings: Settings) -> PendingEmail | None:
     with closing(_connect(settings)) as connection:
         with connection:
             connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM email_delivery_budget WHERE attempted_at < ?", (now - 86400,))
+            for window, limit in ((3600, settings.max_feedback_per_hour), (86400, settings.max_feedback_per_day)):
+                deliveries = connection.execute(
+                    "SELECT COUNT(*) FROM email_delivery_budget WHERE attempted_at >= ?",
+                    (now - window,),
+                ).fetchone()[0]
+                if deliveries >= limit:
+                    return None
             row = connection.execute(
                 """
             SELECT
@@ -304,6 +375,9 @@ def claim_due_email(settings: Settings) -> PendingEmail | None:
             )
             if updated.rowcount != 1:
                 return None
+            # Reserve before SMTP; failures/crashes consume a slot too. These
+            # timestamps survive feedback retention and service restarts.
+            connection.execute("INSERT INTO email_delivery_budget(attempted_at) VALUES (?)", (now,))
             screenshot_rows = connection.execute(
                 """
             SELECT id, stored_name, mime_type, size_bytes, token_hash, token_expires_at
