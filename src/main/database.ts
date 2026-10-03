@@ -1960,12 +1960,13 @@ function buildWorkItemHistoryRecovery(workItemId: string): WorkItemHistoryRecove
       SELECT *
       FROM daily_work_item_entries
       WHERE work_item_id = ?
+        AND journal_date < ?
         AND today_progress IS NOT NULL
         AND TRIM(today_progress) <> ''
       ORDER BY journal_date ASC, updated_at ASC
       `
     )
-    .all(workItemId) as DailyWorkItemEntry[];
+    .all(workItemId, getLocalDateKey()) as DailyWorkItemEntry[];
   if (dailyRows.length > 0) {
     const contentMarkdown = buildDailyEntriesRecoveryContent(dailyRows);
     const latest = dailyRows[dailyRows.length - 1];

@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify:history-recovery": "node scripts/verify-history-recovery.mjs",
     "verify:ai-responses": "node --experimental-strip-types --test scripts/verify-ai-response-limits.mjs",
     "verify:security-boundaries": "node --experimental-strip-types --test scripts/verify-security-boundaries.mjs",
     "verify:editor-lists": "node --experimental-strip-types --test scripts/verify-editor-list-behavior.mjs",
