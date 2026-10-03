@@ -5,6 +5,8 @@ import tempfile
 import time
 import unittest
 import random
+import os
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import replace
 from io import BytesIO
@@ -14,9 +16,9 @@ from unittest.mock import patch
 from PIL import Image
 from werkzeug.datastructures import MultiDict
 
-from flow_shuttle_feedback.app import create_app
+from flow_shuttle_feedback.app import SlidingWindowRateLimiter, create_app
 from flow_shuttle_feedback.config import Settings
-from flow_shuttle_feedback.mailer import create_screenshot_token, process_one_email
+from flow_shuttle_feedback.mailer import OutboxWorker, create_screenshot_token, process_one_email
 from flow_shuttle_feedback.storage import purge_expired_feedback, save_screenshot_tokens
 from deploy.inject_nginx_include import INCLUDE, inject_location_include
 from deploy.initialize_environment import PLACEHOLDER, initialize_environment
@@ -306,6 +308,198 @@ class FeedbackServiceTestCase(unittest.TestCase):
         self.assertIn("SMTP_ENABLED=false", content)
         self.assertFalse(initialize_environment(template, destination))
         self.assertEqual(destination.read_text(encoding="utf-8"), content)
+
+    def test_shared_hourly_budget_survives_new_clients_and_restart(self) -> None:
+        settings = replace(self.settings, max_feedback_per_hour=2)
+        app = create_app(settings)
+        for index in range(3):
+            response = app.test_client().post(
+                settings.public_path, data={"message": "budget control"},
+                content_type="multipart/form-data", headers={"X-Real-IP": f"203.0.113.{index + 1}"},
+            )
+            self.assertEqual(response.status_code, 202 if index < 2 else 429)
+        restarted = create_app(settings)
+        response = restarted.test_client().post(settings.public_path, data={"message": "after restart"}, content_type="multipart/form-data")
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(len(self._database_rows("feedback_requests")), 2)
+        self.assertEqual(len(self._database_rows("email_outbox")), 2)
+
+    def test_daily_and_pending_budgets_reject_before_persistence(self) -> None:
+        self.assertEqual(self._post({"message": "existing"}).status_code, 202)
+        for limits in ({"max_feedback_per_day": 1}, {"max_pending_emails": 1}):
+            with self.subTest(limits=limits):
+                app = create_app(replace(self.settings, **limits))
+                response = app.test_client().post(
+                    self.settings.public_path,
+                    data={"message": "rejected", "screenshots": (BytesIO(image_bytes()), "new.png", "image/png")},
+                    content_type="multipart/form-data",
+                )
+                self.assertEqual(response.status_code, 429)
+                self.assertEqual(response.json, {"error": "rate_limited"})
+                self.assertEqual(list(self.settings.screenshot_dir.iterdir()), [])
+        self.assertEqual(len(self._database_rows("feedback_requests")), 1)
+
+    def test_retained_cap_counts_old_notified_records_without_deleting_them(self) -> None:
+        response = self._post({"message": "must remain"})
+        with closing(sqlite3.connect(self.settings.database_path)) as connection:
+            connection.execute("UPDATE feedback_requests SET created_at = ?, status = 'notified'", (int(time.time()) - 181 * 86400,))
+            connection.execute("UPDATE email_outbox SET status = 'sent'")
+            connection.commit()
+        app = create_app(replace(self.settings, max_retained_feedback=1))
+        rejected = app.test_client().post(self.settings.public_path, data={"message": "new"}, content_type="multipart/form-data")
+        self.assertEqual(rejected.status_code, 503)
+        self.assertEqual(self._database_rows("feedback_requests")[0][0], response.json["requestId"])
+
+    def test_storage_budget_counts_orphans_and_preserves_normal_screenshots(self) -> None:
+        orphan = self.settings.screenshot_dir / "orphan.png"
+        orphan.write_bytes(b"x" * (2 * 1024 * 1024))
+        app = create_app(replace(self.settings, max_storage_bytes=1024 * 1024))
+        def post():
+            return app.test_client().post(
+                self.settings.public_path,
+                data={"message": "image control", "screenshots": (BytesIO(image_bytes()), "normal.png", "image/png")},
+                content_type="multipart/form-data",
+            )
+        self.assertEqual(post().status_code, 503)
+        self.assertEqual(self._database_rows("feedback_requests"), [])
+        self.assertEqual(list(self.settings.screenshot_dir.iterdir()), [orphan])
+        orphan.unlink()
+        self.assertEqual(post().status_code, 202)
+        self.assertEqual(len(self._database_rows("feedback_screenshots")), 1)
+
+    def test_free_space_floor_and_partial_write_failure_leave_no_accepted_rows(self) -> None:
+        usage = type("Usage", (), {"free": self.settings.min_free_disk_bytes})()
+        with patch("flow_shuttle_feedback.storage.shutil.disk_usage", return_value=usage):
+            self.assertEqual(self._post({"message": "text only"}).status_code, 503)
+        with patch("flow_shuttle_feedback.storage.os.fsync", side_effect=OSError("isolated disk failure")):
+            response = self._post({"message": "file failure", "screenshots": (BytesIO(image_bytes()), "image.png", "image/png")})
+            self.assertEqual(response.status_code, 500)
+        self.assertEqual(self._database_rows("feedback_requests"), [])
+        self.assertEqual(self._database_rows("email_outbox"), [])
+        self.assertEqual(list(self.settings.screenshot_dir.iterdir()), [])
+        self.assertEqual(self._post({"message": "normal retry"}).status_code, 202)
+
+    def test_concurrent_clients_cannot_overrun_one_shared_slot(self) -> None:
+        settings = replace(self.settings, max_feedback_per_hour=1)
+        app = create_app(settings)
+        def submit(index):
+            return app.test_client().post(
+                settings.public_path, data={"message": "concurrent control"}, content_type="multipart/form-data",
+                headers={"X-Real-IP": f"198.51.100.{index + 1}"},
+            ).status_code
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            statuses = list(executor.map(submit, range(4)))
+        self.assertEqual(sorted(statuses), [202, 429, 429, 429])
+        self.assertEqual(len(self._database_rows("feedback_requests")), 1)
+
+    def test_delivery_budget_holds_existing_queue_and_resumes_after_window(self) -> None:
+        for index in range(2):
+            self.assertEqual(self._post({"message": f"existing queue {index}"}).status_code, 202)
+        settings = replace(
+            self.settings, smtp_enabled=True, smtp_host="smtp.example.test", smtp_sender="sender@example.test",
+            recipient="recipient@example.test", max_feedback_per_hour=1,
+        )
+        with patch("flow_shuttle_feedback.mailer._send_smtp") as send:
+            self.assertTrue(process_one_email(settings))
+            self.assertFalse(process_one_email(settings))
+            self.assertEqual(send.call_count, 1)
+            with closing(sqlite3.connect(settings.database_path)) as connection:
+                connection.execute("UPDATE email_delivery_budget SET attempted_at = ?", (int(time.time()) - 3601,))
+                connection.commit()
+            self.assertTrue(process_one_email(settings))
+        self.assertEqual([row[1] for row in self._database_rows("email_outbox")], ["sent", "sent"])
+
+    def test_limiter_capacity_preserves_active_limits_and_expires_idle_clients(self) -> None:
+        limiter = SlidingWindowRateLimiter(replace(self.settings, max_tracked_clients=3, rate_limit_requests=1, rate_limit_window_seconds=10))
+        with patch("flow_shuttle_feedback.app.time.monotonic", return_value=100):
+            for index in range(3):
+                self.assertTrue(limiter.allow(f"client-{index}"))
+            for index in range(3, 1000):
+                self.assertFalse(limiter.allow(f"client-{index}"))
+                limiter.record_failure(f"client-{index}")
+            self.assertFalse(limiter.allow("client-0"))
+            self.assertEqual(len(limiter._requests), 3)
+            self.assertEqual(len(limiter._failures), 3)
+        with patch("flow_shuttle_feedback.app.time.monotonic", return_value=111):
+            self.assertTrue(limiter.allow("fresh"))
+            self.assertEqual(len(limiter._requests), 1)
+
+    def test_smtp_failure_preserves_feedback_and_bounded_retries(self) -> None:
+        self.assertEqual(self._post({"message": "durable during SMTP failure"}).status_code, 202)
+        settings = replace(self.settings, smtp_enabled=True, smtp_host="smtp.example.test", smtp_sender="sender@example.test", recipient="recipient@example.test", max_email_attempts=2)
+        with patch("flow_shuttle_feedback.mailer._send_smtp", side_effect=OSError("isolated SMTP failure")):
+            self.assertTrue(process_one_email(settings))
+            self.assertFalse(process_one_email(settings))
+            self.assertEqual(self._database_rows("email_outbox")[0][1], "retry")
+            with closing(sqlite3.connect(settings.database_path)) as connection:
+                connection.execute("UPDATE email_outbox SET next_attempt_at = 0")
+                connection.commit()
+            self.assertTrue(process_one_email(settings))
+            self.assertFalse(process_one_email(settings))
+        self.assertEqual(self._database_rows("email_outbox")[0][1:3], ("failed", 2))
+        self.assertEqual(len(self._database_rows("feedback_requests")), 1)
+
+    def test_retention_worker_drains_more_than_one_batch_without_touching_fresh_records(self) -> None:
+        fresh = self._post({"message": "fresh control"}).json["requestId"]
+        with closing(sqlite3.connect(self.settings.database_path)) as connection:
+            connection.executemany("INSERT INTO feedback_requests VALUES (?, 'expired', NULL, ?, 'accepted')",
+                [(f"expired-{index}", int(time.time()) - 181 * 86400) for index in range(201)])
+            connection.commit()
+        worker = OutboxWorker(self.settings)
+        with patch.object(worker._wake, "wait", side_effect=RuntimeError("stop isolated worker")):
+            with self.assertRaisesRegex(RuntimeError, "stop isolated"):
+                worker._run()
+        self.assertEqual([row[0] for row in self._database_rows("feedback_requests")], [fresh])
+
+    def test_storage_scan_tolerates_a_screenshot_removed_by_retention(self) -> None:
+        disappearing = self.settings.screenshot_dir / "expired.png"
+        disappearing.write_bytes(b"expired control")
+        original_scandir = os.scandir
+        class Entry:
+            def __init__(self, entry):
+                self.entry = entry
+            def is_file(self, *, follow_symlinks):
+                result = self.entry.is_file(follow_symlinks=follow_symlinks)
+                if Path(self.entry.path) == disappearing:
+                    disappearing.unlink()
+                return result
+            def stat(self, *, follow_symlinks):
+                # Unix DirEntry.stat observes live state; Windows may cache it.
+                return Path(self.entry.path).stat(follow_symlinks=follow_symlinks)
+        class Scan:
+            def __init__(self, path):
+                self.entries = original_scandir(path)
+            def __enter__(self):
+                return (Entry(entry) for entry in self.entries)
+            def __exit__(self, *_args):
+                self.entries.close()
+        with patch("flow_shuttle_feedback.storage.os.scandir", side_effect=Scan):
+            self.assertEqual(self._post({"message": "normal while cleanup runs"}).status_code, 202)
+
+    def test_delivery_budget_survives_retention_restart_and_failed_attempts(self) -> None:
+        self.assertEqual(self._post({"message": "old queued feedback"}).status_code, 202)
+        settings = replace(self.settings, smtp_enabled=True, smtp_host="smtp.example.test", smtp_sender="sender@example.test", recipient="recipient@example.test", max_feedback_per_day=1)
+        with patch("flow_shuttle_feedback.mailer._send_smtp", side_effect=OSError("isolated SMTP failure")):
+            self.assertTrue(process_one_email(settings))
+        with closing(sqlite3.connect(settings.database_path)) as connection:
+            connection.execute("UPDATE feedback_requests SET created_at = ?", (int(time.time()) - 181 * 86400,))
+            connection.commit()
+        self.assertEqual(purge_expired_feedback(settings), 1)
+        self.assertEqual(len(self._database_rows("email_delivery_budget")), 1)
+        self.assertEqual(self._post({"message": "fresh feedback"}).status_code, 202)
+        create_app(settings)
+        with patch("flow_shuttle_feedback.mailer._send_smtp") as send:
+            self.assertFalse(process_one_email(settings))
+            send.assert_not_called()
+
+    def test_upgrade_seeds_recent_successful_delivery_budget(self) -> None:
+        self.assertEqual(self._post({"message": "already sent"}).status_code, 202)
+        with closing(sqlite3.connect(self.settings.database_path)) as connection:
+            connection.execute("DROP TABLE email_delivery_budget")
+            connection.execute("UPDATE email_outbox SET status = 'sent', sent_at = ?", (int(time.time()),))
+            connection.commit()
+        create_app(self.settings)
+        self.assertEqual(len(self._database_rows("email_delivery_budget")), 1)
 
 
 if __name__ == "__main__":

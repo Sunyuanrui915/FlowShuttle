@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.4.6 - 2026-10-03
+
+### Fixed and improved
+
+* 修复新建工作项只保存今日变更摘要后，空白的当前内容误提示存在可恢复历史记录的问题；更早的每日记录和完整稿快照仍可恢复。
+* Fixed today's change summary on a new work item being presented as recoverable history when the current content is empty; earlier daily records and full-content snapshots remain recoverable.
+* 为 AI 响应增加大小、事件数量和请求时间上限；异常时停止请求并保留原文，正常长文本结果不会被静默截断。
+* Bound AI response sizes, event counts, and request duration; abnormal requests stop while preserving the original text, without silently truncating normal long-text results.
+* 保存图片附件时检查符号链接和 Windows 目录联接，防止已有目录重定向到附件目录之外。
+* Check symbolic links and Windows junctions when saving image attachments to prevent existing directory redirections outside the attachment root.
+* 为反馈服务增加提交、存储和邮件通知限额，并清理过期的限流记录。
+* Add submission, storage, and email-notification budgets to the feedback service and expire inactive rate-limit records.
+
 ## v0.4.5 - 2026-09-24
 
 ### Fixed

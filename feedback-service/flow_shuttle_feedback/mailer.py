@@ -246,7 +246,12 @@ class OutboxWorker:
             now = time.monotonic()
             if now >= next_retention_check:
                 try:
-                    deleted = purge_expired_feedback(self._settings)
+                    deleted = 0
+                    while True:
+                        batch_deleted = purge_expired_feedback(self._settings)
+                        deleted += batch_deleted
+                        if not batch_deleted:
+                            break
                     if deleted:
                         LOGGER.info("feedback_retention_deleted count=%s", deleted)
                 except Exception:

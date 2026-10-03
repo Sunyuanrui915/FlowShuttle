@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,6 +7,7 @@ import {
   assertSafeDirectoryRemoval,
   chatCompletionsEndpoint,
   hasAiEndpointOriginChanged,
+  prepareAttachmentDirectory,
   validateAiBaseUrl
 } from "../src/main/securityBoundaries.ts";
 import {
@@ -35,6 +36,42 @@ test("LM Studio loopback endpoints and remote HTTPS endpoints remain supported",
     chatCompletionsEndpoint("https://api.example.com/v1/chat/completions?api-version=1"),
     "https://api.example.com/v1/chat/completions?api-version=1"
   );
+});
+
+test("attachment creation builds normal directories and rejects existing Windows junctions", () => {
+  const testRoot = mkdtempSync(join(tmpdir(), "flow-shuttle-creation-"));
+  try {
+    const dataDirectory = join(testRoot, "data");
+    mkdirSync(dataDirectory);
+    const root = join(dataDirectory, "attachments");
+    for (const child of ["project-memos/project", "daily-entries/2026-10-03/item", "work-item-notes/item"]) {
+      const directory = prepareAttachmentDirectory(root, join(root, child));
+      writeFileSync(join(directory, "control.png"), "image", { flag: "wx" });
+    }
+    const outside = join(testRoot, "outside");
+    mkdirSync(outside);
+    const sentinel = join(outside, "keep.txt");
+    writeFileSync(sentinel, "keep");
+    for (const linked of [join(root, "linked-category"), join(root, "project-memos", "linked-project"), join(root, "daily-entries", "linked-date"), join(root, "work-item-notes", "linked-item")]) {
+      symlinkSync(outside, linked, process.platform === "win32" ? "junction" : "dir");
+      assert.throws(() => prepareAttachmentDirectory(root, join(linked, "new-child")), /symbolic link or junction/);
+      assert.equal(existsSync(join(outside, "new-child")), false);
+    }
+    const linkedRoot = join(dataDirectory, "linked-attachments");
+    symlinkSync(outside, linkedRoot, process.platform === "win32" ? "junction" : "dir");
+    assert.throws(() => prepareAttachmentDirectory(linkedRoot, join(linkedRoot, "new-child")), /symbolic link or junction/);
+    assert.throws(() => prepareAttachmentDirectory(root, outside), /outside the attachment root/);
+    assert.equal(readFileSync(sentinel, "utf8"), "keep");
+    const dangling = join(root, "dangling");
+    symlinkSync(join(testRoot, "missing-target"), dangling, process.platform === "win32" ? "junction" : "dir");
+    assert.throws(() => prepareAttachmentDirectory(root, join(dangling, "new-child")), /symbolic link or junction/);
+    // A deliberate alias of the selected data directory remains supported.
+    const alias = join(testRoot, "data-alias");
+    symlinkSync(dataDirectory, alias, process.platform === "win32" ? "junction" : "dir");
+    assert.doesNotThrow(() => prepareAttachmentDirectory(join(alias, "attachments"), join(alias, "attachments", "work-item-notes", "alias-item")));
+  } finally {
+    rmSync(testRoot, { recursive: true, force: true });
+  }
 });
 
 test("remote plaintext and malformed AI endpoints are rejected", () => {

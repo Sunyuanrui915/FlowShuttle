@@ -2,13 +2,18 @@
 
 [简体中文](#简体中文) | [English](#english)
 
-最后更新 / Last updated: 2026-09-24
+最后更新 / Last updated: 2026-10-03
 
 ## 简体中文
 
 ### 当前阶段
 
 流梭是一款本地优先的 Windows 桌面端个人工作进展日志工具。当前阶段继续围绕真实日常使用，优先完善记录、回看、编辑、报告和本地数据安全，不扩张为团队协作平台。
+
+### v0.4.6 发布准备
+
+- 修复新建工作项仅保存今日摘要后出现历史恢复提示的问题。
+- 加强 AI 响应、图片附件写入和反馈服务的资源与路径保护。
 
 ### 已发布
 
@@ -79,6 +84,11 @@
 ### Current Stage
 
 Flow Shuttle is a local-first Windows desktop journal for personal work progress. The current stage remains focused on real daily use: recording, review, editing, reports, and local data safety. It is not expanding into a team collaboration platform.
+
+### v0.4.6 Release Preparation
+
+- Fix the history-recovery prompt after saving only today's summary on a new work item.
+- Strengthen resource and path protections for AI responses, image attachment creation, and the feedback service.
 
 ### Released
 
